@@ -1,0 +1,38 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/DeviceRequest3to4"
+/// name = "DeviceRequest3to4"
+/// title = "DeviceRequest Transforms: R3 to R4"
+/// status = "active"
+
+uses "http://hl7.org/fhir/3.0/StructureDefinition/DeviceRequest" alias DeviceRequestR3 as source
+uses "http://hl7.org/fhir/4.0/StructureDefinition/DeviceRequest" alias DeviceRequest as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*3to4"
+
+group DeviceRequest(source src : DeviceRequestR3, target tgt : DeviceRequest) extends DomainResource <<type+>> {
+  src.identifier -> tgt.identifier;
+  src.basedOn -> tgt.basedOn;
+  src.priorRequest -> tgt.priorRequest;
+  src.groupIdentifier -> tgt.groupIdentifier;
+  src.status -> tgt.status;
+  src.intent as vs then {
+    vs.coding as c then {
+      c.code -> tgt.intent;
+    };
+  };
+  src.priority -> tgt.priority;
+  src.code -> tgt.code;
+  src.subject -> tgt.subject;
+  src.context -> tgt.encounter;
+  src.occurrence -> tgt.occurrence;
+  src.authoredOn -> tgt.authoredOn;
+  src.requester as vs then {
+    vs.agent -> tgt.requester;
+  };
+  src.performerType -> tgt.performerType;
+  src.performer -> tgt.performer;
+  src.reasonCode -> tgt.reasonCode;
+  src.reasonReference -> tgt.reasonReference;
+  src.supportingInfo -> tgt.supportingInfo;
+  src.note -> tgt.note;
+  src.relevantHistory -> tgt.relevantHistory;
+}

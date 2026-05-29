@@ -1,0 +1,27 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/SubscriptionStatus5to4b"
+/// name = "SubscriptionStatus5to4b"
+/// title = "SubscriptionStatus Transforms: R5 to R4B"
+/// status = "active"
+
+uses "http://hl7.org/fhir/5.0/StructureDefinition/SubscriptionStatus" alias SubscriptionStatusR5 as source
+uses "http://hl7.org/fhir/4.3/StructureDefinition/SubscriptionStatus" alias SubscriptionStatusR4B as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*5to4b"
+
+group SubscriptionStatus(source src : SubscriptionStatusR5, target tgt : SubscriptionStatusR4B) extends DomainResource <<type+>> {
+  src.status as v -> tgt.status = translate(v, 'http://hl7.org/fhir/uv/xver/ConceptMap/scrs.status-5to4b', 'code');
+  src.type as v -> tgt.type = translate(v, 'http://hl7.org/fhir/uv/xver/ConceptMap/scrs.type-5to4b', 'code');
+  src.eventsSinceSubscriptionStart -> tgt.eventsSinceSubscriptionStart;
+  src.notificationEvent as s -> tgt.notificationEvent as t then SubscriptionStatusNotificationEvent(s, t);
+  src.subscription -> tgt.subscription;
+  src.topic -> tgt.topic;
+  src.error -> tgt.error;
+}
+
+group SubscriptionStatusNotificationEvent(source src, target tgt) extends BackboneElement {
+  src.eventNumber -> tgt.eventNumber;
+  src.timestamp -> tgt.timestamp;
+  src.focus -> tgt.focus;
+  src.additionalContext -> tgt.additionalContext;
+}
+

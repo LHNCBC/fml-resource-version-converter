@@ -1,0 +1,32 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/Goal2to3"
+/// name = "Goal2to3"
+/// title = "Goal Transforms: R2 to R3"
+/// status = "active"
+
+uses "http://hl7.org/fhir/1.0/StructureDefinition/Goal" alias GoalR2 as source
+uses "http://hl7.org/fhir/3.0/StructureDefinition/Goal" alias Goal as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*2to3"
+
+group Goal(source src : GoalR2, target tgt : Goal) extends DomainResource <<type+>> {
+  src.identifier -> tgt.identifier "GoalIdentifier";
+  src.subject -> tgt.subject "GoalSubject";
+  src.start -> tgt.start "GoalStart";
+  src.target -> tgt.target "GoalTarget";
+  src.category -> tgt.category "GoalCategory";
+  src.description -> tgt.description "GoalDescription";
+  src.status -> tgt.status "GoalStatus";
+  src.statusDate -> tgt.statusDate "GoalStatusDate";
+  src.statusReason -> tgt.statusReason "GoalStatusReason";
+  src.author -> tgt.expressedBy "GoalAuthor";
+  src.priority -> tgt.priority "GoalPriority";
+  src.addresses -> tgt.addresses "GoalAddresses";
+  src.note -> tgt.note "GoalNote";
+  src.outcome as vs0 then goalOutcome(vs0, tgt) "GoalOutcome";
+}
+
+group goalOutcome(source src, target tgt) extends BackboneElement {
+  src.result : CodeableConcept 0..1 -> tgt.outcomeCode "outcome-result";
+  src.result : Reference 0..1 -> tgt.outcomeReference "outcome-result";
+}
+

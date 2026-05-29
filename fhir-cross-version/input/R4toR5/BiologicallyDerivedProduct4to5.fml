@@ -1,0 +1,30 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/BiologicallyDerivedProduct4to5"
+/// name = "BiologicallyDerivedProduct4to5"
+/// title = "BiologicallyDerivedProduct Transforms: R4 to R5"
+/// status = "active"
+
+uses "http://hl7.org/fhir/4.0/StructureDefinition/BiologicallyDerivedProduct" alias BiologicallyDerivedProductR4 as source
+uses "http://hl7.org/fhir/5.0/StructureDefinition/BiologicallyDerivedProduct" alias BiologicallyDerivedProductR5 as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*4to5"
+
+group BiologicallyDerivedProduct(source src : BiologicallyDerivedProductR4, target tgt : BiologicallyDerivedProductR5) extends DomainResource <<type+>> {
+  src.productCategory as s where (s = 'organ') ->  tgt.productCategory = create('Coding') as tc,  tc.system = 'http://hl7.org/fhir/product-category',  tc.code = 'organ',  tc.display = 'Organ';
+  src.productCategory as s where (s = 'tissue') ->  tgt.productCategory = create('Coding') as tc,  tc.system = 'http://hl7.org/fhir/product-category',  tc.code = 'tissue',  tc.display = 'Tissue';
+  src.productCategory as s where (s = 'fluid') ->  tgt.productCategory = create('Coding') as tc,  tc.system = 'http://hl7.org/fhir/product-category',  tc.code = 'fluid',  tc.display = 'Fluid';
+  src.productCategory as s where (s = 'cells') ->  tgt.productCategory = create('Coding') as tc,  tc.system = 'http://hl7.org/fhir/product-category',  tc.code = 'cells',  tc.display = 'Cells';
+  src.productCategory as s where (s = 'biologicalAgent') ->  tgt.productCategory = create('Coding') as tc,  tc.system = 'http://hl7.org/fhir/product-category',  tc.code = 'biologicalAgent',  tc.display = 'BiologicalAgent';
+  src.productCode -> tgt.productCode;
+  src.parent -> tgt.parent;
+  src.request -> tgt.request;
+  src.identifier -> tgt.identifier;
+  src.collection as s -> tgt.collection as t then BiologicallyDerivedProductCollection(s, t);
+}
+
+group BiologicallyDerivedProductCollection(source src, target tgt) extends BackboneElement {
+  src.collector -> tgt.collector;
+  src.source -> tgt.source;
+  src.collected : dateTime -> tgt.collected "collectedDateTime";
+  src.collected : Period -> tgt.collected "collectedPeriod";
+}
+

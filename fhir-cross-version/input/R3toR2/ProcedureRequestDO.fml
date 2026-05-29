@@ -1,0 +1,42 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/ProcedureRequestDO3to2"
+/// name = "ProcedureRequestDO3to2"
+/// title = "DiagnosticOrder Transforms: R3 to R2"
+/// status = "active"
+
+uses "http://hl7.org/fhir/3.0/StructureDefinition/ProcedureRequest" alias ProcedureRequest as source
+uses "http://hl7.org/fhir/1.0/StructureDefinition/DiagnosticOrder" alias DiagnosticOrderR2 as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*3to2"
+
+// in R3, DiagnosticOrder is folded into ProcedureRequest, and there's no easy
+// way to tell them apart. it requires special knowledge to decide to convert
+// a procedure request back to a DiagnosticOrder, but they are marked with an
+// extension in case this helps
+
+group ProcedureRequestDO(source src : ProcedureRequest, target tgt : DiagnosticOrderR2) extends DomainResource <<types>> {
+  src.subject -> tgt.subject "DiagnosticOrderSubject";
+  src.requester as v then {
+    v.agent -> tgt.orderer "DiagnosticOrderOrdererInner";
+  } "DiagnosticOrderOrderer";
+  src.identifier -> tgt.identifier "DiagnosticOrderIdentifier";
+  src.context -> tgt.encounter "DiagnosticOrderEncounter";
+  src.reasonCode -> tgt.reason "DiagnosticOrderReason";
+  src.supportingInfo -> tgt.supportingInformation "DiagnosticOrderSupportingInformation";
+  src.status where (src.intent = 'proposal') -> tgt.status = 'proposed' "DiagnosticOrderStatus1";
+  src.status where (src.intent = 'plan') -> tgt.status = 'planned' "DiagnosticOrderStatus2";
+  src.status as v where ((src.intent != 'proposal') and (src.intent != 'plan')) -> tgt.status = translate(v, 'http://hl7.org/fhir/uv/xver/ConceptMap/pcrq.status-dgo.status-3to2', 'code') "DiagnosticOrderStatus3";
+  src.priority -> tgt.priority "DiagnosticOrderPriority";
+  src where (src.authoredOn.exists() or src.requester.exists()) -> tgt.event as ev then doEventDO(src, ev) "DiagnosticOrderEvent";
+  src where (src.code.exists()) -> tgt.item as it then doItemDO(src, it) "DiagnosticOrderItem";
+  src.note -> tgt.note "DiagnosticOrderNote";
+}
+
+group doEventDO(source src, target tgt) {
+  src -> tgt.status = 'requested' "eventStatus";
+  src.authoredOn -> tgt.dateTime "eventDateTime";
+}
+
+group doItemDO(source src, target tgt) {
+  src.code -> tgt.code "itemCode";
+}
+

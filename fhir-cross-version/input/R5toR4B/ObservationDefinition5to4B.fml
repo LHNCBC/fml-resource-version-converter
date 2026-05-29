@@ -1,0 +1,39 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/ObservationDefinition5to4b"
+/// name = "ObservationDefinition5to4b"
+/// title = "ObservationDefinition Transforms: R5 to R4B"
+/// status = "active"
+
+uses "http://hl7.org/fhir/5.0/StructureDefinition/ObservationDefinition" alias ObservationDefinitionR5 as source
+uses "http://hl7.org/fhir/4.3/StructureDefinition/ObservationDefinition" alias ObservationDefinitionR4B as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*5to4b"
+
+group ObservationDefinition(source src : ObservationDefinitionR5, target tgt : ObservationDefinitionR4B) extends DomainResource <<type+>> {
+  src.identifier -> tgt.identifier;
+  src.category -> tgt.category;
+  src.code -> tgt.code;
+  src.permittedDataType as v -> tgt.permittedDataType = translate(v, 'http://hl7.org/fhir/uv/xver/ConceptMap/obdf.permittedDataType-5to4b', 'code');
+  src.multipleResultsAllowed -> tgt.multipleResultsAllowed;
+  src.method -> tgt.method;
+  src.preferredReportName -> tgt.preferredReportName;
+  src.permittedUnit as s ->  tgt.quantitativeDetails as t,  t.customaryUnit as t1,  t1.coding = s;
+  src.qualifiedValue as s -> tgt.qualifiedInterval as t then ObservationDefinitionQualifiedValue(s, t);
+  src.qualifiedValue as s then {
+    s.validCodedValueSet -> tgt.validCodedValueSet;
+    s.normalCodedValueSet -> tgt.normalCodedValueSet;
+    s.abnormalCodedValueSet -> tgt.abnormalCodedValueSet;
+    s.criticalCodedValueSet -> tgt.criticalCodedValueSet;
+  } "qualifiedValue";
+}
+
+group ObservationDefinitionQualifiedValue(source src, target tgt) extends BackboneElement {
+  src.context -> tgt.context;
+  src.appliesTo -> tgt.appliesTo;
+  src.gender as v -> tgt.gender = translate(v, 'http://hl7.org/fhir/uv/xver/ConceptMap/obdf.qu.gender-obdf.qu.gender-5to4b', 'code');
+  src.age -> tgt.age;
+  src.gestationalAge -> tgt.gestationalAge;
+  src.condition -> tgt.condition;
+  src.rangeCategory as v -> tgt.category = translate(v, 'http://hl7.org/fhir/uv/xver/ConceptMap/obdf.qu.rangeCategory-obdf.qu.category-5to4b', 'code');
+  src.range -> tgt.range;
+}
+

@@ -1,0 +1,28 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/DeviceUsage4Bto5"
+/// name = "DeviceUsage4Bto5"
+/// title = "DeviceUsage Transforms: R4B to R5"
+/// status = "active"
+
+uses "http://hl7.org/fhir/4.3/StructureDefinition/DeviceUseStatement" alias DeviceUseStatementR4B as source
+uses "http://hl7.org/fhir/5.0/StructureDefinition/DeviceUsage" alias DeviceUsageR5 as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*4Bto5"
+
+group DeviceUsage(source src : DeviceUseStatementR4B, target tgt : DeviceUsageR5) extends DomainResource <<type+>> {
+  src.identifier -> tgt.identifier;
+  src.basedOn -> tgt.basedOn;
+  src.status as v -> tgt.status = translate(v, 'http://hl7.org/fhir/uv/xver/ConceptMap/dus.status-dus.status-4bto5', 'code');
+  src.subject -> tgt.patient;
+  src.derivedFrom -> tgt.derivedFrom;
+  src.timing : Timing -> tgt.timing "timingTiming";
+  src.timing : Period -> tgt.timing "timingPeriod";
+  src.timing : dateTime -> tgt.timing "timingDateTime";
+  src.recordedOn -> tgt.dateAsserted;
+  src.source -> tgt.informationSource;
+  src.device -> tgt.device;
+  src.reasonCode -> tgt.reason;
+  src.reasonReference -> tgt.reason;
+  src.bodySite -> tgt.bodySite;
+  src.note -> tgt.note;
+}
+

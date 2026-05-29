@@ -1,0 +1,22 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/DeviceUseRequest2to3"
+/// name = "DeviceUseRequest2to3"
+/// title = "DeviceUseRequest Transforms: R2 to R3"
+/// status = "active"
+
+uses "http://hl7.org/fhir/1.0/StructureDefinition/DeviceUseRequest" alias DeviceUseRequestR2 as source
+uses "http://hl7.org/fhir/3.0/StructureDefinition/DeviceRequest" alias DeviceRequest as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*2to3"
+
+group DeviceUseRequest(source src : DeviceUseRequestR2, target tgt : DeviceRequest) extends DomainResource <<type+>> {
+  src.status as v -> tgt.status = translate(v, 'http://hl7.org/fhir/uv/xver/ConceptMap/duq.status-dur.status-2to3', 'code') "DeviceUseRequestStatus";
+  src.device -> tgt.code "DeviceUseRequestDevice";
+  src.encounter -> tgt.context "DeviceUseRequestContext";
+  src.identifier -> tgt.identifier "DeviceUseRequestIdentifier";
+  src.indication -> tgt.reasonCode "DeviceUseRequestReasonCode";
+  src.notes -> tgt.note "DeviceUseRequestNotes";
+  src.orderedOn -> tgt.authoredOn "DeviceUseRequestAuthored";
+  src.subject -> tgt.subject "DeviceUseRequestSubject";
+  src.timing -> tgt.occurrence "DeviceUseRequestTiming";
+}
+

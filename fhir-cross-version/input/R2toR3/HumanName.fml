@@ -1,0 +1,21 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/HumanName2to3"
+/// name = "HumanName2to3"
+/// title = "HumanName Transforms: R2 to R3"
+/// status = "active"
+
+uses "http://hl7.org/fhir/1.0/StructureDefinition/HumanName" alias HumanNameR2 as source
+uses "http://hl7.org/fhir/3.0/StructureDefinition/HumanName" alias HumanName as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*2to3"
+
+group HumanName(source src : HumanNameR2, target tgt : HumanName) extends Element <<type+>> {
+  src.use -> tgt.use "HumanNameUse";
+  src.text -> tgt.text "HumanNameText";
+  src.family first -> tgt.family "HumanNameFamily";
+  src.family not_first as f ->  tgt.extension as ex,  ex.url = 'http://hl7.org/fhir/StructureDefinition/HumanName-familyRepeat',  ex.value = f "HumanNameFamily-rpt";
+  src.given -> tgt.given "HumanNameGiven";
+  src.prefix -> tgt.prefix "HumanNamePrefix";
+  src.suffix -> tgt.suffix "HumanNameSuffix";
+  src.period -> tgt.period "HumanNamePeriod";
+}
+

@@ -16,7 +16,7 @@
   },
   "license": "See LICENSE.md",
   "scripts": {
-    "test": "mocha test/mocha"
+    "test": "mocha test/mocha --recursive"
   },
   "devDependencies": {
     "commander": "^13.1.0",

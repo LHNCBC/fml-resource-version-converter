@@ -1,0 +1,34 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/DocumentManifest2to3"
+/// name = "DocumentManifest2to3"
+/// title = "DocumentManifest Transforms: R2 to R3"
+/// status = "active"
+
+uses "http://hl7.org/fhir/1.0/StructureDefinition/DocumentManifest" alias DocumentManifestR2 as source
+uses "http://hl7.org/fhir/3.0/StructureDefinition/DocumentManifest" alias DocumentManifest as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*2to3"
+
+group DocumentManifest(source src : DocumentManifestR2, target tgt : DocumentManifest) extends DomainResource <<type+>> {
+  src.masterIdentifier -> tgt.masterIdentifier "DocumentManifestMasterIdentifier";
+  src.identifier -> tgt.identifier "DocumentManifestIdentifier";
+  src.subject -> tgt.subject "DocumentManifestSubject";
+  src.recipient -> tgt.recipient "DocumentManifestRecipient";
+  src.type -> tgt.type "DocumentManifestType";
+  src.author -> tgt.author "DocumentManifestAuthor";
+  src.created -> tgt.created "DocumentManifestCreated";
+  src.source -> tgt.source "DocumentManifestSource";
+  src.status -> tgt.status "DocumentManifestStatus";
+  src.description -> tgt.description "DocumentManifestDescription";
+  src.content as s -> tgt.content as vt0 then dmContent(s, vt0) "DocumentManifestContent";
+  src.related as s -> tgt.related as vt0 then dmRelated(s, vt0) "DocumentManifestRelated";
+}
+
+group dmContent(source src, target tgt) extends BackboneElement {
+  src.p -> tgt.p "contentPAttachment";
+}
+
+group dmRelated(source src, target tgt) extends BackboneElement {
+  src.identifier -> tgt.identifier "relatedIdentifier";
+  src.ref -> tgt.ref "relatedRef";
+}
+

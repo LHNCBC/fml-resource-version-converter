@@ -1,0 +1,26 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/DeviceUseStatement3to2"
+/// name = "DeviceUseStatement3to2"
+/// title = "DeviceUseStatement Transforms: R3 to R2"
+/// status = "active"
+
+uses "http://hl7.org/fhir/3.0/StructureDefinition/DeviceUseStatement" alias DeviceUseStatement as source
+uses "http://hl7.org/fhir/1.0/StructureDefinition/DeviceUseStatement" alias DeviceUseStatementR2 as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*3to2"
+
+group DeviceUseStatement(source src : DeviceUseStatement, target tgt : DeviceUseStatementR2) extends DomainResource <<type+>> {
+  src.bodySite : CodeableConcept as vs -> tgt.bodySite = create('CodeableConcept') as vt then CodeableConcept(vs, vt) "DeviceUseStatementBodySite-CodeableConcept";
+  src.whenUsed -> tgt.whenUsed "DeviceUseStatementWhenUsed";
+  src.device -> tgt.device "DeviceUseStatementDevice";
+  src.identifier -> tgt.identifier "DeviceUseStatementIdentifier";
+  src.indication -> tgt.indication "DeviceUseStatementIndication";
+  src.note as n then dusNote(n, tgt) "DeviceUseStatementNotes";
+  src.recordedOn -> tgt.recordedOn "DeviceUseStatementRecordedOn";
+  src.subject -> tgt.subject "DeviceUseStatementSubject";
+  src.timing -> tgt.timing "DeviceUseStatementTiming";
+}
+
+group dusNote(source src, target tgt) extends BackboneElement {
+  src.text -> tgt.notes "note-notes";
+}
+

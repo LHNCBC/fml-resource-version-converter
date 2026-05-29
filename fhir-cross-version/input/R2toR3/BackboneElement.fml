@@ -1,0 +1,16 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/BackboneElement2to3"
+/// name = "BackboneElement2to3"
+/// title = "BackboneElement Transforms: R2 to R3"
+/// status = "active"
+
+uses "http://hl7.org/fhir/1.0/StructureDefinition/BackboneElement" alias BackboneElementR2 as source
+uses "http://hl7.org/fhir/3.0/StructureDefinition/BackboneElement" alias BackboneElement as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/primitives2to3"
+imports "http://hl7.org/fhir/uv/xver/StructureMap/Element2to3"
+imports "http://hl7.org/fhir/uv/xver/StructureMap/Extension2to3"
+
+group BackboneElement(source src : BackboneElementR2, target tgt : BackboneElement) extends Element <<type+>> {
+  src.modifierExtension -> tgt.modifierExtension "BackboneElement-modifierExtension";
+}
+
