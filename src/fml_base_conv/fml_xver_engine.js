@@ -863,14 +863,14 @@ class Scope {
  *   - `onInfo` fires for correct-but-noteworthy events: `unmapped.mode=
  *     provided` fall-through, polymorphic field missing from source.
  *
- * Strict mode (`strictTranslate`) converts translation warnings into thrown
+ * Strict mode (`strict`) converts translation warnings into thrown
  * errors. It does NOT affect non-translation warnings; wire `onWarning` to
  * `throw` if you want hard-stop on every potential correctness issue.
  *
  * @param {Object}   opts
  * @param {string}   opts.fmlText                FML mapping source.
  * @param {Object[]} [opts.conceptMaps=[]]       ConceptMap JSON resources.
- * @param {boolean}  [opts.strictTranslate=false]
+ * @param {boolean}  [opts.strict=false]
  * @param {string}   [opts.fromVer]              Source FHIR version (e.g. 'R4').
  *                                               Used to update meta.profile after
  *                                               conversion.
@@ -887,7 +887,7 @@ class Scope {
 export function compileFmlXver({
   fmlText,
   conceptMaps     = [],
-  strictTranslate = false,
+  strict          = false,
   fromVer         = null,
   toVer           = null,
   onWarning       = null,
@@ -896,7 +896,7 @@ export function compileFmlXver({
 } = {}) {
   const ast        = parseFml(fmlText, onWarning);
   const groups     = ast.groups;
-  const translator = makeTranslator(conceptMaps, { strict: strictTranslate, onWarning, onInfo });
+  const translator = makeTranslator(conceptMaps, { strict: strict || false, onWarning, onInfo });
 
   /**
    * Resolve one TransformArg against the current scope.

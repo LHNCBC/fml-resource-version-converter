@@ -6,28 +6,28 @@
 import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createFmlEngine, createEngine } from '../../../src/fml_base_conv/create_engine.js';
+import { createFmlEngine, createConverter, createChainedConverter } from '../../../src/fml_base_conv/create_converter.js';
 import { compileFmlXver } from '../../../src/fml_base_conv/fml_xver_engine.js';
 
 const TEST_DATA = path.resolve(import.meta.dirname, '../../data');
 const r4Questionnaire = JSON.parse(fs.readFileSync(path.join(TEST_DATA, 'qn-ver-conv-test-r4base.json'), 'utf-8'));
 
-// ---------- createEngine ---------------------------------------------------
+// ---------- createChainedConverter ---------------------------------------------------
 
 describe('fml_base_conv/createFmlEngine', function () {
-  it('creates an engine for Questionnaire R4→R5', function () {
+  it('creates an engine for Questionnaire R4->R5', function () {
     const engine = createFmlEngine('Questionnaire', 'R4', 'R5');
     assert.ok(engine.convert, 'engine should have a convert function');
     assert.ok(Array.isArray(engine.groups), 'engine should expose groups');
     assert.ok(engine.groups.includes('Questionnaire'));
   });
 
-  it('creates an engine for Questionnaire R4B→R5', function () {
+  it('creates an engine for Questionnaire R4B->R5', function () {
     const engine = createFmlEngine('Questionnaire', 'R4B', 'R5');
     assert.ok(engine.convert);
   });
 
-  it('creates an engine for Questionnaire R5→R4', function () {
+  it('creates an engine for Questionnaire R5->R4', function () {
     const engine = createFmlEngine('Questionnaire', 'R5', 'R4');
     assert.ok(engine.convert);
   });
@@ -41,9 +41,9 @@ describe('fml_base_conv/createFmlEngine', function () {
   });
 });
 
-// ---------- Basic conversion R4→R5 -----------------------------------------
+// ---------- Basic conversion R4->R5 -----------------------------------------
 
-describe('fml_base_conv: Questionnaire R4→R5 conversion', function () {
+describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
   let engine;
   let output;
   const warnings = [];
@@ -179,34 +179,34 @@ describe('fml_base_conv: meta.profile handling', function () {
 
 // ---------- createChainedEngine --------------------------------------------
 
-describe('fml_base_conv/createEngine', function () {
+describe('fml_base_conv/createChainedConverter', function () {
   it('same version returns input unchanged', function () {
-    const engine = createEngine('Questionnaire', 'R4', 'R4');
+    const engine = createChainedConverter('Questionnaire', 'R4', 'R4');
     assert.deepEqual(engine.hops, []);
     const out = engine.convert({ input: r4Questionnaire });
     assert.deepEqual(out, r4Questionnaire);
   });
 
   it('adjacent versions produce single hop', function () {
-    const engine = createEngine('Questionnaire', 'R4', 'R5');
-    assert.equal(engine.hops.length, 2); // R4→R4B, R4B→R5
+    const engine = createChainedConverter('Questionnaire', 'R4', 'R5');
+    assert.equal(engine.hops.length, 2); // R4->R4B, R4B->R5
     assert.ok(engine.convert);
   });
 
-  it('R3→R5 chains through R4 (skipped: R3 FML has unsupported syntax)', function () {
-    this.skip(); // R3toR4 FML uses nested parens in where-guards not yet supported
+  it('R3->R5 chains through R4', function () {
+    this.skip(); // TODO: fix parser bug - R3toR4 FML where-clause with parenthesized expressions e.g. (src.answer.empty())
   });
 
-  it('R4→R4B emits compatibility warning', function () {
+  it('R4->R4B emits compatibility warning', function () {
     const warnings = [];
-    const engine = createEngine('Questionnaire', 'R4', 'R4B', {
+    const engine = createChainedConverter('Questionnaire', 'R4', 'R4B', {
       onWarning: msg => warnings.push(msg),
     });
     assert.ok(warnings.some(w => w.includes('not guaranteed')));
   });
 
-  it('chained R3→R5 produces valid output (skipped: R3 FML has unsupported syntax)', function () {
-    this.skip(); // R3toR4 FML uses nested parens in where-guards not yet supported
+  it('chained R3->R5 produces valid output', function () {
+    this.skip(); // TODO: fix parser bug - R3toR4 FML where-clause with parenthesized expressions e.g. (src.answer.empty())
   });
 });
 

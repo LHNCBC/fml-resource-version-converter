@@ -33,7 +33,7 @@
  */
 
 import fs from 'node:fs';
-import { createEngine } from './create_engine.js';
+import { createConverter } from './create_converter.js';
 
 const USAGE = `Usage: node convert_cli.js [options] <from-version> <to-version> <resource-file.json>
 
@@ -122,8 +122,8 @@ try {
     process.exit(1);
   }
 
-  const engine = createEngine(input.resourceType, fromVer, toVer, {
-    strictTranslate: opts.strict,
+  const engine = createConverter(input.resourceType, fromVer, toVer, {
+    strict: opts.strict,
     onWarning,
     onInfo,
   });
