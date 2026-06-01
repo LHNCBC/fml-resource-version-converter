@@ -1,0 +1,1570 @@
+{
+  "fhirVersion": "STU3",
+  "generated": "2026-06-01",
+  "sourceArchive": "definitions.json.zip",
+  "sourceBundles": [
+    "profiles-resources.json",
+    "profiles-types.json"
+  ],
+  "pathCount": 324,
+  "polyPaths": {
+    "Account.guarantor.party": [
+      "Reference"
+    ],
+    "Account.subject": [
+      "Reference"
+    ],
+    "ActivityDefinition.product": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "ActivityDefinition.timing": [
+      "Period",
+      "Range",
+      "Timing",
+      "dateTime"
+    ],
+    "AdverseEvent.eventParticipant": [
+      "Reference"
+    ],
+    "AdverseEvent.recorder": [
+      "Reference"
+    ],
+    "AdverseEvent.subject": [
+      "Reference"
+    ],
+    "AdverseEvent.subjectMedicalHistory": [
+      "Reference"
+    ],
+    "AdverseEvent.suspectEntity.causalityAuthor": [
+      "Reference"
+    ],
+    "AdverseEvent.suspectEntity.instance": [
+      "Reference"
+    ],
+    "AllergyIntolerance.asserter": [
+      "Reference"
+    ],
+    "AllergyIntolerance.onset": [
+      "Age",
+      "Period",
+      "Range",
+      "dateTime",
+      "string"
+    ],
+    "AllergyIntolerance.recorder": [
+      "Reference"
+    ],
+    "Annotation.author": [
+      "Reference",
+      "string"
+    ],
+    "Appointment.indication": [
+      "Reference"
+    ],
+    "Appointment.participant.actor": [
+      "Reference"
+    ],
+    "AppointmentResponse.actor": [
+      "Reference"
+    ],
+    "AuditEvent.agent.reference": [
+      "Reference"
+    ],
+    "Basic.author": [
+      "Reference"
+    ],
+    "CarePlan.activity.detail.definition": [
+      "Reference"
+    ],
+    "CarePlan.activity.detail.performer": [
+      "Reference"
+    ],
+    "CarePlan.activity.detail.product": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "CarePlan.activity.detail.scheduled": [
+      "Period",
+      "Timing",
+      "string"
+    ],
+    "CarePlan.activity.reference": [
+      "Reference"
+    ],
+    "CarePlan.author": [
+      "Reference"
+    ],
+    "CarePlan.context": [
+      "Reference"
+    ],
+    "CarePlan.definition": [
+      "Reference"
+    ],
+    "CarePlan.subject": [
+      "Reference"
+    ],
+    "CareTeam.context": [
+      "Reference"
+    ],
+    "CareTeam.participant.member": [
+      "Reference"
+    ],
+    "CareTeam.subject": [
+      "Reference"
+    ],
+    "ChargeItem.context": [
+      "Reference"
+    ],
+    "ChargeItem.enterer": [
+      "Reference"
+    ],
+    "ChargeItem.occurrence": [
+      "Period",
+      "Timing",
+      "dateTime"
+    ],
+    "ChargeItem.participant.actor": [
+      "Reference"
+    ],
+    "ChargeItem.service": [
+      "Reference"
+    ],
+    "ChargeItem.subject": [
+      "Reference"
+    ],
+    "Claim.accident.location": [
+      "Address",
+      "Reference"
+    ],
+    "Claim.careTeam.provider": [
+      "Reference"
+    ],
+    "Claim.diagnosis.diagnosis": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "Claim.information.timing": [
+      "Period",
+      "date"
+    ],
+    "Claim.information.value": [
+      "Attachment",
+      "Quantity",
+      "Reference",
+      "string"
+    ],
+    "Claim.item.location": [
+      "Address",
+      "CodeableConcept",
+      "Reference"
+    ],
+    "Claim.item.serviced": [
+      "Period",
+      "date"
+    ],
+    "Claim.payee.party": [
+      "Reference"
+    ],
+    "Claim.prescription": [
+      "Reference"
+    ],
+    "Claim.procedure.procedure": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "ClinicalImpression.action": [
+      "Reference"
+    ],
+    "ClinicalImpression.context": [
+      "Reference"
+    ],
+    "ClinicalImpression.effective": [
+      "Period",
+      "dateTime"
+    ],
+    "ClinicalImpression.finding.item": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "ClinicalImpression.investigation.item": [
+      "Reference"
+    ],
+    "ClinicalImpression.problem": [
+      "Reference"
+    ],
+    "ClinicalImpression.subject": [
+      "Reference"
+    ],
+    "CodeSystem.concept.property.value": [
+      "Coding",
+      "boolean",
+      "code",
+      "dateTime",
+      "integer",
+      "string"
+    ],
+    "Communication.context": [
+      "Reference"
+    ],
+    "Communication.definition": [
+      "Reference"
+    ],
+    "Communication.payload.content": [
+      "Attachment",
+      "Reference",
+      "string"
+    ],
+    "Communication.reasonReference": [
+      "Reference"
+    ],
+    "Communication.recipient": [
+      "Reference"
+    ],
+    "Communication.sender": [
+      "Reference"
+    ],
+    "Communication.subject": [
+      "Reference"
+    ],
+    "CommunicationRequest.context": [
+      "Reference"
+    ],
+    "CommunicationRequest.occurrence": [
+      "Period",
+      "dateTime"
+    ],
+    "CommunicationRequest.payload.content": [
+      "Attachment",
+      "Reference",
+      "string"
+    ],
+    "CommunicationRequest.reasonReference": [
+      "Reference"
+    ],
+    "CommunicationRequest.recipient": [
+      "Reference"
+    ],
+    "CommunicationRequest.requester.agent": [
+      "Reference"
+    ],
+    "CommunicationRequest.sender": [
+      "Reference"
+    ],
+    "CommunicationRequest.subject": [
+      "Reference"
+    ],
+    "Composition.attester.party": [
+      "Reference"
+    ],
+    "Composition.author": [
+      "Reference"
+    ],
+    "Composition.relatesTo.target": [
+      "Identifier",
+      "Reference"
+    ],
+    "ConceptMap.source": [
+      "Reference",
+      "uri"
+    ],
+    "ConceptMap.target": [
+      "Reference",
+      "uri"
+    ],
+    "Condition.abatement": [
+      "Age",
+      "Period",
+      "Range",
+      "boolean",
+      "dateTime",
+      "string"
+    ],
+    "Condition.asserter": [
+      "Reference"
+    ],
+    "Condition.context": [
+      "Reference"
+    ],
+    "Condition.onset": [
+      "Age",
+      "Period",
+      "Range",
+      "dateTime",
+      "string"
+    ],
+    "Condition.stage.assessment": [
+      "Reference"
+    ],
+    "Condition.subject": [
+      "Reference"
+    ],
+    "Consent.actor.reference": [
+      "Reference"
+    ],
+    "Consent.consentingParty": [
+      "Reference"
+    ],
+    "Consent.except.actor.reference": [
+      "Reference"
+    ],
+    "Consent.source": [
+      "Attachment",
+      "Identifier",
+      "Reference"
+    ],
+    "Contract.agent.actor": [
+      "Reference"
+    ],
+    "Contract.binding": [
+      "Attachment",
+      "Reference"
+    ],
+    "Contract.friendly.content": [
+      "Attachment",
+      "Reference"
+    ],
+    "Contract.legal.content": [
+      "Attachment",
+      "Reference"
+    ],
+    "Contract.rule.content": [
+      "Attachment",
+      "Reference"
+    ],
+    "Contract.signer.party": [
+      "Reference"
+    ],
+    "Contract.term.agent.actor": [
+      "Reference"
+    ],
+    "Contract.term.valuedItem.entity": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "Contract.valuedItem.entity": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "Coverage.payor": [
+      "Reference"
+    ],
+    "Coverage.policyHolder": [
+      "Reference"
+    ],
+    "Coverage.subscriber": [
+      "Reference"
+    ],
+    "DataRequirement.codeFilter.valueSet": [
+      "Reference",
+      "string"
+    ],
+    "DataRequirement.dateFilter.value": [
+      "Duration",
+      "Period",
+      "dateTime"
+    ],
+    "DetectedIssue.author": [
+      "Reference"
+    ],
+    "DeviceRequest.code": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "DeviceRequest.context": [
+      "Reference"
+    ],
+    "DeviceRequest.definition": [
+      "Reference"
+    ],
+    "DeviceRequest.occurrence": [
+      "Period",
+      "Timing",
+      "dateTime"
+    ],
+    "DeviceRequest.performer": [
+      "Reference"
+    ],
+    "DeviceRequest.requester.agent": [
+      "Reference"
+    ],
+    "DeviceRequest.subject": [
+      "Reference"
+    ],
+    "DeviceUseStatement.source": [
+      "Reference"
+    ],
+    "DeviceUseStatement.subject": [
+      "Reference"
+    ],
+    "DeviceUseStatement.timing": [
+      "Period",
+      "Timing",
+      "dateTime"
+    ],
+    "DiagnosticReport.basedOn": [
+      "Reference"
+    ],
+    "DiagnosticReport.context": [
+      "Reference"
+    ],
+    "DiagnosticReport.effective": [
+      "Period",
+      "dateTime"
+    ],
+    "DiagnosticReport.imagingStudy": [
+      "Reference"
+    ],
+    "DiagnosticReport.performer.actor": [
+      "Reference"
+    ],
+    "DiagnosticReport.subject": [
+      "Reference"
+    ],
+    "DocumentManifest.author": [
+      "Reference"
+    ],
+    "DocumentManifest.content.p": [
+      "Attachment",
+      "Reference"
+    ],
+    "DocumentManifest.recipient": [
+      "Reference"
+    ],
+    "DocumentManifest.subject": [
+      "Reference"
+    ],
+    "DocumentReference.authenticator": [
+      "Reference"
+    ],
+    "DocumentReference.author": [
+      "Reference"
+    ],
+    "DocumentReference.subject": [
+      "Reference"
+    ],
+    "Dosage.asNeeded": [
+      "CodeableConcept",
+      "boolean"
+    ],
+    "Dosage.dose": [
+      "Quantity",
+      "Range"
+    ],
+    "Dosage.rate": [
+      "Quantity",
+      "Range",
+      "Ratio"
+    ],
+    "ElementDefinition.binding.valueSet": [
+      "Reference",
+      "uri"
+    ],
+    "ElementDefinition.defaultValue": [
+      "Address",
+      "Age",
+      "Annotation",
+      "Attachment",
+      "CodeableConcept",
+      "Coding",
+      "ContactPoint",
+      "Count",
+      "Distance",
+      "Duration",
+      "HumanName",
+      "Identifier",
+      "Meta",
+      "Money",
+      "Period",
+      "Quantity",
+      "Range",
+      "Ratio",
+      "Reference",
+      "SampledData",
+      "Signature",
+      "Timing",
+      "base64Binary",
+      "boolean",
+      "code",
+      "date",
+      "dateTime",
+      "decimal",
+      "id",
+      "instant",
+      "integer",
+      "markdown",
+      "oid",
+      "positiveInt",
+      "string",
+      "time",
+      "unsignedInt",
+      "uri"
+    ],
+    "ElementDefinition.example.value": [
+      "Address",
+      "Age",
+      "Annotation",
+      "Attachment",
+      "CodeableConcept",
+      "Coding",
+      "ContactPoint",
+      "Count",
+      "Distance",
+      "Duration",
+      "HumanName",
+      "Identifier",
+      "Meta",
+      "Money",
+      "Period",
+      "Quantity",
+      "Range",
+      "Ratio",
+      "Reference",
+      "SampledData",
+      "Signature",
+      "Timing",
+      "base64Binary",
+      "boolean",
+      "code",
+      "date",
+      "dateTime",
+      "decimal",
+      "id",
+      "instant",
+      "integer",
+      "markdown",
+      "oid",
+      "positiveInt",
+      "string",
+      "time",
+      "unsignedInt",
+      "uri"
+    ],
+    "ElementDefinition.fixed": [
+      "Address",
+      "Age",
+      "Annotation",
+      "Attachment",
+      "CodeableConcept",
+      "Coding",
+      "ContactPoint",
+      "Count",
+      "Distance",
+      "Duration",
+      "HumanName",
+      "Identifier",
+      "Meta",
+      "Money",
+      "Period",
+      "Quantity",
+      "Range",
+      "Ratio",
+      "Reference",
+      "SampledData",
+      "Signature",
+      "Timing",
+      "base64Binary",
+      "boolean",
+      "code",
+      "date",
+      "dateTime",
+      "decimal",
+      "id",
+      "instant",
+      "integer",
+      "markdown",
+      "oid",
+      "positiveInt",
+      "string",
+      "time",
+      "unsignedInt",
+      "uri"
+    ],
+    "ElementDefinition.maxValue": [
+      "Quantity",
+      "date",
+      "dateTime",
+      "decimal",
+      "instant",
+      "integer",
+      "positiveInt",
+      "time",
+      "unsignedInt"
+    ],
+    "ElementDefinition.minValue": [
+      "Quantity",
+      "date",
+      "dateTime",
+      "decimal",
+      "instant",
+      "integer",
+      "positiveInt",
+      "time",
+      "unsignedInt"
+    ],
+    "ElementDefinition.pattern": [
+      "Address",
+      "Age",
+      "Annotation",
+      "Attachment",
+      "CodeableConcept",
+      "Coding",
+      "ContactPoint",
+      "Count",
+      "Distance",
+      "Duration",
+      "HumanName",
+      "Identifier",
+      "Meta",
+      "Money",
+      "Period",
+      "Quantity",
+      "Range",
+      "Ratio",
+      "Reference",
+      "SampledData",
+      "Signature",
+      "Timing",
+      "base64Binary",
+      "boolean",
+      "code",
+      "date",
+      "dateTime",
+      "decimal",
+      "id",
+      "instant",
+      "integer",
+      "markdown",
+      "oid",
+      "positiveInt",
+      "string",
+      "time",
+      "unsignedInt",
+      "uri"
+    ],
+    "EligibilityRequest.serviced": [
+      "Period",
+      "date"
+    ],
+    "EligibilityResponse.insurance.benefitBalance.financial.allowed": [
+      "Money",
+      "string",
+      "unsignedInt"
+    ],
+    "EligibilityResponse.insurance.benefitBalance.financial.used": [
+      "Money",
+      "unsignedInt"
+    ],
+    "Encounter.diagnosis.condition": [
+      "Reference"
+    ],
+    "Encounter.participant.individual": [
+      "Reference"
+    ],
+    "Encounter.subject": [
+      "Reference"
+    ],
+    "ExplanationOfBenefit.accident.location": [
+      "Address",
+      "Reference"
+    ],
+    "ExplanationOfBenefit.benefitBalance.financial.allowed": [
+      "Money",
+      "string",
+      "unsignedInt"
+    ],
+    "ExplanationOfBenefit.benefitBalance.financial.used": [
+      "Money",
+      "unsignedInt"
+    ],
+    "ExplanationOfBenefit.careTeam.provider": [
+      "Reference"
+    ],
+    "ExplanationOfBenefit.diagnosis.diagnosis": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "ExplanationOfBenefit.information.timing": [
+      "Period",
+      "date"
+    ],
+    "ExplanationOfBenefit.information.value": [
+      "Attachment",
+      "Quantity",
+      "Reference",
+      "string"
+    ],
+    "ExplanationOfBenefit.item.location": [
+      "Address",
+      "CodeableConcept",
+      "Reference"
+    ],
+    "ExplanationOfBenefit.item.serviced": [
+      "Period",
+      "date"
+    ],
+    "ExplanationOfBenefit.payee.party": [
+      "Reference"
+    ],
+    "ExplanationOfBenefit.prescription": [
+      "Reference"
+    ],
+    "ExplanationOfBenefit.procedure.procedure": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "Extension.value": [
+      "Address",
+      "Age",
+      "Annotation",
+      "Attachment",
+      "CodeableConcept",
+      "Coding",
+      "ContactPoint",
+      "Count",
+      "Distance",
+      "Duration",
+      "HumanName",
+      "Identifier",
+      "Meta",
+      "Money",
+      "Period",
+      "Quantity",
+      "Range",
+      "Ratio",
+      "Reference",
+      "SampledData",
+      "Signature",
+      "Timing",
+      "base64Binary",
+      "boolean",
+      "code",
+      "date",
+      "dateTime",
+      "decimal",
+      "id",
+      "instant",
+      "integer",
+      "markdown",
+      "oid",
+      "positiveInt",
+      "string",
+      "time",
+      "unsignedInt",
+      "uri"
+    ],
+    "FamilyMemberHistory.age": [
+      "Age",
+      "Range",
+      "string"
+    ],
+    "FamilyMemberHistory.born": [
+      "Period",
+      "date",
+      "string"
+    ],
+    "FamilyMemberHistory.condition.onset": [
+      "Age",
+      "Period",
+      "Range",
+      "string"
+    ],
+    "FamilyMemberHistory.deceased": [
+      "Age",
+      "Range",
+      "boolean",
+      "date",
+      "string"
+    ],
+    "FamilyMemberHistory.definition": [
+      "Reference"
+    ],
+    "FamilyMemberHistory.reasonReference": [
+      "Reference"
+    ],
+    "Flag.author": [
+      "Reference"
+    ],
+    "Flag.subject": [
+      "Reference"
+    ],
+    "Goal.addresses": [
+      "Reference"
+    ],
+    "Goal.expressedBy": [
+      "Reference"
+    ],
+    "Goal.start": [
+      "CodeableConcept",
+      "date"
+    ],
+    "Goal.subject": [
+      "Reference"
+    ],
+    "Goal.target.detail": [
+      "CodeableConcept",
+      "Quantity",
+      "Range"
+    ],
+    "Goal.target.due": [
+      "Duration",
+      "date"
+    ],
+    "Group.characteristic.value": [
+      "CodeableConcept",
+      "Quantity",
+      "Range",
+      "boolean"
+    ],
+    "Group.member.entity": [
+      "Reference"
+    ],
+    "GuidanceResponse.context": [
+      "Reference"
+    ],
+    "GuidanceResponse.reason": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "GuidanceResponse.result": [
+      "Reference"
+    ],
+    "GuidanceResponse.subject": [
+      "Reference"
+    ],
+    "ImagingManifest.author": [
+      "Reference"
+    ],
+    "ImagingStudy.basedOn": [
+      "Reference"
+    ],
+    "ImagingStudy.context": [
+      "Reference"
+    ],
+    "ImmunizationRecommendation.recommendation.supportingPatientInformation": [
+      "Reference"
+    ],
+    "ImplementationGuide.package.resource.source": [
+      "Reference",
+      "uri"
+    ],
+    "Linkage.author": [
+      "Reference"
+    ],
+    "List.source": [
+      "Reference"
+    ],
+    "List.subject": [
+      "Reference"
+    ],
+    "Media.context": [
+      "Reference"
+    ],
+    "Media.device": [
+      "Reference"
+    ],
+    "Media.occurrence": [
+      "Period",
+      "dateTime"
+    ],
+    "Media.subject": [
+      "Reference"
+    ],
+    "Medication.ingredient.item": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "Medication.package.content.item": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "MedicationAdministration.context": [
+      "Reference"
+    ],
+    "MedicationAdministration.definition": [
+      "Reference"
+    ],
+    "MedicationAdministration.dosage.rate": [
+      "Quantity",
+      "Ratio"
+    ],
+    "MedicationAdministration.effective": [
+      "Period",
+      "dateTime"
+    ],
+    "MedicationAdministration.medication": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "MedicationAdministration.partOf": [
+      "Reference"
+    ],
+    "MedicationAdministration.performer.actor": [
+      "Reference"
+    ],
+    "MedicationAdministration.reasonReference": [
+      "Reference"
+    ],
+    "MedicationAdministration.subject": [
+      "Reference"
+    ],
+    "MedicationDispense.context": [
+      "Reference"
+    ],
+    "MedicationDispense.medication": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "MedicationDispense.notDoneReason": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "MedicationDispense.performer.actor": [
+      "Reference"
+    ],
+    "MedicationDispense.receiver": [
+      "Reference"
+    ],
+    "MedicationDispense.subject": [
+      "Reference"
+    ],
+    "MedicationRequest.basedOn": [
+      "Reference"
+    ],
+    "MedicationRequest.context": [
+      "Reference"
+    ],
+    "MedicationRequest.definition": [
+      "Reference"
+    ],
+    "MedicationRequest.medication": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "MedicationRequest.reasonReference": [
+      "Reference"
+    ],
+    "MedicationRequest.requester.agent": [
+      "Reference"
+    ],
+    "MedicationRequest.subject": [
+      "Reference"
+    ],
+    "MedicationStatement.basedOn": [
+      "Reference"
+    ],
+    "MedicationStatement.context": [
+      "Reference"
+    ],
+    "MedicationStatement.effective": [
+      "Period",
+      "dateTime"
+    ],
+    "MedicationStatement.informationSource": [
+      "Reference"
+    ],
+    "MedicationStatement.medication": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "MedicationStatement.partOf": [
+      "Reference"
+    ],
+    "MedicationStatement.reasonReference": [
+      "Reference"
+    ],
+    "MedicationStatement.subject": [
+      "Reference"
+    ],
+    "MessageDefinition.parent": [
+      "Reference"
+    ],
+    "MessageHeader.receiver": [
+      "Reference"
+    ],
+    "MessageHeader.responsible": [
+      "Reference"
+    ],
+    "MessageHeader.sender": [
+      "Reference"
+    ],
+    "NutritionOrder.enteralFormula.administration.rate": [
+      "Quantity",
+      "Ratio"
+    ],
+    "Observation.basedOn": [
+      "Reference"
+    ],
+    "Observation.component.value": [
+      "Attachment",
+      "CodeableConcept",
+      "Period",
+      "Quantity",
+      "Range",
+      "Ratio",
+      "SampledData",
+      "dateTime",
+      "string",
+      "time"
+    ],
+    "Observation.context": [
+      "Reference"
+    ],
+    "Observation.device": [
+      "Reference"
+    ],
+    "Observation.effective": [
+      "Period",
+      "dateTime"
+    ],
+    "Observation.performer": [
+      "Reference"
+    ],
+    "Observation.related.target": [
+      "Reference"
+    ],
+    "Observation.subject": [
+      "Reference"
+    ],
+    "Observation.value": [
+      "Attachment",
+      "CodeableConcept",
+      "Period",
+      "Quantity",
+      "Range",
+      "Ratio",
+      "SampledData",
+      "boolean",
+      "dateTime",
+      "string",
+      "time"
+    ],
+    "OperationDefinition.parameter.binding.valueSet": [
+      "Reference",
+      "uri"
+    ],
+    "Parameters.parameter.value": [
+      "Address",
+      "Age",
+      "Annotation",
+      "Attachment",
+      "CodeableConcept",
+      "Coding",
+      "ContactPoint",
+      "Count",
+      "Distance",
+      "Duration",
+      "HumanName",
+      "Identifier",
+      "Meta",
+      "Money",
+      "Period",
+      "Quantity",
+      "Range",
+      "Ratio",
+      "Reference",
+      "SampledData",
+      "Signature",
+      "Timing",
+      "base64Binary",
+      "boolean",
+      "code",
+      "date",
+      "dateTime",
+      "decimal",
+      "id",
+      "instant",
+      "integer",
+      "markdown",
+      "oid",
+      "positiveInt",
+      "string",
+      "time",
+      "unsignedInt",
+      "uri"
+    ],
+    "Patient.deceased": [
+      "boolean",
+      "dateTime"
+    ],
+    "Patient.generalPractitioner": [
+      "Reference"
+    ],
+    "Patient.link.other": [
+      "Reference"
+    ],
+    "Patient.multipleBirth": [
+      "boolean",
+      "integer"
+    ],
+    "Person.link.target": [
+      "Reference"
+    ],
+    "PlanDefinition.action.definition": [
+      "Reference"
+    ],
+    "PlanDefinition.action.relatedAction.offset": [
+      "Duration",
+      "Range"
+    ],
+    "PlanDefinition.action.timing": [
+      "Duration",
+      "Period",
+      "Range",
+      "Timing",
+      "dateTime"
+    ],
+    "PlanDefinition.goal.target.detail": [
+      "CodeableConcept",
+      "Quantity",
+      "Range"
+    ],
+    "Procedure.basedOn": [
+      "Reference"
+    ],
+    "Procedure.context": [
+      "Reference"
+    ],
+    "Procedure.definition": [
+      "Reference"
+    ],
+    "Procedure.partOf": [
+      "Reference"
+    ],
+    "Procedure.performed": [
+      "Period",
+      "dateTime"
+    ],
+    "Procedure.performer.actor": [
+      "Reference"
+    ],
+    "Procedure.reasonReference": [
+      "Reference"
+    ],
+    "Procedure.subject": [
+      "Reference"
+    ],
+    "Procedure.usedReference": [
+      "Reference"
+    ],
+    "ProcedureRequest.asNeeded": [
+      "CodeableConcept",
+      "boolean"
+    ],
+    "ProcedureRequest.context": [
+      "Reference"
+    ],
+    "ProcedureRequest.definition": [
+      "Reference"
+    ],
+    "ProcedureRequest.occurrence": [
+      "Period",
+      "Timing",
+      "dateTime"
+    ],
+    "ProcedureRequest.performer": [
+      "Reference"
+    ],
+    "ProcedureRequest.reasonReference": [
+      "Reference"
+    ],
+    "ProcedureRequest.requester.agent": [
+      "Reference"
+    ],
+    "ProcedureRequest.subject": [
+      "Reference"
+    ],
+    "Provenance.agent.onBehalfOf": [
+      "Reference",
+      "uri"
+    ],
+    "Provenance.agent.who": [
+      "Reference",
+      "uri"
+    ],
+    "Provenance.entity.what": [
+      "Identifier",
+      "Reference",
+      "uri"
+    ],
+    "Questionnaire.item.enableWhen.answer": [
+      "Attachment",
+      "Coding",
+      "Quantity",
+      "Reference",
+      "boolean",
+      "date",
+      "dateTime",
+      "decimal",
+      "integer",
+      "string",
+      "time",
+      "uri"
+    ],
+    "Questionnaire.item.initial": [
+      "Attachment",
+      "Coding",
+      "Quantity",
+      "Reference",
+      "boolean",
+      "date",
+      "dateTime",
+      "decimal",
+      "integer",
+      "string",
+      "time",
+      "uri"
+    ],
+    "Questionnaire.item.option.value": [
+      "Coding",
+      "date",
+      "integer",
+      "string",
+      "time"
+    ],
+    "QuestionnaireResponse.author": [
+      "Reference"
+    ],
+    "QuestionnaireResponse.basedOn": [
+      "Reference"
+    ],
+    "QuestionnaireResponse.context": [
+      "Reference"
+    ],
+    "QuestionnaireResponse.item.answer.value": [
+      "Attachment",
+      "Coding",
+      "Quantity",
+      "Reference",
+      "boolean",
+      "date",
+      "dateTime",
+      "decimal",
+      "integer",
+      "string",
+      "time",
+      "uri"
+    ],
+    "QuestionnaireResponse.parent": [
+      "Reference"
+    ],
+    "QuestionnaireResponse.source": [
+      "Reference"
+    ],
+    "ReferralRequest.basedOn": [
+      "Reference"
+    ],
+    "ReferralRequest.context": [
+      "Reference"
+    ],
+    "ReferralRequest.definition": [
+      "Reference"
+    ],
+    "ReferralRequest.occurrence": [
+      "Period",
+      "dateTime"
+    ],
+    "ReferralRequest.reasonReference": [
+      "Reference"
+    ],
+    "ReferralRequest.recipient": [
+      "Reference"
+    ],
+    "ReferralRequest.requester.agent": [
+      "Reference"
+    ],
+    "ReferralRequest.subject": [
+      "Reference"
+    ],
+    "RequestGroup.action.participant": [
+      "Reference"
+    ],
+    "RequestGroup.action.relatedAction.offset": [
+      "Duration",
+      "Range"
+    ],
+    "RequestGroup.action.timing": [
+      "Duration",
+      "Period",
+      "Range",
+      "Timing",
+      "dateTime"
+    ],
+    "RequestGroup.author": [
+      "Reference"
+    ],
+    "RequestGroup.context": [
+      "Reference"
+    ],
+    "RequestGroup.reason": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "RequestGroup.subject": [
+      "Reference"
+    ],
+    "RiskAssessment.context": [
+      "Reference"
+    ],
+    "RiskAssessment.occurrence": [
+      "Period",
+      "dateTime"
+    ],
+    "RiskAssessment.performer": [
+      "Reference"
+    ],
+    "RiskAssessment.prediction.probability": [
+      "Range",
+      "decimal"
+    ],
+    "RiskAssessment.prediction.when": [
+      "Period",
+      "Range"
+    ],
+    "RiskAssessment.reason": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "RiskAssessment.subject": [
+      "Reference"
+    ],
+    "Schedule.actor": [
+      "Reference"
+    ],
+    "Signature.onBehalfOf": [
+      "Reference",
+      "uri"
+    ],
+    "Signature.who": [
+      "Reference",
+      "uri"
+    ],
+    "Specimen.collection.collected": [
+      "Period",
+      "dateTime"
+    ],
+    "Specimen.container.additive": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "Specimen.processing.time": [
+      "Period",
+      "dateTime"
+    ],
+    "Specimen.subject": [
+      "Reference"
+    ],
+    "StructureMap.group.rule.source.defaultValue": [
+      "Address",
+      "Age",
+      "Annotation",
+      "Attachment",
+      "CodeableConcept",
+      "Coding",
+      "ContactPoint",
+      "Count",
+      "Distance",
+      "Duration",
+      "HumanName",
+      "Identifier",
+      "Meta",
+      "Money",
+      "Period",
+      "Quantity",
+      "Range",
+      "Ratio",
+      "Reference",
+      "SampledData",
+      "Signature",
+      "Timing",
+      "base64Binary",
+      "boolean",
+      "code",
+      "date",
+      "dateTime",
+      "decimal",
+      "id",
+      "instant",
+      "integer",
+      "markdown",
+      "oid",
+      "positiveInt",
+      "string",
+      "time",
+      "unsignedInt",
+      "uri"
+    ],
+    "StructureMap.group.rule.target.parameter.value": [
+      "boolean",
+      "decimal",
+      "id",
+      "integer",
+      "string"
+    ],
+    "Substance.ingredient.substance": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "SupplyDelivery.occurrence": [
+      "Period",
+      "Timing",
+      "dateTime"
+    ],
+    "SupplyDelivery.partOf": [
+      "Reference"
+    ],
+    "SupplyDelivery.suppliedItem.item": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "SupplyDelivery.supplier": [
+      "Reference"
+    ],
+    "SupplyRequest.deliverFrom": [
+      "Reference"
+    ],
+    "SupplyRequest.deliverTo": [
+      "Reference"
+    ],
+    "SupplyRequest.occurrence": [
+      "Period",
+      "Timing",
+      "dateTime"
+    ],
+    "SupplyRequest.orderedItem.item": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "SupplyRequest.reason": [
+      "CodeableConcept",
+      "Reference"
+    ],
+    "SupplyRequest.requester.agent": [
+      "Reference"
+    ],
+    "Task.context": [
+      "Reference"
+    ],
+    "Task.definition": [
+      "Reference",
+      "uri"
+    ],
+    "Task.input.value": [
+      "Address",
+      "Age",
+      "Annotation",
+      "Attachment",
+      "CodeableConcept",
+      "Coding",
+      "ContactPoint",
+      "Count",
+      "Distance",
+      "Duration",
+      "HumanName",
+      "Identifier",
+      "Meta",
+      "Money",
+      "Period",
+      "Quantity",
+      "Range",
+      "Ratio",
+      "Reference",
+      "SampledData",
+      "Signature",
+      "Timing",
+      "base64Binary",
+      "boolean",
+      "code",
+      "date",
+      "dateTime",
+      "decimal",
+      "id",
+      "instant",
+      "integer",
+      "markdown",
+      "oid",
+      "positiveInt",
+      "string",
+      "time",
+      "unsignedInt",
+      "uri"
+    ],
+    "Task.output.value": [
+      "Address",
+      "Age",
+      "Annotation",
+      "Attachment",
+      "CodeableConcept",
+      "Coding",
+      "ContactPoint",
+      "Count",
+      "Distance",
+      "Duration",
+      "HumanName",
+      "Identifier",
+      "Meta",
+      "Money",
+      "Period",
+      "Quantity",
+      "Range",
+      "Ratio",
+      "Reference",
+      "SampledData",
+      "Signature",
+      "Timing",
+      "base64Binary",
+      "boolean",
+      "code",
+      "date",
+      "dateTime",
+      "decimal",
+      "id",
+      "instant",
+      "integer",
+      "markdown",
+      "oid",
+      "positiveInt",
+      "string",
+      "time",
+      "unsignedInt",
+      "uri"
+    ],
+    "Task.owner": [
+      "Reference"
+    ],
+    "Task.requester.agent": [
+      "Reference"
+    ],
+    "Task.restriction.recipient": [
+      "Reference"
+    ],
+    "Timing.repeat.bounds": [
+      "Duration",
+      "Period",
+      "Range"
+    ],
+    "TriggerDefinition.eventTiming": [
+      "Reference",
+      "Timing",
+      "date",
+      "dateTime"
+    ],
+    "UsageContext.value": [
+      "CodeableConcept",
+      "Quantity",
+      "Range"
+    ],
+    "ValueSet.expansion.parameter.value": [
+      "boolean",
+      "code",
+      "decimal",
+      "integer",
+      "string",
+      "uri"
+    ],
+    "VisionPrescription.reason": [
+      "CodeableConcept",
+      "Reference"
+    ]
+  }
+}

@@ -4,3 +4,9 @@ tmp/
 node_modules
 **/*.swp
 test/data/output
+
+# Raw FHIR spec downloads (regenerable inputs to tools/build_poly_table.mjs).
+# Keep the README so the directory's purpose stays visible in the repo.
+data/fhir-spec-downloads/*
+!data/fhir-spec-downloads/README.md
+
