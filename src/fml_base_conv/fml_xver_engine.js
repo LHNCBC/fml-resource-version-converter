@@ -121,6 +121,8 @@
  * @module sonnet/fml_xver_engine
  */
 
+import fhirpathLib from 'fhirpath';
+
 // ----- Helpers ------------------------------------------------------------
 
 /**
@@ -332,10 +334,10 @@ function makeTranslator(conceptMaps, { strict = false, onWarning, onInfo } = {})
     byUrl.set(idx.url, idx);
   }
 
-  // Exact or safe (widening) — no information lost in forward direction.
+  // Exact or safe (widening) -- no information lost in forward direction.
   const EXACT = new Set(['equivalent', 'equal']);
   const SAFE  = new Set(['source-is-narrower-than-target', 'wider']);
-  // Potentially lossy — target is narrower or relationship is vague.
+  // Potentially lossy -- target is narrower or relationship is vague.
   const LOSSY = new Set([
     'source-is-broader-than-target', 'narrower',
     'related-to', 'relatedto',
@@ -351,7 +353,7 @@ function makeTranslator(conceptMaps, { strict = false, onWarning, onInfo } = {})
     const exact = targets.find(t => EXACT.has(t.rel));
     if (exact) return exact.code;
 
-    // Widening (source narrower than target) is safe — emit info, not warning.
+    // Widening (source narrower than target) is safe -- emit info, not warning.
     const safe = targets.find(t => SAFE.has(t.rel));
     if (safe) {
       onInfo?.(`translate("${code}", ${mapUrl}): widening "${safe.rel}" -> "${safe.code}"`);
@@ -420,13 +422,14 @@ const TK = Object.freeze({
   WORD: 'WORD', STRING: 'STRING', ARROW: 'ARROW',
   SEMI: 'SEMI', COMMA: 'COMMA', COLON: 'COLON', DOT: 'DOT',
   LPAREN: 'LPAREN', RPAREN: 'RPAREN', LBRACE: 'LBRACE', RBRACE: 'RBRACE',
-  EQ: 'EQ', NEQ: 'NEQ', META: 'META', EOF: 'EOF',
+  EQ: 'EQ', NEQ: 'NEQ', META: 'META', EOF: 'EOF', PIPE: 'PIPE',
 });
 
 /** Map from single-character punctuation to its token kind. */
 const SINGLE_CHAR = {
   ';': TK.SEMI, ',': TK.COMMA, ':': TK.COLON, '.': TK.DOT,
   '(': TK.LPAREN, ')': TK.RPAREN, '{': TK.LBRACE, '}': TK.RBRACE, '=': TK.EQ,
+  '|': TK.PIPE,
 };
 
 /**
@@ -523,12 +526,12 @@ function tokenise(text, onWarning) {
     // --- Identifier (letters, digits, underscore; embedded hyphens allowed
     //     when not followed by `>`, so `source-is-narrower-than-target` is
     //     one token but `src->tgt` still tokenises correctly) ---
-    if (/[a-zA-Z_]/.test(c)) {
+    if (/[a-zA-Z_$%]/.test(c)) {
       let w = '';
-      while (i < text.length && /[a-zA-Z0-9_]/.test(text[i])) w += text[i++];
+      while (i < text.length && /[a-zA-Z0-9_$%]/.test(text[i])) w += text[i++];
       while (i < text.length && text[i] === '-' && text[i + 1] !== '>') {
         w += text[i++];
-        while (i < text.length && /[a-zA-Z0-9_]/.test(text[i])) w += text[i++];
+        while (i < text.length && /[a-zA-Z0-9_$%]/.test(text[i])) w += text[i++];
       }
       push(TK.WORD, w);
       continue;
@@ -665,6 +668,31 @@ function parseFml(fmlText, onWarning) {
   /** Parse one rule: `sources -> targets [then ...] ["polyName"] ;`. */
   function parseRule() {
     const sources = parseSources();
+
+    // Category 4: no-op source-only lines like `src.field;`
+    if (at(TK.SEMI)) {
+      advance();
+      return { sources, targets: [], thenGroup: null, thenRules: null, trailingString: null, noop: true };
+    }
+
+    // Category 3: source-level `then` without `->` (e.g. `src.field as v then { ... }`)
+    if (atWord('then')) {
+      advance();
+      let thenGroup = null, thenRules = null;
+      if (at(TK.LBRACE)) {
+        advance();
+        thenRules = [];
+        while (!at(TK.RBRACE) && !at(TK.EOF)) thenRules.push(parseRule());
+        expect(TK.RBRACE);
+      } else {
+        thenGroup = parseInvocation();
+      }
+      let trailingString = null;
+      if (at(TK.STRING)) trailingString = advance().value;
+      if (at(TK.SEMI)) advance();
+      return { sources, targets: [], thenGroup, thenRules, trailingString };
+    }
+
     expect(TK.ARROW);
     const targets = parseTargets();
 
@@ -714,9 +742,13 @@ function parseFml(fmlText, onWarning) {
     };
     if (at(TK.DOT))    { advance(); src.path     = parseDotPath(); }
     if (at(TK.COLON))  { advance(); src.typeHint = expect(TK.WORD).value; }
-    if (atWord('first') || atWord('last') || atWord('not_first') || atWord('not_last')) {
+    // Cardinality annotations like `0..1` -- skip
+    if (at(TK.WORD) && /^\d+\.\.\d+$/.test(peek().value)) { advance(); }
+    if (atWord('first') || atWord('last') || atWord('not_first') || atWord('not_last') || atWord('only_one')) {
       src.listMode = advance().value;
     }
+    // `default "value"` -- a default value for when source is absent
+    if (atWord('default')) { advance(); src.defaultValue = at(TK.STRING) ? advance().value : expect(TK.WORD).value; }
     if (atWord('as'))    { advance(); src.alias = expect(TK.WORD).value; }
     if (atWord('where')) { advance(); src.where = parseGuardExpr(); }
     if (atWord('check')) { advance(); src.check = parseGuardExpr(); }
@@ -731,22 +763,67 @@ function parseFml(fmlText, onWarning) {
   }
 
   /**
-   * Parse a guard expression: `(left [op right])` or a bare `path`.
-   * Examples:  `(linkId = 'foo')`  `(answer != 'no')`  `linkId`
+   * Parse a guard expression: `(fhirpath-expr)` or a bare `path`.
+   * For simple cases like `(linkId = 'foo')`, returns { left, op, right }.
+   * For complex FHIRPath expressions, captures the raw text as { fhirpath }.
+   * A bare path like `linkId` returns { left, op: null, right: null }.
    */
   function parseGuardExpr() {
     if (at(TK.LPAREN)) {
-      advance();
-      let left = expect(TK.WORD).value;
-      while (at(TK.DOT)) { advance(); left += '.' + expect(TK.WORD).value; }
-      const op = at(TK.EQ) ? '=' : at(TK.NEQ) ? '!=' : null;
-      let right = null;
-      if (op) {
-        advance();
-        right = at(TK.STRING) ? advance().value : expect(TK.WORD).value;
+      // Try simple form first: (dotPath [op value])
+      const startPos = pos;
+      advance(); // consume LPAREN
+
+      // Check if this is a simple `dotPath [= | !=] value` form
+      if (at(TK.WORD)) {
+        const savedPos = pos;
+        let left = advance().value;
+        while (at(TK.DOT)) { advance(); left += '.' + expect(TK.WORD).value; }
+        const op = at(TK.EQ) ? '=' : at(TK.NEQ) ? '!=' : null;
+        if (op && !left.includes('(')) {
+          advance();
+          if (at(TK.STRING)) {
+            let right = advance().value;
+            if (at(TK.RPAREN)) { advance(); return { left, op, right }; }
+          } else if (at(TK.WORD)) {
+            let right = advance().value;
+            if (at(TK.RPAREN)) { advance(); return { left, op, right }; }
+          }
+          // Complex RHS -- fall through to balanced-paren extraction
+        } else if (at(TK.RPAREN) && !left.includes('(')) {
+          advance();
+          return { left, op: null, right: null };
+        }
+        // Fall through to balanced-paren extraction
+        pos = startPos;
+      } else {
+        pos = startPos;
       }
-      expect(TK.RPAREN);
-      return { left, op, right };
+
+      // Complex expression: extract balanced parens as raw FHIRPath text
+      advance(); // consume LPAREN again
+      let depth = 1;
+      let exprParts = [];
+      while (depth > 0 && !at(TK.EOF)) {
+        if (at(TK.LPAREN)) depth++;
+        if (at(TK.RPAREN)) { depth--; if (depth === 0) break; }
+        const tk = advance();
+        // Reconstruct text from tokens
+        if (tk.kind === TK.STRING) exprParts.push("'" + tk.value + "'");
+        else if (tk.kind === TK.DOT) exprParts.push('.');
+        else if (tk.kind === TK.COMMA) exprParts.push(', ');
+        else if (tk.kind === TK.COLON) exprParts.push(':');
+        else if (tk.kind === TK.EQ) exprParts.push(' = ');
+        else if (tk.kind === TK.NEQ) exprParts.push(' != ');
+        else if (tk.kind === TK.LPAREN) exprParts.push('(');
+        else if (tk.kind === TK.RPAREN) exprParts.push(')');
+        else if (tk.kind === TK.SEMI) exprParts.push(';');
+        else if (tk.kind === TK.PIPE) exprParts.push(' | ');
+        else exprParts.push(tk.value);
+      }
+      expect(TK.RPAREN); // consume closing paren
+      const fhirpathExpr = exprParts.join('').trim();
+      return { fhirpath: fhirpathExpr };
     }
     let left = expect(TK.WORD).value;
     while (at(TK.DOT)) { advance(); left += '.' + expect(TK.WORD).value; }
@@ -764,9 +841,42 @@ function parseFml(fmlText, onWarning) {
     return out;
   }
 
-  /** Parse one target clause: `context [. dotPath] [= transform] [as alias]`. */
+  /** Parse one target clause: `context [. dotPath] [= transform] [as alias]` or `(expr) as alias`. */
   function parseOneTarget() {
+    // Parenthesized FHIRPath expression as target: `(expr) as alias`
+    if (at(TK.LPAREN)) {
+      advance();
+      let depth = 1;
+      let exprParts = [];
+      while (depth > 0 && !at(TK.EOF)) {
+        if (at(TK.LPAREN)) depth++;
+        if (at(TK.RPAREN)) { depth--; if (depth === 0) break; }
+        const tk = advance();
+        if (tk.kind === TK.STRING) exprParts.push("'" + tk.value + "'");
+        else if (tk.kind === TK.DOT) exprParts.push('.');
+        else if (tk.kind === TK.COMMA) exprParts.push(', ');
+        else if (tk.kind === TK.COLON) exprParts.push(':');
+        else if (tk.kind === TK.EQ) exprParts.push(' = ');
+        else if (tk.kind === TK.NEQ) exprParts.push(' != ');
+        else if (tk.kind === TK.LPAREN) exprParts.push('(');
+        else if (tk.kind === TK.RPAREN) exprParts.push(')');
+        else if (tk.kind === TK.PIPE) exprParts.push(' | ');
+        else exprParts.push(tk.value);
+      }
+      expect(TK.RPAREN);
+      const tgt = { context: null, path: null, alias: null, transform: null, fhirpathExpr: exprParts.join('').trim() };
+      if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
+      return tgt;
+    }
+
     const tgt = { context: expect(TK.WORD).value, path: null, alias: null, transform: null };
+    // Bare transform call as target: `create('CareTeam') as vt0`
+    if (at(TK.LPAREN)) {
+      tgt.transform = parseTransformFromName(tgt.context);
+      tgt.context = null;
+      if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
+      return tgt;
+    }
     if (at(TK.DOT))   { advance(); tgt.path = parseDotPath(); }
     if (at(TK.EQ))    { advance(); tgt.transform = parseTransform(); }
     if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
@@ -784,9 +894,48 @@ function parseFml(fmlText, onWarning) {
    */
   function parseTransform() {
     if (at(TK.STRING)) return { fn: 'literal', args: [advance().value] };
+
+    // Parenthesized FHIRPath expression as transform value: `(expr)`
+    if (at(TK.LPAREN)) {
+      advance();
+      let depth = 1;
+      let exprParts = [];
+      while (depth > 0 && !at(TK.EOF)) {
+        if (at(TK.LPAREN)) depth++;
+        if (at(TK.RPAREN)) { depth--; if (depth === 0) break; }
+        const tk = advance();
+        if (tk.kind === TK.STRING) exprParts.push("'" + tk.value + "'");
+        else if (tk.kind === TK.DOT) exprParts.push('.');
+        else if (tk.kind === TK.COMMA) exprParts.push(', ');
+        else if (tk.kind === TK.COLON) exprParts.push(':');
+        else if (tk.kind === TK.EQ) exprParts.push(' = ');
+        else if (tk.kind === TK.NEQ) exprParts.push(' != ');
+        else if (tk.kind === TK.LPAREN) exprParts.push('(');
+        else if (tk.kind === TK.RPAREN) exprParts.push(')');
+        else if (tk.kind === TK.SEMI) exprParts.push(';');
+        else if (tk.kind === TK.PIPE) exprParts.push(' | ');
+        else exprParts.push(tk.value);
+      }
+      expect(TK.RPAREN);
+      return { fn: 'fhirpath', args: [exprParts.join('').trim()] };
+    }
+
     const name = expect(TK.WORD).value;
     if (!at(TK.LPAREN)) return { fn: 'varRef', args: [name] };
     advance();
+    const args = [];
+    while (!at(TK.RPAREN) && !at(TK.EOF)) {
+      if (at(TK.STRING))    args.push({ kind: 'literal', value: advance().value });
+      else if (at(TK.WORD)) args.push({ kind: 'ident',   value: advance().value });
+      if (at(TK.COMMA)) advance();
+    }
+    expect(TK.RPAREN);
+    return { fn: name, args };
+  }
+
+  /** Parse a transform when the function name has already been consumed. */
+  function parseTransformFromName(name) {
+    advance(); // consume LPAREN
     const args = [];
     while (!at(TK.RPAREN) && !at(TK.EOF)) {
       if (at(TK.STRING))    args.push({ kind: 'literal', value: advance().value });
@@ -1021,6 +1170,23 @@ export function compileFmlXver({
         onWarning?.(`Transform "${fn}" is not implemented; rule will produce no value`);
         return undefined;
 
+      case 'fhirpath': {
+        const expr = args[0];
+        try {
+          // Build context from scope -- use the first source alias if available
+          const context = scope.has('src') ? scope.get('src') : {};
+          // Replace %varName references with scope values in a simple env
+          const env = {};
+          const result = fhirpathLib.evaluate(context, expr, env);
+          if (Array.isArray(result) && result.length === 1) return result[0];
+          if (Array.isArray(result) && result.length === 0) return undefined;
+          return result;
+        } catch (e) {
+          onWarning?.(`FHIRPath transform evaluation failed for "${expr}": ${e.message}`);
+          return undefined;
+        }
+      }
+
       default:
         onWarning?.(`Unknown transform function: ${fn}`);
         return undefined;
@@ -1043,14 +1209,47 @@ export function compileFmlXver({
    */
   function evalGuard(guard, scope) {
     if (!guard) return true;
+
+    // FHIRPath-based guard expression
+    if (guard.fhirpath) {
+      try {
+        // Resolve context: try the primary source alias or $this
+        let context = null;
+        if (scope.has('$this')) context = scope.get('$this');
+        // Build environment with all scope variables
+        const env = {};
+        // fhirpath.js supports $this via the context parameter
+        if (context == null) context = {};
+        const result = fhirpathLib.evaluate(context, guard.fhirpath, env);
+        // FHIRPath truthy: non-empty collection, not [false]
+        if (Array.isArray(result)) {
+          if (result.length === 0) return false;
+          if (result.length === 1 && result[0] === false) return false;
+          return true;
+        }
+        return result != null && result !== false;
+      } catch (e) {
+        onWarning?.(`FHIRPath evaluation failed for guard "${guard.fhirpath}": ${e.message}; treating as true`);
+        return true;
+      }
+    }
+
     const segs = guard.left.split('.');
     const head = segs[0];
-    if (!scope.has(head)) {
+    let left;
+
+    if (scope.has(head)) {
+      // Qualified reference: e.g., "vs0.type" or "src.status"
+      const base = scope.get(head);
+      left = segs.length > 1 ? getPath(base, segs.slice(1).join('.')) : base;
+    } else if (scope.has('$this')) {
+      // Unqualified reference: e.g., "type" resolves to $this.type (iteration context)
+      const thisVal = scope.get('$this');
+      left = getPath(thisVal, guard.left);
+    } else {
       onWarning?.(`Guard references unknown variable "${head}"; treating guard as false`);
       return false;
     }
-    const base = scope.get(head);
-    const left = segs.length > 1 ? getPath(base, segs.slice(1).join('.')) : base;
 
     if (!guard.op) return left != null && left !== false;
     if (guard.op === '=')  return String(left) === String(guard.right);
@@ -1224,6 +1423,9 @@ export function compileFmlXver({
    * this rule if the source field is present".
    */
   function execRule(rule, scope) {
+    // No-op rules (source-only lines like `src.field;`) are skipped.
+    if (rule.noop) return;
+
     const { sources } = rule;
 
     // Resolve every source clause. Bail out (silently) if any is absent.
@@ -1293,6 +1495,19 @@ export function compileFmlXver({
         onWarning?.(`then-clause invoked on non-object source value (type=${typeof primaryValue}); skipping`);
         return;
       }
+
+      // Category 3: source-level then without targets (e.g. `src.field as v then Group(v, tgt)`)
+      if (targets.length === 0) {
+        if (thenGroup) {
+          const argValues = resolveInvocationArgs(thenGroup, ruleScope, [primaryValue]);
+          execGroup(thenGroup.name, argValues, ruleScope);
+        } else if (thenRules) {
+          const subScope = ruleScope.child();
+          for (const sr of thenRules) execRule(sr, subScope);
+        }
+        return;
+      }
+
       const tgtSpec = targets[0];
       const tctx    = ruleScope.get(tgtSpec.context);
       if (tctx == null) {
@@ -1340,6 +1555,30 @@ export function compileFmlXver({
    */
   function execArrayRule(rule, primary, items, bindings, scope) {
     const { targets, thenGroup, thenRules } = rule;
+
+    // Category 3: source-level then without targets in array context
+    if (targets.length === 0) {
+      for (const item of items) {
+        const iterScope = scope.child();
+        iterScope.set('$this', item); // Bind iteration context for unqualified guard references
+        if (primary.spec.alias) iterScope.set(primary.spec.alias, item);
+        for (let i = 1; i < bindings.length; i++) {
+          const b = bindings[i];
+          if (b.spec.alias) iterScope.set(b.spec.alias, b.value);
+        }
+        if (!evalGuard(primary.spec.where, iterScope)) continue;
+        if (thenGroup) {
+          if (!isObject(item)) continue;
+          const argValues = resolveInvocationArgs(thenGroup, iterScope, [item]);
+          execGroup(thenGroup.name, argValues, iterScope);
+        } else if (thenRules) {
+          const subScope = iterScope.child();
+          for (const sr of thenRules) execRule(sr, subScope);
+        }
+      }
+      return;
+    }
+
     const tgtSpec = targets[0];
     const tctx    = scope.get(tgtSpec.context);
     if (tctx == null) {
@@ -1350,6 +1589,7 @@ export function compileFmlXver({
     const results = [];
     for (const item of items) {
       const iterScope = scope.child();
+      iterScope.set('$this', item); // Bind iteration context for unqualified guard references
       if (primary.spec.alias) iterScope.set(primary.spec.alias, item);
       // Also bind any non-primary source aliases (multi-source rules).
       for (let i = 1; i < bindings.length; i++) {
@@ -1473,17 +1713,17 @@ export function compileFmlXver({
           if (isSourceVersionProfile(url)) {
             updated.push(toTargetVersionProfile(url));
           } else if (!FHIR_BASE_PROFILE_RE.test(url)) {
-            // Non-standard profile — keep as-is.
+            // Non-standard profile -- keep as-is.
             updated.push(url);
           }
-          // else: standard FHIR profile for a different version — drop it.
+          // else: standard FHIR profile for a different version -- drop it.
         }
         out.meta.profile = updated.length ? updated : undefined;
         if (!out.meta.profile && Object.keys(out.meta).length === 0) {
           delete out.meta;
         }
       } else {
-        // No profile on source — add the target version's base profile.
+        // No profile on source -- add the target version's base profile.
         if (!out.meta) out.meta = {};
         out.meta.profile = [`http://hl7.org/fhir/${tgtVerNum}/StructureDefinition/${input.resourceType}`];
       }

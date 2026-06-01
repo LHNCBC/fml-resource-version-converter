@@ -11,6 +11,7 @@ import { compileFmlXver } from '../../../src/fml_base_conv/fml_xver_engine.js';
 
 const TEST_DATA = path.resolve(import.meta.dirname, '../../data');
 const r4Questionnaire = JSON.parse(fs.readFileSync(path.join(TEST_DATA, 'qn-ver-conv-test-r4base.json'), 'utf-8'));
+const stu3Questionnaire = JSON.parse(fs.readFileSync(path.join(TEST_DATA, 'qn-ver-conv-test-stu3base.json'), 'utf-8'));
 
 // ---------- createChainedConverter ---------------------------------------------------
 
@@ -194,7 +195,9 @@ describe('fml_base_conv/createChainedConverter', function () {
   });
 
   it('R3->R5 chains through R4', function () {
-    this.skip(); // TODO: fix parser bug - R3toR4 FML where-clause with parenthesized expressions e.g. (src.answer.empty())
+    const engine = createChainedConverter('Questionnaire', 'R3', 'R5');
+    assert.ok(engine.hops.length >= 2);
+    assert.ok(engine.convert);
   });
 
   it('R4->R4B emits compatibility warning', function () {
@@ -206,7 +209,10 @@ describe('fml_base_conv/createChainedConverter', function () {
   });
 
   it('chained R3->R5 produces valid output', function () {
-    this.skip(); // TODO: fix parser bug - R3toR4 FML where-clause with parenthesized expressions e.g. (src.answer.empty())
+    const engine = createChainedConverter('Questionnaire', 'R3', 'R5');
+    const out = engine.convert({ input: stu3Questionnaire });
+    assert.ok(out);
+    assert.equal(out.resourceType, 'Questionnaire');
   });
 });
 

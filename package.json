@@ -22,5 +22,8 @@
     "commander": "^13.1.0",
     "mocha": "^11.1.0",
     "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "fhirpath": "^4.11.0"
   }
 }
