@@ -1,0 +1,23 @@
+# Agent Guidelines
+
+## Workflow
+- Questions: Answer, but do NOT make changes until ordered.
+- Tasks: Propose a plan, wait for approval, then execute.
+- Edits: Use editor tools (not terminal sed/awk). Wait for my approval after each file edit before proceeding.
+- After edits: Run tests; stop and report if they fail.
+- New files: Propose before creating.
+- Destructive actions: Always ask before deleting or renaming files.
+- Context: Read relevant files before editing; don't guess.
+
+## Code Style
+- Add JSDoc to functions
+- Blank lines between functions/blocks
+- ASCII only (especially comments)
+- Human-readable
+
+## Testing
+- Code must pass tests
+- Never skip tests to hide failures
+
+## Boundaries
+- Stay within this project directory
