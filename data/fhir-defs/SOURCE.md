@@ -14,10 +14,18 @@ data/fhir-defs/
     R4.json
     R4B.json
     R5.json
+  cardinality/          Array-cardinality field paths (max > 1), one per version.
+    DSTU2.json
+    STU3.json
+    R4.json
+    R4B.json
+    R5.json
   (future kinds of derived data may live in sibling subdirectories)
 ```
 
-## poly-paths/
+Both kinds of tables are produced together by a single pass over each
+FHIR spec zip (see "Regenerating" below). The FHIR version for each
+file is in the filename and also in its `fhirVersion` field.
 
 | File         | FHIR version    |
 | ------------ | --------------- |
@@ -26,6 +34,8 @@ data/fhir-defs/
 | `R4.json`    | R4 (4.0.1)      |
 | `R4B.json`   | R4B (4.3.0)     |
 | `R5.json`    | R5 (5.0.0)      |
+
+## poly-paths/
 
 ### File format
 
@@ -56,12 +66,49 @@ official cross-version FML mappings published by HL7 sometimes refer to
 the bare polymorphic name (e.g. `src.initial as s`) without enumerating
 each variant. The FML execution engine in this project consults these
 tables at runtime to expand a bare polymorphic reference to the set of
-typed JSON fields that may actually carry the value.
+typed JSON fields that may actually carry the value, and to decide
+whether to apply a typed suffix on the target side.
+
+## cardinality/
+
+### File format
+
+```json
+{
+  "fhirVersion":   "R4",
+  "generated":     "YYYY-MM-DD",
+  "sourceArchive": "definitions.json.zip",
+  "sourceBundles": ["profiles-resources.json", "profiles-types.json"],
+  "pathCount":     3153,
+  "arrayPaths": [
+    "Bundle.entry",
+    "Patient.name",
+    "Questionnaire.item",
+    "Questionnaire.item.initial",
+    "..."
+  ]
+}
+```
+
+`arrayPaths` lists dotted paths whose `max` cardinality is greater than 1
+(i.e. the field is encoded as a JSON array). Paths not in this list are
+either scalar (`max=1`) or forbidden (`max=0`). The `[x]` suffix on
+polymorphic paths is stripped so the key shape matches the poly-paths
+file's keys.
+
+### Why these tables exist
+
+The FML execution engine doesn't know FHIR cardinality from the FML
+text alone. A rule like `src.initial as s -> tgt.initial as t, t.value = s`
+must wrap its output in an array when the target field is array-typed
+(R4's `Questionnaire.item.initial` is `max=*`) but leave it scalar
+otherwise. The engine consults these tables at write time to make that
+decision.
 
 ## Provenance
 
-The polymorphic-path tables are derived from the StructureDefinition
-Bundles published by HL7 for each FHIR version.
+Both tables are derived from the StructureDefinition Bundles published
+by HL7 for each FHIR version.
 
 | Version | Source archive                                              | Bundles used                                                  |
 | ------- | ----------------------------------------------------------- | ------------------------------------------------------------- |
@@ -74,20 +121,22 @@ Bundles published by HL7 for each FHIR version.
 DSTU2 does not publish a `definitions.json.zip`; the JSON bundles are
 extracted from the full `fhir-spec.zip` under the `site/` directory.
 
-## Regenerating poly-paths/
+## Regenerating
 
-Use `tools/build_poly_table.mjs`. See its file header for full usage.
-Raw spec zip archives live under `data/fhir-spec-downloads/` (gitignored;
-see that directory's `README.md` for how to populate it). The script
-reads the StructureDefinition bundles directly out of each zip; no manual
-extraction is needed.
+Use `tools/build_fhir_tables.mjs`. See its file header for full usage.
+A single invocation per version produces both the `poly-paths/<VER>.json`
+and `cardinality/<VER>.json` files. Raw spec zip archives live under
+`data/fhir-spec-downloads/` (gitignored; see that directory's `README.md`
+for how to populate it). The script reads the StructureDefinition
+bundles directly out of each zip; no manual extraction is needed.
 
 ```sh
 # Assumes data/fhir-spec-downloads/ is already populated.
 for V in DSTU2 STU3 R4 R4B R5; do
   ZIP=$([ "$V" = "DSTU2" ] && echo fhir-spec.zip || echo definitions.json.zip)
-  node tools/build_poly_table.mjs "$V" "data/fhir-defs/poly-paths/$V.json" \
-    "data/fhir-spec-downloads/$V/$ZIP"
+  node tools/build_fhir_tables.mjs "$V" \
+    "data/fhir-spec-downloads/$V/$ZIP" \
+    data/fhir-defs
 done
 ```
 

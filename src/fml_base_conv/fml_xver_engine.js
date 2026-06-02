@@ -1039,6 +1039,8 @@ export function compileFmlXver({
   strict          = false,
   fromVer         = null,
   toVer           = null,
+  srcPolyPaths    = null,
+  tgtPolyPaths    = null,
   onWarning       = null,
   onInfo          = null,
   onRuleExec      = null,
@@ -1046,6 +1048,41 @@ export function compileFmlXver({
   const ast        = parseFml(fmlText, onWarning);
   const groups     = ast.groups;
   const translator = makeTranslator(conceptMaps, { strict: strict || false, onWarning, onInfo });
+
+  /**
+   * Build the set of last-segment names that appear as polymorphic fields
+   * anywhere in a FHIR version (e.g. "value", "initial", "deceased").
+   *
+   * The input is a parsed poly-paths JSON (see data/fhir-defs/poly-paths/);
+   * its `polyPaths` keys are full dotted paths from the resource root,
+   * e.g. "Observation.value", "Questionnaire.item.initial.value",
+   * "Patient.deceased". Only the final segment is retained here.
+   *
+   * Returns an empty Set when `polyPaths` is missing or null.
+   *
+   * @param {Object|null} polyPaths Parsed poly-paths JSON, or null.
+   * @returns {Set<string>}
+   */
+  function buildPolyLeaves(polyPaths) {
+    const leaves = new Set();
+    if (polyPaths?.polyPaths) {
+      for (const k of Object.keys(polyPaths.polyPaths)) {
+        leaves.add(k.split('.').pop());
+      }
+    }
+    return leaves;
+  }
+
+  /**
+   * Polymorphic-leaf sets for the source and target FHIR versions.
+   * - srcPolyLeaves: used by readSource() to decide whether a bare-path
+   *   miss is a candidate for variant expansion ("initial" -> "initialString").
+   * - tgtPolyLeaves: used by writeTarget() to decide whether a target
+   *   leaf that differs from the source root is itself polymorphic and
+   *   should receive the typed suffix ("value" + "String" -> "valueString").
+   */
+  const srcPolyLeaves = buildPolyLeaves(srcPolyPaths);
+  const tgtPolyLeaves = buildPolyLeaves(tgtPolyPaths);
 
   /**
    * Resolve one TransformArg against the current scope.
@@ -1265,43 +1302,99 @@ export function compileFmlXver({
    * name is taken from the rule's `trailingString` when present (FML's
    * authoritative hint), otherwise computed as `root + Cap(typeHint)`.
    *
-   * Returns `{ctx, value, polyName}`; `polyName` flows through to
-   * `writeTarget` so the corresponding typed variant on the target is
-   * written instead of the bare path.
+   * Bare polymorphic reference (no `: Type` hint): when the path resolves
+   * to undefined AND its leaf is a known polymorphic field name in the
+   * source FHIR version (per srcPolyPaths), the parent object is scanned
+   * for a typed variant matching `^leaf[A-Z]\w+$`. If exactly one such
+   * key is present (the FHIR spec guarantees only one variant per
+   * polymorphic instance), it is returned along with its name as polyName.
+   * Multiple matches yield a warning and no value.
+   *
+   * Returns `{ctx, value, polyName, polySuffix, sourceLeaf}` where:
+   *   - polyName    : full typed source field name (e.g. "initialString"),
+   *                   kept for diagnostics.
+   *   - polySuffix  : capitalized FHIR type suffix (e.g. "String",
+   *                   "Boolean"). The write side composes
+   *                   `targetLeaf + polySuffix` for the actual write.
+   *   - sourceLeaf  : last segment of the source path (e.g. "initial").
+   *                   Used by writeTarget to decide when to apply the
+   *                   suffix (same-leaf vs different-leaf rules).
    */
   function readSource(srcSpec, scope, trailingString) {
+    if (scope.get(srcSpec.context) == null) {
+      return { ctx: null, value: undefined, polyName: null, polySuffix: null, sourceLeaf: null };
+    }
     const ctx = scope.get(srcSpec.context);
-    if (ctx == null) return { ctx: null, value: undefined, polyName: null };
 
-    if (!srcSpec.path) return { ctx, value: ctx, polyName: null };
+    if (!srcSpec.path) {
+      return { ctx, value: ctx, polyName: null, polySuffix: null, sourceLeaf: null };
+    }
 
     if (srcSpec.typeHint) {
       const segs   = srcSpec.path.split('.');
       const parent = segs.length > 1 ? getPath(ctx, segs.slice(0, -1).join('.')) : ctx;
       const root   = segs[segs.length - 1];
-      const polyName = trailingString || (root + cap(srcSpec.typeHint));
-      const value  = parent ? parent[polyName] : undefined;
+      const polyName   = trailingString || (root + cap(srcSpec.typeHint));
+      const polySuffix = cap(srcSpec.typeHint);
+      const value      = parent ? parent[polyName] : undefined;
       if (parent != null && value === undefined) {
         onInfo?.(`readSource: polymorphic field "${polyName}" not present (typeHint=${srcSpec.typeHint})`);
       }
-      return { ctx, value, polyName };
+      return { ctx, value, polyName, polySuffix, sourceLeaf: root };
     }
 
-    return { ctx, value: getPath(ctx, srcSpec.path), polyName: null };
+    const directValue = getPath(ctx, srcSpec.path);
+    if (directValue !== undefined) {
+      return { ctx, value: directValue, polyName: null, polySuffix: null, sourceLeaf: null };
+    }
+
+    // Bare-path miss: try polymorphic variant expansion when the leaf is
+    // known to be polymorphic in the source FHIR version.
+    if (srcPolyLeaves.size > 0) {
+      const segs   = srcSpec.path.split('.');
+      const leaf   = segs[segs.length - 1];
+      if (srcPolyLeaves.has(leaf)) {
+        const parent = segs.length > 1 ? getPath(ctx, segs.slice(0, -1).join('.')) : ctx;
+        if (parent != null && typeof parent === 'object') {
+          const escaped = leaf.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const re      = new RegExp('^' + escaped + '[A-Z]\\w*$');
+          const matches = Object.keys(parent).filter(k => re.test(k));
+          if (matches.length === 1) {
+            const polyName   = matches[0];
+            const polySuffix = polyName.slice(leaf.length);
+            onInfo?.(`readSource: expanded bare polymorphic ref "${srcSpec.path}" to "${polyName}"`);
+            return { ctx, value: parent[polyName], polyName, polySuffix, sourceLeaf: leaf };
+          }
+          if (matches.length > 1) {
+            onWarning?.(`readSource: ambiguous polymorphic expansion for "${srcSpec.path}": found ${matches.join(', ')}; not expanding`);
+          }
+        }
+      }
+    }
+
+    return { ctx, value: undefined, polyName: null, polySuffix: null, sourceLeaf: null };
   }
 
   /**
    * Write a value into the target context at `tgtSpec.path`.
    *
-   * If `polyName` is provided (because the matched source was polymorphic),
-   * the last path segment is replaced by `polyName`; so `tgt.value` with
-   * polyName `valueBoolean` writes to `tgt.valueBoolean`.
+   * Polymorphic suffix logic: when `polySuffix` is provided (because the
+   * matched source was polymorphic), the suffix is appended to the
+   * target path's last segment provided one of:
+   *   - target leaf equals the source leaf (`src.X : Type -> tgt.X` -
+   *     classical same-root rule), OR
+   *   - target leaf is itself polymorphic in the target FHIR version
+   *     (`src.initial -> tgt.value` style: target field is `value[x]` in
+   *     the target version, so `valueString` is a valid composition).
+   * Otherwise the bare path is written. This prevents the source's
+   * polymorphic suffix from leaking into unrelated targets (e.g. writing
+   * to `tgt.operator` should not become `tgt.operatorBoolean`).
    *
    * Warns when the target context is missing or when a non-object value
    * would be assigned to a bare context (no path); both indicate a likely
    * FML/data mismatch.
    */
-  function writeTarget(tgtSpec, value, scope, polyName) {
+  function writeTarget(tgtSpec, value, scope, polySuffix, sourceLeaf) {
     if (value === undefined) return;
     const tctx = scope.get(tgtSpec.context);
     if (tctx == null) {
@@ -1316,10 +1409,17 @@ export function compileFmlXver({
     }
 
     let path = tgtSpec.path;
-    if (polyName) {
-      const segs = path.split('.');
-      segs[segs.length - 1] = polyName;
-      path = segs.join('.');
+    if (polySuffix) {
+      const segs       = path.split('.');
+      const targetLeaf = segs[segs.length - 1];
+      const sameLeaf   = sourceLeaf && targetLeaf === sourceLeaf;
+      const tgtIsPoly  = tgtPolyLeaves.has(targetLeaf);
+      if (sameLeaf || tgtIsPoly) {
+        segs[segs.length - 1] = targetLeaf + polySuffix;
+        path = segs.join('.');
+      }
+      // Else: source carries a polymorphic suffix but the target leaf
+      // isn't polymorphic in the target version; write to the bare path.
     }
 
     const { parent, key } = ensurePath(tctx, path);
@@ -1431,10 +1531,10 @@ export function compileFmlXver({
     // Resolve every source clause. Bail out (silently) if any is absent.
     const bindings = [];
     for (const srcSpec of sources) {
-      const { ctx, value, polyName } = readSource(srcSpec, scope, rule.trailingString);
+      const { ctx, value, polyName, polySuffix, sourceLeaf } = readSource(srcSpec, scope, rule.trailingString);
       if (ctx == null)   return;
       if (value == null) return;
-      bindings.push({ spec: srcSpec, ctx, value, polyName });
+      bindings.push({ spec: srcSpec, ctx, value, polyName, polySuffix, sourceLeaf });
     }
 
     const primary = bindings[0];
@@ -1538,6 +1638,44 @@ export function compileFmlXver({
       return;
     }
 
+    // Inline multi-target with target alias:
+    //   `tgt.X as t, t.Y = ..., t.Z = ...`
+    // is FML shorthand for
+    //   `tgt.X as t then { t.Y = ...; t.Z = ...; }`
+    // The engine's then-clause path (above) handles the latter; for the
+    // inline form we lift: create a child object, bind the alias, execute
+    // any subsequent targets that write into the alias, then assign the
+    // child to the first target's path.
+    if (targets.length > 1 && targets[0].alias) {
+      const aliasName     = targets[0].alias;
+      const subsRefsAlias = targets.slice(1).some(t => t.context === aliasName);
+      if (subsRefsAlias) {
+        const firstTgt = targets[0];
+        const tctx     = ruleScope.get(firstTgt.context);
+        if (tctx == null) {
+          onWarning?.(`Inline multi-target: context "${firstTgt.context}" not in scope`);
+          return;
+        }
+        const child      = {};
+        const childScope = ruleScope.child();
+        childScope.set(aliasName, child);
+
+        // Run each subsequent target; those whose context is the alias
+        // write into the child, others write into their own scope context.
+        for (let i = 1; i < targets.length; i++) {
+          applyTarget(targets[i], primary, bindings, childScope);
+        }
+
+        if (firstTgt.path) {
+          const { parent, key } = ensurePath(tctx, firstTgt.path);
+          parent[key] = child;
+        } else {
+          Object.assign(tctx, child);
+        }
+        return;
+      }
+    }
+
     for (const tgt of targets) applyTarget(tgt, primary, bindings, ruleScope);
   }
 
@@ -1637,24 +1775,27 @@ export function compileFmlXver({
 
   /**
    * Apply one target clause within a scalar rule: compute the value, find
-   * the right polymorphic variant name (if any), and write it.
+   * the right polymorphic suffix (if any), and write it.
    *
-   * polyName selection: if the target has an alias matching a source alias,
-   * use that source's polyName; otherwise inherit from the primary source.
+   * polySuffix/sourceLeaf selection: if the target has an alias matching
+   * a source alias, use that source's polymorphic info; otherwise inherit
+   * from the primary source. writeTarget then decides whether the suffix
+   * is actually applied to the target path (see writeTarget docs).
    */
   function applyTarget(tgt, primary, bindings, scope) {
     const value = computeTargetValue(tgt, primary, bindings, scope, primary.value);
     if (value === undefined) return;
 
-    let polyName = null;
+    let polySuffix = null, sourceLeaf = null;
     if (tgt.alias) {
       const m = bindings.find(b => b.spec.alias === tgt.alias);
-      if (m) polyName = m.polyName;
+      if (m) { polySuffix = m.polySuffix; sourceLeaf = m.sourceLeaf; }
     } else {
-      polyName = primary.polyName;
+      polySuffix = primary.polySuffix;
+      sourceLeaf = primary.sourceLeaf;
     }
 
-    writeTarget(tgt, value, scope, polyName);
+    writeTarget(tgt, value, scope, polySuffix, sourceLeaf);
   }
 
   /**

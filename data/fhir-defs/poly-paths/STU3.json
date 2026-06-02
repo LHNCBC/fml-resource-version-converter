@@ -1,6 +1,6 @@
 {
   "fhirVersion": "STU3",
-  "generated": "2026-06-01",
+  "generated": "2026-06-02",
   "sourceArchive": "definitions.json.zip",
   "sourceBundles": [
     "profiles-resources.json",

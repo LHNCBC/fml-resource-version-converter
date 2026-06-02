@@ -14,8 +14,42 @@ import { compileFmlXver } from './fml_xver_engine.js';
 
 const __dirname = import.meta.dirname;
 const DEFAULT_XVER_ROOT = path.resolve(__dirname, '../../fhir-cross-version/input');
+const POLY_PATHS_DIR    = path.resolve(__dirname, '../../data/fhir-defs/poly-paths');
 
 const VER_SUFFIX = { R2: '2', R3: '3', R4: '4', R4B: '4B', R5: '5' };
+
+/**
+ * FHIR-version label -> poly-paths JSON file basename.
+ * R2 is HL7's later alias for DSTU2; the table is published under DSTU2.
+ */
+const POLY_PATHS_FILE = {
+  R2:   'DSTU2.json',
+  R3:   'STU3.json',
+  R4:   'R4.json',
+  R4B:  'R4B.json',
+  R5:   'R5.json',
+};
+
+/**
+ * Load and parse the poly-paths table for one FHIR version.
+ * Returns null (with a warning) when the file is missing or malformed; the
+ * engine treats absence as "no expansion possible" and behaves as before.
+ *
+ * @param {string} ver        'R2' | 'R3' | 'R4' | 'R4B' | 'R5'.
+ * @param {Function} [onWarning] Optional warning sink.
+ * @returns {Object|null} The parsed JSON or null on failure.
+ */
+function loadPolyPaths(ver, onWarning) {
+  const file = POLY_PATHS_FILE[ver];
+  if (!file) return null;
+  const full = path.join(POLY_PATHS_DIR, file);
+  try {
+    return JSON.parse(fs.readFileSync(full, 'utf-8'));
+  } catch (e) {
+    onWarning?.(`Failed to load poly-paths table for ${ver} (${full}): ${e.message}; polymorphic expansion disabled for this version`);
+    return null;
+  }
+}
 
 /**
  * Find the FML file path for a resource type and version pair.
@@ -120,6 +154,8 @@ export function createFmlEngine(resType, fromVer, toVer, opts = {}) {
     fmlText, conceptMaps,
     strict: opts.strict ?? false,
     fromVer, toVer,
+    srcPolyPaths: loadPolyPaths(fromVer, opts.onWarning),
+    tgtPolyPaths: loadPolyPaths(toVer,   opts.onWarning),
     onWarning: opts.onWarning, onInfo: opts.onInfo, onRuleExec: opts.onRuleExec,
   });
 }

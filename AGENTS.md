@@ -13,7 +13,7 @@
 - Add JSDoc to functions
 - Blank lines between functions/blocks
 - ASCII only (especially comments)
-- Human-readable
+- Human-readability is a priority
 
 ## Testing
 - Code must pass tests
