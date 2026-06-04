@@ -14,16 +14,15 @@ import { compileFmlXver } from './fml_xver_engine.js';
 
 const __dirname = import.meta.dirname;
 const DEFAULT_XVER_ROOT = path.resolve(__dirname, '../../fhir-cross-version/input');
-const POLY_PATHS_DIR    = path.resolve(__dirname, '../../data/fhir-defs/poly-paths');
-const CARDINALITY_DIR   = path.resolve(__dirname, '../../data/fhir-defs/cardinality');
+const FHIR_DEFS_DIR     = path.resolve(__dirname, '../../data/fhir-defs');
 
 const VER_SUFFIX = { R2: '2', R3: '3', R4: '4', R4B: '4B', R5: '5' };
 
 /**
- * FHIR-version label -> derived-table JSON filename.
+ * FHIR-version label -> consolidated definitions JSON filename.
  * R2 is HL7's later alias for DSTU2; the tables are published under DSTU2.
  */
-const TABLE_FILE = {
+const DEFS_FILE = {
   R2:   'DSTU2.json',
   R3:   'STU3.json',
   R4:   'R4.json',
@@ -32,36 +31,29 @@ const TABLE_FILE = {
 };
 
 /**
- * Load and parse one of the per-version derived tables under data/fhir-defs/.
- * Returns null (with a warning) when the file is missing or malformed; the
- * engine treats absence as "no info" and behaves as before.
+ * Load and parse the consolidated FHIR definitions table for one version.
+ * The file is produced by tools/build_fhir_tables.mjs and groups the
+ * polyPaths, arrayPaths, and elementTypes sub-tables under one per-version
+ * JSON. Returns null (with a warning) when the file is missing or
+ * malformed; the engine treats absence as "no info" and behaves as
+ * before.
  *
- * @param {string} dir         Absolute path to the table subdirectory.
- * @param {string} ver         'R2' | 'R3' | 'R4' | 'R4B' | 'R5'.
+ * @param {string} ver           'R2' | 'R3' | 'R4' | 'R4B' | 'R5'.
  * @param {Function} [onWarning] Optional warning sink.
  * @returns {Object|null} The parsed JSON or null on failure.
  */
-function loadTable(dir, ver, onWarning) {
-  const file = TABLE_FILE[ver];
+function loadFhirDefs(ver, onWarning) {
+  const file = DEFS_FILE[ver];
   if (!file) return null;
-  const full = path.join(dir, file);
+  const full = path.join(FHIR_DEFS_DIR, file);
   try {
     return JSON.parse(fs.readFileSync(full, 'utf-8'));
   } catch (e) {
-    onWarning?.(`Failed to load ${path.basename(dir)} table for ${ver} (${full}): ${e.message}; behavior depending on this table is disabled`);
+    onWarning?.(`Failed to load FHIR defs for ${ver} (${full}): ${e.message}; behavior depending on these tables is disabled`);
     return null;
   }
 }
 
-/** Load the polymorphic-paths table for a FHIR version. */
-function loadPolyPaths(ver, onWarning) {
-  return loadTable(POLY_PATHS_DIR, ver, onWarning);
-}
-
-/** Load the cardinality (array-paths) table for a FHIR version. */
-function loadCardinality(ver, onWarning) {
-  return loadTable(CARDINALITY_DIR, ver, onWarning);
-}
 
 /**
  * Find the FML file path for a resource type and version pair.
@@ -233,9 +225,8 @@ export function createFmlEngine(resType, fromVer, toVer, opts = {}) {
     fmlText, conceptMaps, importedFmlTexts,
     strict: opts.strict ?? false,
     fromVer, toVer,
-    srcPolyPaths:   loadPolyPaths(fromVer, opts.onWarning),
-    tgtPolyPaths:   loadPolyPaths(toVer,   opts.onWarning),
-    tgtCardinality: loadCardinality(toVer, opts.onWarning),
+    srcDefs: loadFhirDefs(fromVer, opts.onWarning),
+    tgtDefs: loadFhirDefs(toVer,   opts.onWarning),
     onWarning: opts.onWarning, onInfo: opts.onInfo, onRuleExec: opts.onRuleExec,
   });
 }

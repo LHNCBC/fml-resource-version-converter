@@ -7,9 +7,9 @@
  *
  *   +------------------------------------------------------------------+
  *   |  Pipeline:                                                       |
- *   |    tokenize(text) -> tokens                                      |
- *   |    parse(tokens)  -> AST { metadata, uses, groups }              |
- *   |    compile(ast)   -> engine bound to translator + diagnostics    |
+ *   |    parseFml(text)  -> AST { metadata, uses, groups }             |
+ *   |                       (defined in ./fml_parser.js)               |
+ *   |    compile(ast)    -> engine bound to translator + diagnostics   |
  *   |    engine.convert({ input }) -> output FHIR JSON                 |
  *   +------------------------------------------------------------------+
  *
@@ -29,72 +29,8 @@
  *   - Group invocations resolve their arguments by name from the calling
  *     scope and bind them positionally to the group's declared parameters.
  *
- * ----- AST shape (produced by parseFml) -----------------------------------
- *
- * @typedef {Object} Ast
- * @property {Object<string,string>} metadata  /// key = value declarations
- * @property {UsesDecl[]}            uses      uses declarations
- * @property {Map<string,Group>}     groups    group name -> Group node
- *
- * @typedef {Object} UsesDecl
- * @property {string}      url    Canonical URL of source/target structure.
- * @property {string|null} alias  Alias name from `alias X`.
- * @property {string|null} mode   'source' | 'target' | null.
- *
- * @typedef {Object} Group
- * @property {string}      name         Group name.
- * @property {Param[]}     params       Declared parameters in order.
- * @property {string|null} extendsType  Parent group or base-type name, or null.
- * @property {Rule[]}      rules        Rules in declaration order.
- *
- * @typedef {Object} Param
- * @property {'source'|'target'} mode   Parameter direction.
- * @property {string}            alias  Bound name inside the group body.
- * @property {string|null}       type   Declared type name or null.
- *
- * @typedef {Object} Rule
- * @property {Source[]}        sources         Left-hand side of `->`.
- * @property {Target[]}        targets         Right-hand side of `->`.
- * @property {Invocation|null} thenGroup       `then GroupName(args)` clause.
- * @property {Rule[]|null}     thenRules       Inline `then { ... }` block.
- * @property {string|null}     trailingString  Trailing string literal,
- *                                             usually a polymorphic variant
- *                                             name like "valueBoolean".
- *
- * @typedef {Object} Source
- * @property {string}         context   Variable name in scope (e.g. 'src').
- * @property {string|null}    path      Dot-path from context (e.g. 'item.linkId').
- * @property {string|null}    alias     Bound name from `as X`.
- * @property {string|null}    typeHint  Polymorphic type from `: Type`.
- * @property {GuardExpr|null} where     `where (...)` guard.
- * @property {GuardExpr|null} check     `check (...)` guard. Warning only;
- *                                      does not short-circuit the rule.
- * @property {'first'|'last'|'not_first'|'not_last'|null} listMode
- *
- * @typedef {Object} Target
- * @property {string}         context    Variable name in scope (e.g. 'tgt').
- * @property {string|null}    path       Dot-path on context.
- * @property {string|null}    alias      Bound name from `as X`.
- * @property {Transform|null} transform  RHS expression after `=`, if any.
- *
- * @typedef {Object} Transform
- * @property {string}              fn     Transform function name.
- * @property {TransformArg[]|any[]} args  Arguments (literal first-arg from
- *                                        a bare string shortcut may be a raw
- *                                        string rather than a TransformArg).
- *
- * @typedef {Object} TransformArg
- * @property {'literal'|'ident'} kind   Literal string or identifier reference.
- * @property {string}            value  The literal text or identifier name.
- *
- * @typedef {Object} GuardExpr
- * @property {string}        left   Dot-path; the first segment must be in scope.
- * @property {'='|'!='|null} op     Comparison operator, or null for existence.
- * @property {string|null}   right  Literal RHS (used when op !== null).
- *
- * @typedef {Object} Invocation
- * @property {string}   name  Group name to invoke.
- * @property {string[]} args  Arg names to look up in the calling scope.
+ * The AST shape consumed by this module is defined in ./fml_parser.js
+ * (see its @fileoverview for the full typedef block).
  *
  * ----- Transform reference ------------------------------------------------
  *
@@ -122,6 +58,7 @@
  */
 
 import fhirpathLib from 'fhirpath';
+import { parseFml } from './fml_parser.js';
 
 // ----- Helpers ------------------------------------------------------------
 
@@ -412,554 +349,6 @@ function makeTranslator(conceptMaps, { strict = false, onWarning, onInfo } = {})
   return { translate };
 }
 
-// ----- Tokeniser ----------------------------------------------------------
-
-/**
- * Token kinds produced by the tokeniser. The parser switches on `kind`.
- * @enum {string}
- */
-const TK = Object.freeze({
-  WORD: 'WORD', STRING: 'STRING', ARROW: 'ARROW',
-  SEMI: 'SEMI', COMMA: 'COMMA', COLON: 'COLON', DOT: 'DOT',
-  LPAREN: 'LPAREN', RPAREN: 'RPAREN', LBRACE: 'LBRACE', RBRACE: 'RBRACE',
-  EQ: 'EQ', NEQ: 'NEQ', META: 'META', EOF: 'EOF', PIPE: 'PIPE',
-});
-
-/** Map from single-character punctuation to its token kind. */
-const SINGLE_CHAR = {
-  ';': TK.SEMI, ',': TK.COMMA, ':': TK.COLON, '.': TK.DOT,
-  '(': TK.LPAREN, ')': TK.RPAREN, '{': TK.LBRACE, '}': TK.RBRACE, '=': TK.EQ,
-  '|': TK.PIPE,
-};
-
-/**
- * Tokenise FML source text into a stream of `{kind, value, line}` tokens.
- *
- * Handles three kinds of comments: `//` line comments, block comments
- * delimited by slash-star and star-slash, and `///` triple-slash metadata
- * comments. Strips type-annotation noise like `<<type+>>` which we don't
- * need for execution.
- *
- * Tokeniser failures (unrecognised characters, unterminated strings) emit
- * warnings rather than throwing, so a malformed file still produces a
- * stream the parser can attempt; this makes it easier to localise where
- * the real problem is.
- *
- * @param {string}   text
- * @param {Function} [onWarning]
- * @returns {Array<{kind: string, value: string, line: number}>}
- */
-function tokenise(text, onWarning) {
-  const tokens = [];
-  let i = 0, line = 1;
-  const push = (kind, value) => tokens.push({ kind, value, line });
-
-  while (i < text.length) {
-    const c = text[i], c2 = text[i + 1], c3 = text[i + 2];
-
-    // --- Whitespace ---
-    if (c === '\n')                 { line++; i++; continue; }
-    if (c === '\r' || /\s/.test(c)) { i++; continue; }
-
-    // --- /// metadata comment ---
-    if (c === '/' && c2 === '/' && c3 === '/') {
-      i += 3;
-      let s = '';
-      while (i < text.length && text[i] !== '\n') s += text[i++];
-      push(TK.META, s.trim());
-      continue;
-    }
-    // --- // line comment ---
-    if (c === '/' && c2 === '/') {
-      while (i < text.length && text[i] !== '\n') i++;
-      continue;
-    }
-    // --- block comment (slash-star ... star-slash) ---
-    if (c === '/' && c2 === '*') {
-      i += 2;
-      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) {
-        if (text[i] === '\n') line++;
-        i++;
-      }
-      i += 2;
-      continue;
-    }
-
-    // --- Multi-char operators ---
-    if (c === '-' && c2 === '>') { push(TK.ARROW, '->'); i += 2; continue; }
-    if (c === '!' && c2 === '=') { push(TK.NEQ, '!=');  i += 2; continue; }
-    if (c === '<' && c2 === '<') { i += 2; continue; }  // type annotation open
-    if (c === '>' && c2 === '>') { i += 2; continue; }  // type annotation close
-
-    // --- Single-char tokens ---
-    if (SINGLE_CHAR[c]) { push(SINGLE_CHAR[c], c); i++; continue; }
-
-    // Type-annotation noise (we already skipped `<<`/`>>` above)
-    if (c === '<' || c === '>' || c === '+') { i++; continue; }
-
-    // --- Quoted strings (single or double) ---
-    if (c === "'" || c === '"') {
-      const quote = c;
-      i++;
-      let s = '';
-      while (i < text.length && text[i] !== quote) {
-        if (text[i] === '\\') { i++; s += text[i++] ?? ''; continue; }
-        if (text[i] === '\n') line++;
-        s += text[i++];
-      }
-      if (i >= text.length) {
-        onWarning?.(`Tokenizer: unterminated string literal starting near line ${line}`);
-      }
-      i++;
-      push(TK.STRING, s);
-      continue;
-    }
-
-    // --- Numeric literal (captured as WORD for uniform handling) ---
-    if (/[0-9]/.test(c)) {
-      let n = '';
-      while (i < text.length && /[0-9.]/.test(text[i])) n += text[i++];
-      push(TK.WORD, n);
-      continue;
-    }
-
-    // --- Identifier (letters, digits, underscore; embedded hyphens allowed
-    //     when not followed by `>`, so `source-is-narrower-than-target` is
-    //     one token but `src->tgt` still tokenises correctly) ---
-    if (/[a-zA-Z_$%]/.test(c)) {
-      let w = '';
-      while (i < text.length && /[a-zA-Z0-9_$%]/.test(text[i])) w += text[i++];
-      while (i < text.length && text[i] === '-' && text[i + 1] !== '>') {
-        w += text[i++];
-        while (i < text.length && /[a-zA-Z0-9_$%]/.test(text[i])) w += text[i++];
-      }
-      push(TK.WORD, w);
-      continue;
-    }
-
-    onWarning?.(`Tokenizer: skipping unrecognised character ${JSON.stringify(c)} at line ${line}`);
-    i++;
-  }
-  push(TK.EOF, '');
-  return tokens;
-}
-
-// ----- Parser (recursive descent -> AST) ----------------------------------
-
-/**
- * Parse FML source text into a structured AST. See the @fileoverview block
- * for the full AST type definitions.
- *
- * The parser is permissive at the top level (warns and skips unknown
- * tokens), but strict inside rules and groups; malformed rules silently
- * mis-executing is worse than a clear parse failure with a line number.
- *
- * @param {string}   fmlText
- * @param {Function} [onWarning]
- * @returns {Ast}
- * @throws {SyntaxError} On malformed rule, group, or guard syntax.
- */
-function parseFml(fmlText, onWarning) {
-  const tokens = tokenise(fmlText, onWarning);
-  let pos = 0;
-
-  const peek    = ()    => tokens[pos];
-  const advance = ()    => tokens[pos++];
-  const at      = (k,v) => peek().kind === k && (v === undefined || peek().value === v);
-  const atWord  = (w)   => at(TK.WORD, w);
-
-  /** Consume the next token if it matches; else throw a clear error. */
-  function expect(kind, value) {
-    const t = peek();
-    if (t.kind !== kind || (value !== undefined && t.value !== value)) {
-      throw new SyntaxError(
-        `FML parse error at line ${t.line}: expected ${kind}${value ? ` '${value}'` : ''}, ` +
-        `got ${t.kind} '${t.value}'`
-      );
-    }
-    return advance();
-  }
-
-  // --- Top-level dispatch loop ---
-  const metadata = {};
-  const uses     = [];
-  const groups   = new Map();
-
-  while (!at(TK.EOF)) {
-    if (at(TK.META)) {
-      const m = advance().value.match(/^(\w+)\s*=\s*(.+)$/);
-      if (m) {
-        let v = m[2].trim();
-        if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-          v = v.slice(1, -1);
-        }
-        metadata[m[1]] = v;
-      }
-    } else if (atWord('uses')) {
-      uses.push(parseUses());
-    } else if (atWord('group')) {
-      const g = parseGroup();
-      groups.set(g.name, g);
-    } else if (atWord('imports') || atWord('map')) {
-      // `map "url" = "name"` and `imports "url"`: not executed, just consumed.
-      advance();
-      while (!at(TK.SEMI) && !at(TK.EOF) &&
-             !atWord('group') && !atWord('uses') && !atWord('imports') && !atWord('map')) {
-        advance();
-      }
-      if (at(TK.SEMI)) advance();
-    } else {
-      onWarning?.(`Parser: unexpected token ${peek().kind} '${peek().value}' at line ${peek().line}, skipping`);
-      advance();
-    }
-  }
-
-  return { metadata, uses, groups };
-
-  // --- Sub-parsers (hoisted) ---
-
-  /** Parse `uses "url" [alias X] [as source|target] ;`. */
-  function parseUses() {
-    expect(TK.WORD, 'uses');
-    const url = expect(TK.STRING).value;
-    let alias = null, mode = null;
-    if (atWord('alias')) { advance(); alias = expect(TK.WORD).value; }
-    if (atWord('as'))    { advance(); mode  = expect(TK.WORD).value; }
-    if (at(TK.SEMI)) advance();
-    return { url, alias, mode };
-  }
-
-  /** Parse `group Name(params) [extends Y] { rules }`. */
-  function parseGroup() {
-    expect(TK.WORD, 'group');
-    const name = expect(TK.WORD).value;
-    expect(TK.LPAREN);
-    const params = parseParamList();
-    expect(TK.RPAREN);
-
-    let extendsType = null;
-    if (atWord('extends')) { advance(); extendsType = expect(TK.WORD).value; }
-
-    // Skip remaining annotation words until `{`.
-    while (at(TK.WORD) && peek().kind !== TK.LBRACE) advance();
-
-    expect(TK.LBRACE);
-    const rules = [];
-    while (!at(TK.RBRACE) && !at(TK.EOF)) rules.push(parseRule());
-    expect(TK.RBRACE);
-
-    return { name, params, extendsType, rules };
-  }
-
-  /** Parse a comma-separated parameter list inside group `(...)`. */
-  function parseParamList() {
-    const params = [];
-    while (!at(TK.RPAREN) && !at(TK.EOF)) {
-      const mode  = expect(TK.WORD).value;
-      const alias = expect(TK.WORD).value;
-      let type = null;
-      if (at(TK.COLON)) { advance(); type = expect(TK.WORD).value; }
-      params.push({ mode, alias, type });
-      if (at(TK.COMMA)) advance();
-    }
-    return params;
-  }
-
-  /** Parse one rule: `sources -> targets [then ...] ["polyName"] ;`. */
-  function parseRule() {
-    const sources = parseSources();
-
-    // Category 4: no-op source-only lines like `src.field;`
-    if (at(TK.SEMI)) {
-      advance();
-      return { sources, targets: [], thenGroup: null, thenRules: null, trailingString: null, noop: true };
-    }
-
-    // Category 3: source-level `then` without `->` (e.g. `src.field as v then { ... }`)
-    if (atWord('then')) {
-      advance();
-      let thenGroup = null, thenRules = null;
-      if (at(TK.LBRACE)) {
-        advance();
-        thenRules = [];
-        while (!at(TK.RBRACE) && !at(TK.EOF)) thenRules.push(parseRule());
-        expect(TK.RBRACE);
-      } else {
-        thenGroup = parseInvocation();
-      }
-      let trailingString = null;
-      if (at(TK.STRING)) trailingString = advance().value;
-      if (at(TK.SEMI)) advance();
-      return { sources, targets: [], thenGroup, thenRules, trailingString };
-    }
-
-    expect(TK.ARROW);
-    const targets = parseTargets();
-
-    let thenGroup = null, thenRules = null;
-    if (atWord('then')) {
-      advance();
-      if (at(TK.LBRACE)) {
-        // Inline sub-rule block.
-        advance();
-        thenRules = [];
-        while (!at(TK.RBRACE) && !at(TK.EOF)) thenRules.push(parseRule());
-        expect(TK.RBRACE);
-      } else {
-        // Group invocation like `then ItemMap(item, titem)`.
-        thenGroup = parseInvocation();
-      }
-    }
-
-    // Trailing string is usually a polymorphic variant name like "valueBoolean".
-    let trailingString = null;
-    if (at(TK.STRING)) trailingString = advance().value;
-
-    if (at(TK.SEMI)) advance();
-    return { sources, targets, thenGroup, thenRules, trailingString };
-  }
-
-  /** Parse a comma-separated list of source clauses. */
-  function parseSources() {
-    const out = [parseOneSource()];
-    while (at(TK.COMMA)) {
-      advance();
-      if (at(TK.ARROW)) break;
-      out.push(parseOneSource());
-    }
-    return out;
-  }
-
-  /**
-   * Parse one source clause:
-   *   context [. dotPath] [: TypeHint] [listMode] [as alias] [where (...)] [check (...)]
-   */
-  function parseOneSource() {
-    const src = {
-      context: expect(TK.WORD).value,
-      path: null, alias: null, typeHint: null,
-      where: null, check: null, listMode: null,
-    };
-    if (at(TK.DOT))    { advance(); src.path     = parseDotPath(); }
-    if (at(TK.COLON))  { advance(); src.typeHint = expect(TK.WORD).value; }
-    // Cardinality annotations like `0..1` -- skip
-    if (at(TK.WORD) && /^\d+\.\.\d+$/.test(peek().value)) { advance(); }
-    if (atWord('first') || atWord('last') || atWord('not_first') || atWord('not_last') || atWord('only_one')) {
-      src.listMode = advance().value;
-    }
-    // `default "value"` -- a default value for when source is absent
-    if (atWord('default')) { advance(); src.defaultValue = at(TK.STRING) ? advance().value : expect(TK.WORD).value; }
-    if (atWord('as'))    { advance(); src.alias = expect(TK.WORD).value; }
-    if (atWord('where')) { advance(); src.where = parseGuardExpr(); }
-    if (atWord('check')) { advance(); src.check = parseGuardExpr(); }
-    return src;
-  }
-
-  /** Parse a dot-separated identifier chain like `item.enableWhen.question`. */
-  function parseDotPath() {
-    let p = expect(TK.WORD).value;
-    while (at(TK.DOT)) { advance(); p += '.' + expect(TK.WORD).value; }
-    return p;
-  }
-
-  /**
-   * Parse a guard expression: `(fhirpath-expr)` or a bare `path`.
-   * For simple cases like `(linkId = 'foo')`, returns { left, op, right }.
-   * For complex FHIRPath expressions, captures the raw text as { fhirpath }.
-   * A bare path like `linkId` returns { left, op: null, right: null }.
-   */
-  function parseGuardExpr() {
-    if (at(TK.LPAREN)) {
-      // Try simple form first: (dotPath [op value])
-      const startPos = pos;
-      advance(); // consume LPAREN
-
-      // Check if this is a simple `dotPath [= | !=] value` form
-      if (at(TK.WORD)) {
-        const savedPos = pos;
-        let left = advance().value;
-        while (at(TK.DOT)) { advance(); left += '.' + expect(TK.WORD).value; }
-        const op = at(TK.EQ) ? '=' : at(TK.NEQ) ? '!=' : null;
-        if (op && !left.includes('(')) {
-          advance();
-          if (at(TK.STRING)) {
-            let right = advance().value;
-            if (at(TK.RPAREN)) { advance(); return { left, op, right }; }
-          } else if (at(TK.WORD)) {
-            let right = advance().value;
-            if (at(TK.RPAREN)) { advance(); return { left, op, right }; }
-          }
-          // Complex RHS -- fall through to balanced-paren extraction
-        } else if (at(TK.RPAREN) && !left.includes('(')) {
-          advance();
-          return { left, op: null, right: null };
-        }
-        // Fall through to balanced-paren extraction
-        pos = startPos;
-      } else {
-        pos = startPos;
-      }
-
-      // Complex expression: extract balanced parens as raw FHIRPath text
-      advance(); // consume LPAREN again
-      let depth = 1;
-      let exprParts = [];
-      while (depth > 0 && !at(TK.EOF)) {
-        if (at(TK.LPAREN)) depth++;
-        if (at(TK.RPAREN)) { depth--; if (depth === 0) break; }
-        const tk = advance();
-        // Reconstruct text from tokens
-        if (tk.kind === TK.STRING) exprParts.push("'" + tk.value + "'");
-        else if (tk.kind === TK.DOT) exprParts.push('.');
-        else if (tk.kind === TK.COMMA) exprParts.push(', ');
-        else if (tk.kind === TK.COLON) exprParts.push(':');
-        else if (tk.kind === TK.EQ) exprParts.push(' = ');
-        else if (tk.kind === TK.NEQ) exprParts.push(' != ');
-        else if (tk.kind === TK.LPAREN) exprParts.push('(');
-        else if (tk.kind === TK.RPAREN) exprParts.push(')');
-        else if (tk.kind === TK.SEMI) exprParts.push(';');
-        else if (tk.kind === TK.PIPE) exprParts.push(' | ');
-        else exprParts.push(tk.value);
-      }
-      expect(TK.RPAREN); // consume closing paren
-      const fhirpathExpr = exprParts.join('').trim();
-      return { fhirpath: fhirpathExpr };
-    }
-    let left = expect(TK.WORD).value;
-    while (at(TK.DOT)) { advance(); left += '.' + expect(TK.WORD).value; }
-    return { left, op: null, right: null };
-  }
-
-  /** Parse a comma-separated list of target clauses. */
-  function parseTargets() {
-    const out = [parseOneTarget()];
-    while (at(TK.COMMA) && !atWord('then') && !at(TK.SEMI) && !at(TK.STRING) && !at(TK.EOF)) {
-      advance();
-      if (atWord('then') || at(TK.SEMI) || at(TK.STRING)) break;
-      out.push(parseOneTarget());
-    }
-    return out;
-  }
-
-  /** Parse one target clause: `context [. dotPath] [= transform] [as alias]` or `(expr) as alias`. */
-  function parseOneTarget() {
-    // Parenthesized FHIRPath expression as target: `(expr) as alias`
-    if (at(TK.LPAREN)) {
-      advance();
-      let depth = 1;
-      let exprParts = [];
-      while (depth > 0 && !at(TK.EOF)) {
-        if (at(TK.LPAREN)) depth++;
-        if (at(TK.RPAREN)) { depth--; if (depth === 0) break; }
-        const tk = advance();
-        if (tk.kind === TK.STRING) exprParts.push("'" + tk.value + "'");
-        else if (tk.kind === TK.DOT) exprParts.push('.');
-        else if (tk.kind === TK.COMMA) exprParts.push(', ');
-        else if (tk.kind === TK.COLON) exprParts.push(':');
-        else if (tk.kind === TK.EQ) exprParts.push(' = ');
-        else if (tk.kind === TK.NEQ) exprParts.push(' != ');
-        else if (tk.kind === TK.LPAREN) exprParts.push('(');
-        else if (tk.kind === TK.RPAREN) exprParts.push(')');
-        else if (tk.kind === TK.PIPE) exprParts.push(' | ');
-        else exprParts.push(tk.value);
-      }
-      expect(TK.RPAREN);
-      const tgt = { context: null, path: null, alias: null, transform: null, fhirpathExpr: exprParts.join('').trim() };
-      if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
-      return tgt;
-    }
-
-    const tgt = { context: expect(TK.WORD).value, path: null, alias: null, transform: null };
-    // Bare transform call as target: `create('CareTeam') as vt0`
-    if (at(TK.LPAREN)) {
-      tgt.transform = parseTransformFromName(tgt.context);
-      tgt.context = null;
-      if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
-      return tgt;
-    }
-    if (at(TK.DOT))   { advance(); tgt.path = parseDotPath(); }
-    if (at(TK.EQ))    { advance(); tgt.transform = parseTransform(); }
-    if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
-    return tgt;
-  }
-
-  /**
-   * Parse a transform expression on the RHS of a target `=`:
-   *   - `'literal'`           -> { fn: 'literal', args: ['literal'] }
-   *   - `varName`             -> { fn: 'varRef',  args: ['varName'] }
-   *   - `funcName(arg1, ...)` -> { fn: 'funcName', args: [TransformArg...] }
-   *
-   * Args are tagged with `kind: 'literal' | 'ident'` so the runtime can
-   * tell quoted strings from variable references without re-parsing.
-   */
-  function parseTransform() {
-    if (at(TK.STRING)) return { fn: 'literal', args: [advance().value] };
-
-    // Parenthesized FHIRPath expression as transform value: `(expr)`
-    if (at(TK.LPAREN)) {
-      advance();
-      let depth = 1;
-      let exprParts = [];
-      while (depth > 0 && !at(TK.EOF)) {
-        if (at(TK.LPAREN)) depth++;
-        if (at(TK.RPAREN)) { depth--; if (depth === 0) break; }
-        const tk = advance();
-        if (tk.kind === TK.STRING) exprParts.push("'" + tk.value + "'");
-        else if (tk.kind === TK.DOT) exprParts.push('.');
-        else if (tk.kind === TK.COMMA) exprParts.push(', ');
-        else if (tk.kind === TK.COLON) exprParts.push(':');
-        else if (tk.kind === TK.EQ) exprParts.push(' = ');
-        else if (tk.kind === TK.NEQ) exprParts.push(' != ');
-        else if (tk.kind === TK.LPAREN) exprParts.push('(');
-        else if (tk.kind === TK.RPAREN) exprParts.push(')');
-        else if (tk.kind === TK.SEMI) exprParts.push(';');
-        else if (tk.kind === TK.PIPE) exprParts.push(' | ');
-        else exprParts.push(tk.value);
-      }
-      expect(TK.RPAREN);
-      return { fn: 'fhirpath', args: [exprParts.join('').trim()] };
-    }
-
-    const name = expect(TK.WORD).value;
-    if (!at(TK.LPAREN)) return { fn: 'varRef', args: [name] };
-    advance();
-    const args = [];
-    while (!at(TK.RPAREN) && !at(TK.EOF)) {
-      if (at(TK.STRING))    args.push({ kind: 'literal', value: advance().value });
-      else if (at(TK.WORD)) args.push({ kind: 'ident',   value: advance().value });
-      if (at(TK.COMMA)) advance();
-    }
-    expect(TK.RPAREN);
-    return { fn: name, args };
-  }
-
-  /** Parse a transform when the function name has already been consumed. */
-  function parseTransformFromName(name) {
-    advance(); // consume LPAREN
-    const args = [];
-    while (!at(TK.RPAREN) && !at(TK.EOF)) {
-      if (at(TK.STRING))    args.push({ kind: 'literal', value: advance().value });
-      else if (at(TK.WORD)) args.push({ kind: 'ident',   value: advance().value });
-      if (at(TK.COMMA)) advance();
-    }
-    expect(TK.RPAREN);
-    return { fn: name, args };
-  }
-
-  /** Parse `GroupName(arg1, arg2, ...)` used in `then` clauses. */
-  function parseInvocation() {
-    const name = expect(TK.WORD).value;
-    expect(TK.LPAREN);
-    const args = [];
-    while (!at(TK.RPAREN) && !at(TK.EOF)) {
-      args.push(expect(TK.WORD).value);
-      if (at(TK.COMMA)) advance();
-    }
-    expect(TK.RPAREN);
-    return { name, args };
-  }
-}
-
 // ----- Scope chain --------------------------------------------------------
 
 /**
@@ -1040,9 +429,8 @@ export function compileFmlXver({
   strict          = false,
   fromVer         = null,
   toVer           = null,
-  srcPolyPaths    = null,
-  tgtPolyPaths    = null,
-  tgtCardinality  = null,
+  srcDefs         = null,
+  tgtDefs         = null,
   onWarning       = null,
   onInfo          = null,
   onRuleExec      = null,
@@ -1052,8 +440,12 @@ export function compileFmlXver({
 
   // Pre-load groups from imported FML texts (type groups like Coding, Reference, etc.).
   // Imported groups are merged into the local map; local groups take precedence.
+  // The imported ASTs are also kept so buildTypesIndex can find <<types>>
+  // conversion groups declared in them (e.g. Reference.fml's canonical2Reference).
+  const importedAsts = [];
   for (const importedText of importedFmlTexts) {
     const importedAst = parseFml(importedText, onWarning);
+    importedAsts.push(importedAst);
     for (const [name, group] of importedAst.groups) {
       if (!groups.has(name)) {
         groups.set(name, group);
@@ -1067,20 +459,20 @@ export function compileFmlXver({
    * Build the set of last-segment names that appear as polymorphic fields
    * anywhere in a FHIR version (e.g. "value", "initial", "deceased").
    *
-   * The input is a parsed poly-paths JSON (see data/fhir-defs/poly-paths/);
+   * The input is the consolidated defs object (see data/fhir-defs/{VER}.json);
    * its `polyPaths` keys are full dotted paths from the resource root,
    * e.g. "Observation.value", "Questionnaire.item.initial.value",
    * "Patient.deceased". Only the final segment is retained here.
    *
-   * Returns an empty Set when `polyPaths` is missing or null.
+   * Returns an empty Set when `defs` or `defs.polyPaths` is missing.
    *
-   * @param {Object|null} polyPaths Parsed poly-paths JSON, or null.
+   * @param {Object|null} defs  Parsed FHIR defs JSON, or null.
    * @returns {Set<string>}
    */
-  function buildPolyLeaves(polyPaths) {
+  function buildPolyLeaves(defs) {
     const leaves = new Set();
-    if (polyPaths?.polyPaths) {
-      for (const k of Object.keys(polyPaths.polyPaths)) {
+    if (defs?.polyPaths) {
+      for (const k of Object.keys(defs.polyPaths)) {
         leaves.add(k.split('.').pop());
       }
     }
@@ -1095,8 +487,8 @@ export function compileFmlXver({
    *   leaf that differs from the source root is itself polymorphic and
    *   should receive the typed suffix ("value" + "String" -> "valueString").
    */
-  const srcPolyLeaves = buildPolyLeaves(srcPolyPaths);
-  const tgtPolyLeaves = buildPolyLeaves(tgtPolyPaths);
+  const srcPolyLeaves = buildPolyLeaves(srcDefs);
+  const tgtPolyLeaves = buildPolyLeaves(tgtDefs);
 
   /**
    * Set of absolute dotted paths whose target field is an array
@@ -1112,7 +504,99 @@ export function compileFmlXver({
    * applied when the engine itself is producing a single container
    * object that semantically belongs in an array.
    */
-  const tgtArrayPaths = new Set(tgtCardinality?.arrayPaths || []);
+  const tgtArrayPaths = new Set(tgtDefs?.arrayPaths || []);
+
+  /**
+   * Maps of absolute FHIR dotted paths to their single concrete type
+   * code (e.g. "canonical", "Reference", "Identifier") for non-poly
+   * scalar elements in the source and target FHIR versions. These power
+   * future type-aware coercion: when a source path's type differs from
+   * the target path's type and a `<<types>>` conversion group matches,
+   * the engine can auto-invoke that group instead of plain copying.
+   */
+  const srcElementTypes = new Map(Object.entries(srcDefs?.elementTypes || {}));
+  const tgtElementTypes = new Map(Object.entries(tgtDefs?.elementTypes || {}));
+
+  /**
+   * Map from absolute FHIR dotted paths to the list of allowed FHIR type
+   * codes for polymorphic fields in the target FHIR version (e.g.
+   * "Questionnaire.item.enableWhen.answer" ->
+   * ["boolean","decimal","integer","date","dateTime","time","string",
+   *  "Coding","Quantity","Reference"]).
+   *
+   * Used to validate inferred polymorphic suffixes: when applyTarget
+   * derives a suffix from the source's declared type, it checks that the
+   * type is actually one of the allowed variants of the target poly
+   * field. This avoids writing fields like `answerCode` (invalid: R4
+   * enableWhen.answer doesn't accept `code` as a variant) just because
+   * the source happened to be of type `code`.
+   */
+  const tgtPolyTypeLists = new Map(Object.entries(tgtDefs?.polyPaths || {}));
+
+  /**
+   * Build an index of FML `<<types>>` conversion groups across the main
+   * FML AST and all imported FML ASTs. Keyed by `${srcType}::${tgtType}`
+   * (canonical FHIR type codes, after resolving local `uses ... alias X`
+   * declarations back to the URL's terminal segment, e.g. ReferenceR3 ->
+   * Reference, codeR3 -> code).
+   *
+   * Used at write time: when a source field's type differs from the
+   * target field's type and a matching entry exists here, the engine
+   * invokes that group on a wrapped source object instead of plain
+   * copying the value. This implements the FML-spec behavior in which
+   * `<<types>>` groups are auto-applied to bridge cross-version type
+   * differences (e.g. R4 canonical -> R3 Reference for
+   * Questionnaire.item.answerValueSet -> Questionnaire.item.options).
+   *
+   * Reads directly from the parsed ASTs (the parser captures `<<types>>`
+   * annotations into `Group.annotations` and resolves `uses` declarations
+   * into `Ast.uses`), so no raw-text re-scan is needed.
+   *
+   * @param {Ast[]} asts  Parsed ASTs (main + imported).
+   * @returns {Map<string,string>}  "srcType::tgtType" -> groupName.
+   */
+  function buildTypesIndex(asts) {
+    // Pass 1: gather alias -> canonical FHIR type code from `uses` decls.
+    // Canonical is the last URL segment under /StructureDefinition/
+    // (e.g. "Reference", "canonical"). Alias may be absent in the `uses`
+    // declaration; when absent, the canonical name itself doubles as the
+    // alias.
+    const aliases = new Map();
+    for (const a of asts) {
+      for (const u of a.uses) {
+        const m = u.url.match(/\/StructureDefinition\/(\w+)$/);
+        if (!m) continue;
+        const canonical = m[1];
+        const alias = u.alias || canonical;
+        if (!aliases.has(alias)) aliases.set(alias, canonical);
+      }
+    }
+
+    // Pass 2: find groups annotated `<<types>>` and resolve their src/tgt
+    // parameter types via the alias map. Skip malformed signatures.
+    const idx = new Map();
+    for (const a of asts) {
+      for (const [name, g] of a.groups) {
+        if (!g.annotations?.includes('types')) continue;
+        if (g.params.length < 2) continue;
+        const [srcParam, tgtParam] = g.params;
+        if (srcParam.mode !== 'source' || tgtParam.mode !== 'target') continue;
+        if (!srcParam.type || !tgtParam.type) continue;
+        const srcType = aliases.get(srcParam.type) || srcParam.type;
+        const tgtType = aliases.get(tgtParam.type) || tgtParam.type;
+        const key = `${srcType}::${tgtType}`;
+        if (!idx.has(key)) idx.set(key, name);
+      }
+    }
+    return idx;
+  }
+
+  /**
+   * Index of `(srcType, tgtType) -> conversionGroupName` built from all
+   * `<<types>>` groups in the main and imported FML ASTs. Empty when
+   * no such groups are present.
+   */
+  const typesIndex = buildTypesIndex([ast, ...importedAsts]);
 
   /**
    * Maps each target object created by the engine to its absolute FHIR
@@ -1154,13 +638,35 @@ export function compileFmlXver({
   }
 
   /**
-   * Write `value` to `parent[key]`, honoring target-version cardinality:
-   * if `absolutePath` is known to be an array field, push or initialize
-   * an array; otherwise assign scalar. Used at the engine's child-container
-   * creation sites (then-clause and inline-multi-target lift) only; the
-   * general writeTarget() path uses plain assignment.
+   * Write `value` to `parent[key]`, honoring target-version cardinality
+   * AND FHIR primitive unwrapping:
+   *
+   *   - If `absolutePath` is known to be an array field, push or initialize
+   *     an array; otherwise assign scalar.
+   *   - If `value` is a `{value: X, id?, extension?}` wrapper object and
+   *     `absolutePath` resolves to a FHIR primitive type in the target
+   *     version, unwrap to the bare `X`. This handles the FML idiom
+   *     `tgt.X as t, t.value = ...` (and similar nested forms) which
+   *     produce a wrapper object that must be collapsed back to the
+   *     bare value for JSON FHIR's primitive encoding. id/extension are
+   *     currently dropped; a full implementation would write them to a
+   *     sibling `_field` slot.
+   *
+   * Used at the engine's child-container creation sites (then-clause and
+   * inline-multi-target lift) only; the general writeTarget() path uses
+   * plain assignment.
    */
   function writeToSlot(parent, key, value, absolutePath) {
+    if (absolutePath && isObject(value) && 'value' in value) {
+      const tgtType = tgtElementTypes.get(absolutePath);
+      if (tgtType && FHIR_PRIMITIVES.has(tgtType)) {
+        const keys = Object.keys(value);
+        if (keys.every(k => k === 'value' || k === 'id' || k === 'extension')) {
+          value = value.value;
+        }
+      }
+    }
+
     if (absolutePath && tgtArrayPaths.has(absolutePath)) {
       if (Array.isArray(parent[key])) {
         parent[key].push(value);
@@ -1435,6 +941,22 @@ export function compileFmlXver({
       return { ctx, value: ctx, polyName: null, polySuffix: null, sourceLeaf: null };
     }
 
+    /**
+     * Tag a source value with its absolute FHIR path so write-time type
+     * coercion can look up its element type. For arrays, also tag each
+     * element with the same path (FHIR paths are array-blind: items
+     * share their parent collection's path).
+     */
+    const tagSourcePath = (value, absPath) => {
+      if (!absPath || value == null || typeof value !== 'object') return;
+      setObjectPath(value, absPath);
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (item != null && typeof item === 'object') setObjectPath(item, absPath);
+        }
+      }
+    };
+
     if (srcSpec.typeHint) {
       const segs   = srcSpec.path.split('.');
       const parent = segs.length > 1 ? getPath(ctx, segs.slice(0, -1).join('.')) : ctx;
@@ -1445,11 +967,13 @@ export function compileFmlXver({
       if (parent != null && value === undefined) {
         onInfo?.(`readSource: polymorphic field "${polyName}" not present (typeHint=${srcSpec.typeHint})`);
       }
+      tagSourcePath(value, composeChildPath(ctx, srcSpec.path));
       return { ctx, value, polyName, polySuffix, sourceLeaf: root };
     }
 
     const directValue = getPath(ctx, srcSpec.path);
     if (directValue !== undefined) {
+      tagSourcePath(directValue, composeChildPath(ctx, srcSpec.path));
       return { ctx, value: directValue, polyName: null, polySuffix: null, sourceLeaf: null };
     }
 
@@ -1468,6 +992,9 @@ export function compileFmlXver({
             const polyName   = matches[0];
             const polySuffix = polyName.slice(leaf.length);
             onInfo?.(`readSource: expanded bare polymorphic ref "${srcSpec.path}" to "${polyName}"`);
+            // Tag with the bare-leaf path (matches srcElementTypes keys,
+            // though poly fields wouldn't have a scalar type entry anyway).
+            tagSourcePath(parent[polyName], composeChildPath(ctx, srcSpec.path));
             return { ctx, value: parent[polyName], polyName, polySuffix, sourceLeaf: leaf };
           }
           if (matches.length > 1) {
@@ -1481,16 +1008,51 @@ export function compileFmlXver({
   }
 
   /**
+   * Infer the FHIR polymorphic-type suffix from a JS value's runtime type.
+   * Returns `null` for ambiguous cases where guessing would be unsafe:
+   * strings could be `string`/`code`/`date`/`time`/`dateTime`/`uri`/...,
+   * and objects could be `Coding`/`Reference`/`Quantity`/`Identifier`/
+   * `CodeableConcept`/etc. Used as a fallback when writing to a target
+   * leaf that is polymorphic in the target FHIR version (e.g. R4
+   * `enableWhen.answer[x]`) and the source rule provided no explicit
+   * type hint.
+   *
+   * Only unambiguous primitive types are inferred:
+   *   - boolean -> "Boolean"
+   *   - integer number -> "Integer"
+   *   - non-integer number -> "Decimal"
+   *
+   * Without this, the engine would write the bare polymorphic leaf
+   * (e.g. `tgt.answer = true`), producing invalid FHIR JSON since every
+   * polymorphic field must use one of its typed variants.
+   *
+   * @param {*} v
+   * @returns {string|null}
+   */
+  function inferPolySuffixFromValue(v) {
+    if (typeof v === 'boolean') return 'Boolean';
+    if (typeof v === 'number') return Number.isInteger(v) ? 'Integer' : 'Decimal';
+    return null;
+  }
+
+  /**
    * Write a value into the target context at `tgtSpec.path`.
    *
    * Polymorphic suffix logic: when `polySuffix` is provided (because the
    * matched source was polymorphic), the suffix is appended to the
    * target path's last segment provided one of:
    *   - target leaf equals the source leaf (`src.X : Type -> tgt.X` -
-   *     classical same-root rule), OR
+     classical same-root rule), OR
    *   - target leaf is itself polymorphic in the target FHIR version
    *     (`src.initial -> tgt.value` style: target field is `value[x]` in
    *     the target version, so `valueString` is a valid composition).
+   *
+   * When `polySuffix` is null but the target leaf IS polymorphic in the
+   * target version, fall back to inferring the suffix from the value's
+   * JS type (boolean/number only; see inferPolySuffixFromValue). This
+   * fixes FML rules of the form `tgt.poly = v` where v's type is the
+   * only information available about which variant to write.
+   *
    * Otherwise the bare path is written. This prevents the source's
    * polymorphic suffix from leaking into unrelated targets (e.g. writing
    * to `tgt.operator` should not become `tgt.operatorBoolean`).
@@ -1514,17 +1076,33 @@ export function compileFmlXver({
     }
 
     let path = tgtSpec.path;
+    const segs       = path.split('.');
+    const targetLeaf = segs[segs.length - 1];
+    const tgtIsPolyByLeaf = tgtPolyLeaves.has(targetLeaf);
+
     if (polySuffix) {
-      const segs       = path.split('.');
-      const targetLeaf = segs[segs.length - 1];
-      const sameLeaf   = sourceLeaf && targetLeaf === sourceLeaf;
-      const tgtIsPoly  = tgtPolyLeaves.has(targetLeaf);
-      if (sameLeaf || tgtIsPoly) {
+      const sameLeaf = sourceLeaf && targetLeaf === sourceLeaf;
+      if (sameLeaf || tgtIsPolyByLeaf) {
         segs[segs.length - 1] = targetLeaf + polySuffix;
         path = segs.join('.');
       }
       // Else: source carries a polymorphic suffix but the target leaf
       // isn't polymorphic in the target version; write to the bare path.
+    } else if (tgtIsPolyByLeaf) {
+      // JS-type fallback for unambiguous primitives. Validate against
+      // the absolute target path's allowed variants (when known) so we
+      // don't fire on paths that merely share a leaf name with an
+      // unrelated poly field elsewhere.
+      const inferred = inferPolySuffixFromValue(value);
+      if (inferred) {
+        const tgtAbsPath = composeChildPath(tctx, path);
+        const allowed = tgtAbsPath ? tgtPolyTypeLists.get(tgtAbsPath) : null;
+        const inferredType = inferred.toLowerCase();  // "Boolean" -> "boolean"
+        if (!allowed || allowed.includes(inferredType)) {
+          segs[segs.length - 1] = targetLeaf + inferred;
+          path = segs.join('.');
+        }
+      }
     }
 
     const { parent, key } = ensurePath(tctx, path);
@@ -1568,10 +1146,24 @@ export function compileFmlXver({
       onWarning?.(`Group "${groupName}" called with ${paramValues.length} arg(s), expected ${g.params.length}`);
     }
 
+    // Wrap primitive source args: FML primitive-conversion groups assume
+    // the FHIR "expanded primitive" form `{value, id, extension}`, but in
+    // JSON FHIR a primitive's value is the value itself (extensions live
+    // in a sibling `_field`). When a source param is bound to a JS
+    // primitive, wrap it so the group's rules like `src.value -> tgt.X`
+    // can read the underlying value. Object sources pass through.
+    const boundValues = paramValues.map((v, i) => {
+      const p = g.params[i];
+      if (p?.mode === 'source' && v != null && typeof v !== 'object') {
+        return { value: v };
+      }
+      return v;
+    });
+
     // Run extends-base copier first (for inheritance chains).
     if (g.extendsType) {
-      const srcObj = paramValues[0];
-      const tgtObj = paramValues[1];
+      const srcObj = boundValues[0];
+      const tgtObj = boundValues[1];
       if (BASE_COPIERS[g.extendsType]) {
         if (isObject(srcObj) && isObject(tgtObj)) {
           BASE_COPIERS[g.extendsType](srcObj, tgtObj);
@@ -1579,7 +1171,7 @@ export function compileFmlXver({
           onWarning?.(`Group "${groupName}" extends ${g.extendsType} but src/tgt are not both objects; skipping base copy`);
         }
       } else if (groups.has(g.extendsType)) {
-        execGroup(g.extendsType, paramValues, parentScope);
+        execGroup(g.extendsType, boundValues, parentScope);
       } else {
         onWarning?.(`Group "${groupName}" extends unknown type "${g.extendsType}"`);
       }
@@ -1587,7 +1179,7 @@ export function compileFmlXver({
 
     const scope = parentScope ? parentScope.child() : new Scope();
     for (let i = 0; i < g.params.length; i++) {
-      scope.set(g.params[i].alias, paramValues[i]);
+      scope.set(g.params[i].alias, boundValues[i]);
     }
 
     for (const rule of g.rules) execRule(rule, scope);
@@ -1743,14 +1335,18 @@ export function compileFmlXver({
     if (thenGroup || thenRules) {
       // Category 3: source-level then without targets (e.g. `src.field as v then Group(v, tgt)`)
       if (targets.length === 0) {
-        if (!isObject(primaryValue)) {
-          onWarning?.(`then-clause invoked on non-object source value (type=${typeof primaryValue}); skipping`);
-          return;
-        }
         if (thenGroup) {
+          // execGroup() wraps primitive source args as {value: <prim>},
+          // so we can dispatch even when primaryValue is a JS primitive
+          // (e.g. a Reference's `reference` URL string being handed off
+          // to a uri-conversion group).
           const argValues = resolveInvocationArgs(thenGroup, ruleScope, [primaryValue]);
           execGroup(thenGroup.name, argValues, ruleScope);
         } else if (thenRules) {
+          if (!isObject(primaryValue)) {
+            onWarning?.(`then-clause inline rules invoked on non-object source value (type=${typeof primaryValue}); skipping`);
+            return;
+          }
           const subScope = ruleScope.child();
           for (const sr of thenRules) execRule(sr, subScope);
         }
@@ -1957,15 +1553,126 @@ export function compileFmlXver({
   }
 
   /**
+   * Attempt FML-spec-style automatic type coercion for a plain-copy
+   * target write. Returns the coerced value (an object produced by the
+   * matching `<<types>>` conversion group) on success, or `undefined`
+   * when no coercion applies and the caller should fall back to a plain
+   * copy.
+   *
+   * Coercion is attempted only when:
+   *   - typesIndex is non-empty (some `<<types>>` group exists), AND
+   *   - the target has no explicit `transform` (the FML author hasn't
+   *     opted in to a specific RHS expression), AND
+   *   - the primary source value is not nullish, AND
+   *   - both the source and target absolute paths are known and resolve
+   *     to scalar types in their respective FHIR versions, AND
+   *   - those scalar types differ, AND
+   *   - a `<<types>>` group exists for `(srcType, tgtType)`.
+   *
+   * The source value is wrapped as `{value: <srcVal>}` when it is a
+   * primitive (the FHIR JSON convention: a primitive's underlying value
+   * is the value itself, while id/extension live in a sibling `_field`).
+   * Object sources are passed through unchanged.
+   *
+   * Emits `onInfo` once per unresolvable type mismatch (types differ but
+   * no conversion group available) so that gaps can be diagnosed.
+   *
+   * @param {Target} tgt       The target clause being written to.
+   * @param {Object} primary   The primary source binding.
+   * @param {Scope}  scope     The current rule scope (for execGroup).
+   * @returns {*|undefined}    Coerced value, or undefined to fall back.
+   */
+  /**
+   * Set of FHIR primitive type codes. Their JSON encoding is the bare
+   * value (with optional sibling `_field` for id/extension). When the
+   * target of a `<<types>>` coercion is one of these, the produced
+   * wrapper object `{value, id?, extension?}` must be unwrapped back to
+   * the bare value before being written; the optional id/extension are
+   * left dropped for now (a full implementation would write them to a
+   * `_field` sibling).
+   */
+  const FHIR_PRIMITIVES = new Set([
+    'boolean', 'integer', 'decimal', 'string', 'uri', 'url', 'canonical',
+    'base64Binary', 'instant', 'date', 'dateTime', 'time', 'code', 'oid',
+    'id', 'markdown', 'unsignedInt', 'positiveInt', 'uuid', 'xhtml',
+    'integer64',
+  ]);
+
+  function tryTypeCoercion(tgt, primary, scope) {
+    if (typesIndex.size === 0) return undefined;
+    if (tgt.transform) return undefined;
+    if (primary.value == null) return undefined;
+
+    const srcCtx = scope.get(primary.spec.context);
+    const tctx   = scope.get(tgt.context);
+    if (srcCtx == null || tctx == null) return undefined;
+
+    const srcAbsPath = primary.spec.path
+      ? composeChildPath(srcCtx, primary.spec.path)
+      : getObjectPath(srcCtx);
+    const tgtAbsPath = tgt.path
+      ? composeChildPath(tctx, tgt.path)
+      : getObjectPath(tctx);
+    if (!srcAbsPath || !tgtAbsPath) return undefined;
+
+    const srcType = srcElementTypes.get(srcAbsPath);
+    const tgtType = tgtElementTypes.get(tgtAbsPath);
+    if (!srcType || !tgtType || srcType === tgtType) return undefined;
+
+    const groupName = typesIndex.get(`${srcType}::${tgtType}`);
+    if (!groupName) {
+      onInfo?.(`type mismatch ${srcType}->${tgtType} at ${srcAbsPath} -> ${tgtAbsPath}; no <<types>> group, plain copy`);
+      return undefined;
+    }
+
+    const wrapped = isObject(primary.value) ? primary.value : { value: primary.value };
+    const child   = {};
+    setObjectPath(child, tgtAbsPath);
+    execGroup(groupName, [wrapped, child], scope);
+
+    // Unwrap when the target is a FHIR primitive: the coerced wrapper
+    // {value, ...} is collapsed back to the bare value. Extensions (id,
+    // extension) are dropped for now; a full impl would write them to
+    // the sibling `_field` slot.
+    if (FHIR_PRIMITIVES.has(tgtType) && isObject(child) && 'value' in child) {
+      return child.value;
+    }
+    return child;
+  }
+
+  /**
    * Apply one target clause within a scalar rule: compute the value, find
    * the right polymorphic suffix (if any), and write it.
    *
-   * polySuffix/sourceLeaf selection: if the target has an alias matching
-   * a source alias, use that source's polymorphic info; otherwise inherit
-   * from the primary source. writeTarget then decides whether the suffix
-   * is actually applied to the target path (see writeTarget docs).
+   * polySuffix/sourceLeaf selection, in priority order:
+   *   1. Target has an alias matching a source binding -> inherit that
+   *      source's polymorphic info (`src.X : Type as v -> tgt.Y = v`).
+   *   2. Otherwise inherit from the primary source's polymorphic info.
+   *   3. If still none AND the target leaf is polymorphic in the target
+   *      FHIR version AND the source path has a known scalar type in
+   *      `srcElementTypes` AND that type is one of the target poly
+   *      field's allowed variants -> use cap(srcType) as the suffix.
+   *      This is the FML-spec "auto-pick variant from value's type"
+   *      behavior generalised via the element-type table, so strings
+   *      and complex types (Coding/Reference/Quantity/...) get the
+   *      right variant -- not just primitives.
+   *   4. Failing all of the above, writeTarget itself falls back to a
+   *      JS-type-based inference for unambiguous primitives (boolean,
+   *      integer, decimal).
+   *
+   * writeTarget then decides whether the suffix is actually applied to
+   * the target path (see writeTarget docs).
    */
   function applyTarget(tgt, primary, bindings, scope) {
+    // FML-spec auto-coercion: when source and target element types
+    // differ and a <<types>> conversion group is available, run that
+    // group instead of plain copying.
+    const coerced = tryTypeCoercion(tgt, primary, scope);
+    if (coerced !== undefined) {
+      writeTarget(tgt, coerced, scope, null, null);
+      return;
+    }
+
     const value = computeTargetValue(tgt, primary, bindings, scope, primary.value);
     if (value === undefined) return;
 
@@ -1976,6 +1683,28 @@ export function compileFmlXver({
     } else {
       polySuffix = primary.polySuffix;
       sourceLeaf = primary.sourceLeaf;
+    }
+
+    // Source-element-type fallback for polymorphic targets.
+    // Only triggers when the absolute target path is confirmed
+    // polymorphic in the target version (not just sharing a leaf name
+    // with some unrelated poly field elsewhere -- e.g. `code` is a poly
+    // leaf in `Composition.code[x]` but NOT in `Questionnaire.item.code`,
+    // so we must check the full path, not the leaf alone).
+    if (!polySuffix && tgt.path && primary.spec.path) {
+      const tctx = scope.get(tgt.context);
+      const tgtAbsPath = tctx ? composeChildPath(tctx, tgt.path) : null;
+      const allowed = tgtAbsPath ? tgtPolyTypeLists.get(tgtAbsPath) : null;
+      if (allowed) {
+        const srcCtx = scope.get(primary.spec.context);
+        const srcAbsPath = srcCtx ? composeChildPath(srcCtx, primary.spec.path) : null;
+        if (srcAbsPath) {
+          const srcType = srcElementTypes.get(srcAbsPath);
+          if (srcType && allowed.includes(srcType)) {
+            polySuffix = cap(srcType);
+          }
+        }
+      }
     }
 
     writeTarget(tgt, value, scope, polySuffix, sourceLeaf);
@@ -2029,6 +1758,10 @@ export function compileFmlXver({
     // every subsequent child write can build its path by descent.
     // The entry group name is the resource type (e.g. "Questionnaire").
     setObjectPath(out, group);
+
+    // Seed the source root path too, so write-time type coercion can
+    // look up source element types via composeChildPath(srcCtx, path).
+    setObjectPath(input, group);
 
     execGroup(group, [input, out]);
 

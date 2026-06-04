@@ -3,7 +3,7 @@
 ## Workflow
 - Questions: Answer, but do NOT make changes until ordered.
 - Tasks: Propose a plan, wait for approval, then execute.
-- Edits: Use editor tools (not terminal sed/awk). Wait for my approval after each file edit before proceeding.
+- Edits: Use editor tools (not terminal sed/awk), prompt for my approval (keep/decline)
 - After edits: Run tests; stop and report if they fail.
 - New files: Propose before creating.
 - Destructive actions: Always ask before deleting or renaming files.

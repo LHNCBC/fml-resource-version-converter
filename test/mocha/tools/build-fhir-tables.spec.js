@@ -89,6 +89,33 @@ describe('fhir_tables_lib: classifyElement', () => {
     assert.equal(c.array, true);
     assert.deepEqual(c.poly, { types: ['string', 'integer'] });
   });
+
+  it('returns scalarType for a single-concrete-type non-poly element', () => {
+    const c = classifyElement({ path: 'Patient.gender', type: [{ code: 'code' }] });
+    assert.equal(c.scalarType, 'code');
+    assert.equal(c.poly, null);
+  });
+
+  it('returns null scalarType for a polymorphic [x] element', () => {
+    const c = classifyElement({ path: 'Observation.value[x]', type: [{ code: 'string' }] });
+    assert.equal(c.scalarType, null);
+  });
+
+  it('returns null scalarType for a multi-type element', () => {
+    const c = classifyElement({ path: 'Foo.bar', type: [{ code: 'string' }, { code: 'integer' }] });
+    assert.equal(c.scalarType, null);
+  });
+
+  it('returns null scalarType when type[] is absent', () => {
+    const c = classifyElement({ path: 'Foo.bar', contentReference: '#Foo' });
+    assert.equal(c.scalarType, null);
+  });
+
+  it('counts missing type.code for non-poly single-type elements without code', () => {
+    const c = classifyElement({ path: 'Foo.bar', type: [{}] });
+    assert.equal(c.scalarType, null);
+    assert.equal(c.missingTypeCodes, 1);
+  });
 });
 
 describe('fhir_tables_lib: processElements', () => {
@@ -96,22 +123,58 @@ describe('fhir_tables_lib: processElements', () => {
   it('merges types from multiple elements that share a path key', () => {
     const polyMap = new Map();
     const arraySet = new Set();
+    const typesMap = new Map();
     processElements([
       { path: 'Foo.value[x]', type: [{ code: 'string' }] },
       { path: 'Foo.value[x]', type: [{ code: 'integer' }] },
-    ], polyMap, arraySet);
+    ], polyMap, arraySet, typesMap);
     assert.deepEqual([...polyMap.get('Foo.value')].sort(), ['integer', 'string']);
   });
 
   it('accumulates array paths and ignores scalars', () => {
     const polyMap = new Map();
     const arraySet = new Set();
+    const typesMap = new Map();
     processElements([
       { path: 'Foo.list',   max: '*' },
       { path: 'Foo.scalar', max: '1' },
       { path: 'Foo.absent' },
-    ], polyMap, arraySet);
+    ], polyMap, arraySet, typesMap);
     assert.deepEqual([...arraySet].sort(), ['Foo.list']);
+  });
+
+  it('accumulates element types for non-poly single-type elements', () => {
+    const polyMap = new Map();
+    const arraySet = new Set();
+    const typesMap = new Map();
+    processElements([
+      { path: 'Patient.gender',     type: [{ code: 'code' }] },
+      { path: 'Patient.identifier', max: '*', type: [{ code: 'Identifier' }] },
+      { path: 'Observation.value[x]', type: [{ code: 'string' }, { code: 'Quantity' }] },
+    ], polyMap, arraySet, typesMap);
+    assert.equal(typesMap.get('Patient.gender'), 'code');
+    assert.equal(typesMap.get('Patient.identifier'), 'Identifier');
+    assert.equal(typesMap.has('Observation.value'), false);
+  });
+
+  it('first scalar type wins on conflict (snapshot vs differential overlap)', () => {
+    const polyMap = new Map();
+    const arraySet = new Set();
+    const typesMap = new Map();
+    processElements([
+      { path: 'Foo.bar', type: [{ code: 'string' }] },
+      { path: 'Foo.bar', type: [{ code: 'integer' }] },
+    ], polyMap, arraySet, typesMap);
+    assert.equal(typesMap.get('Foo.bar'), 'string');
+  });
+
+  it('skips elementTypes accumulation when map argument is null', () => {
+    const polyMap = new Map();
+    const arraySet = new Set();
+    const n = processElements([
+      { path: 'Patient.gender', type: [{ code: 'code' }] },
+    ], polyMap, arraySet, null);
+    assert.equal(n, 1);
   });
 
   it('returns the count of elements scanned (including skipped ones)', () => {
@@ -119,7 +182,7 @@ describe('fhir_tables_lib: processElements', () => {
     const arraySet = new Set();
     const n = processElements(
       [{ path: 'a' }, {}, { path: 'c' }],
-      polyMap, arraySet
+      polyMap, arraySet, null
     );
     assert.equal(n, 3);
   });
@@ -130,7 +193,7 @@ describe('fhir_tables_lib: processElements', () => {
     const calls = [];
     processElements(
       [{ path: 'Foo.bar[x]', type: [{}] }],
-      polyMap, arraySet,
+      polyMap, arraySet, null,
       (p, sd) => calls.push([p, sd]),
       'FooSD'
     );

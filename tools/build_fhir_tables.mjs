@@ -4,53 +4,63 @@
  *
  * Walks an HL7 FHIR specification zip archive, scans every element of
  * every StructureDefinition inside profiles-resources.json and
- * profiles-types.json, and writes two derived JSON tables side by side:
+ * profiles-types.json, and writes a single consolidated JSON file per
+ * FHIR version under the chosen output directory:
  *
- *   <out-dir>/poly-paths/<VERSION>.json
- *     Polymorphic field paths and their allowed FHIR type codes.
- *     Consumed by the FML engine to expand bare polymorphic references
- *     (e.g. STU3 "src.initial" -> "src.initialString") and to decide
- *     whether to apply a typed suffix on the target side.
+ *   <out-dir>/<VERSION>.json
  *
- *   <out-dir>/cardinality/<VERSION>.json
- *     Paths whose max cardinality is > 1 (arrays in the JSON encoding).
- *     Consumed by the FML engine to know when to wrap a target write in
- *     an array container (e.g. R4 "Questionnaire.item.initial" is an
- *     array but R3 "Questionnaire.item.initial" is scalar).
+ * The file groups three sibling sub-tables, all keyed by FHIR dotted
+ * path (with any trailing "[x]" stripped uniformly via classifyElement):
  *
- * Both tables are produced from a single pass over the StructureDefinitions
- * so the cost stays at one zip read per version, and the two tables
+ *   polyPaths     Polymorphic field paths and their allowed FHIR type
+ *                 codes. Consumed by the FML engine to expand bare
+ *                 polymorphic references (e.g. STU3 "src.initial" ->
+ *                 "src.initialString") and to decide whether to apply a
+ *                 typed suffix on the target side.
+ *
+ *   arrayPaths    Paths whose max cardinality is > 1 (arrays in the JSON
+ *                 encoding). Consumed by the FML engine to know when to
+ *                 wrap a target write in an array container (e.g. R4
+ *                 "Questionnaire.item.initial" is an array but R3
+ *                 "Questionnaire.item.initial" is scalar).
+ *
+ *   elementTypes  Single concrete FHIR type code for each non-poly
+ *                 scalar element. Consumed by the FML engine to know
+ *                 when source and target element types differ across
+ *                 versions, so a <<types>> conversion group can be
+ *                 auto-invoked (e.g. R4 canonical -> R3 Reference).
+ *
+ * All three are produced from a single pass over the StructureDefinitions
+ * so the cost stays at one zip read per version, and the three tables
  * cannot drift apart in their interpretation of the source data.
  *
- * Output file shapes:
+ * Output file shape:
  *
- *   poly-paths/<VERSION>.json
+ *   <out-dir>/<VERSION>.json
  *   {
  *     "fhirVersion":    "R4",
- *     "generated":      "2026-06-02",
+ *     "generated":      "2026-06-04",
  *     "sourceArchive":  "definitions.json.zip",
  *     "sourceBundles":  ["profiles-resources.json", "profiles-types.json"],
- *     "pathCount":      186,
+ *     "pathCounts": {
+ *       "poly":         186,
+ *       "array":        3153,
+ *       "elementTypes": 3300
+ *     },
  *     "polyPaths": {
  *       "Observation.value":                 ["CodeableConcept", "Quantity", "..."],
  *       "Questionnaire.item.initial.value":  ["Attachment", "Coding", "..."]
- *     }
- *   }
- *
- *   cardinality/<VERSION>.json
- *   {
- *     "fhirVersion":    "R4",
- *     "generated":      "2026-06-02",
- *     "sourceArchive":  "definitions.json.zip",
- *     "sourceBundles":  ["profiles-resources.json", "profiles-types.json"],
- *     "pathCount":      2847,
+ *     },
  *     "arrayPaths": [
  *       "Bundle.entry",
  *       "Patient.name",
- *       "Questionnaire.item",
- *       "Questionnaire.item.initial",
  *       "..."
- *     ]
+ *     ],
+ *     "elementTypes": {
+ *       "Patient.gender":                    "code",
+ *       "Patient.identifier":                "Identifier",
+ *       "Questionnaire.item.answerValueSet": "canonical"
+ *     }
  *   }
  *
  * Detection rules:
@@ -63,11 +73,14 @@
  *   Array: element.max is present and is neither "0" nor "1". Most
  *   arrays use max="*" but FHIR also permits numeric bounds like "2".
  *
+ *   Scalar type: element is non-poly (single type[] entry, path does
+ *   not end in "[x]") AND that entry has a non-empty `code` string.
+ *
  * Usage:
  *   node tools/build_fhir_tables.mjs <VERSION> <archive.zip> <out-dir>
  *
  * Arguments:
- *   <VERSION>       Label written verbatim into both output JSONs'
+ *   <VERSION>       Label written verbatim into the output JSON's
  *                   "fhirVersion" field. Convention: DSTU2, STU3, R4,
  *                   R4B, R5. The script does not validate it.
  *   <archive.zip>   FHIR specification zip. The script scans entries for
@@ -78,10 +91,9 @@
  *                     - STU3/R4/R5:  entries at the zip root
  *                     - R4B:         entries under "definitions.json/"
  *                     - DSTU2:       entries under "site\" (backslashes)
- *   <out-dir>       Directory under which the two table subdirectories
- *                   (poly-paths/, cardinality/) will be created if
- *                   missing. Existing per-version output files are
- *                   overwritten without prompting.
+ *   <out-dir>       Directory under which the per-version output JSON
+ *                   files will be created. Existing per-version output
+ *                   files are overwritten without prompting.
  *
  * Example:
  *   node tools/build_fhir_tables.mjs R4 \
@@ -100,7 +112,7 @@
  *   - List of matched bundle entries inside the archive.
  *   - Per-bundle warning when the parsed JSON is not a FHIR Bundle.
  *   - Summary at end: StructureDefinitions seen / skipped, elements
- *     scanned, counts of polymorphic and array paths written.
+ *     scanned, counts of polymorphic, array, and scalar-type paths.
  *   - One-line note for each of the first 5 elements whose type.code is
  *     missing or empty (older spec versions occasionally encode the type
  *     via an extension instead of a code).
@@ -127,6 +139,9 @@ const polyPaths = new Map();
 
 /** Set<string> of paths whose max cardinality is greater than 1 */
 const arrayPaths = new Set();
+
+/** path -> single concrete FHIR type code for non-polymorphic scalar elements */
+const elementTypes = new Map();
 
 let sdSeen = 0;
 let sdSkipped = 0;
@@ -199,7 +214,7 @@ for (const entry of matchedEntries) {
     }
 
     const sdId = sd.id || sd.name || '(unknown)';
-    elementsSeen += processElements(elements, polyPaths, arrayPaths, noteMissingTypeCode, sdId);
+    elementsSeen += processElements(elements, polyPaths, arrayPaths, elementTypes, noteMissingTypeCode, sdId);
   }
 }
 
@@ -215,41 +230,46 @@ function writeJson(file, payload) {
 const generated = new Date().toISOString().split('T')[0];
 const sourceArchive = path.basename(zipFile);
 
-// ----- poly-paths file -----
+// ----- Build consolidated payload (Layout A: three sibling sub-tables) -----
+
 const sortedPolyPaths = [...polyPaths.keys()].sort();
 /** @type {Object<string,string[]>} */
 const polyPathsObj = {};
 for (const p of sortedPolyPaths) {
   polyPathsObj[p] = [...polyPaths.get(p)].sort();
 }
-const polyFile = path.join(outDir, 'poly-paths', `${version}.json`);
-writeJson(polyFile, {
-  fhirVersion:   version,
-  generated,
-  sourceArchive,
-  sourceBundles: sourceBundleNames,
-  pathCount:     sortedPolyPaths.length,
-  polyPaths:     polyPathsObj,
-});
 
-// ----- cardinality file -----
 const sortedArrayPaths = [...arrayPaths].sort();
-const cardFile = path.join(outDir, 'cardinality', `${version}.json`);
-writeJson(cardFile, {
+
+const sortedElementTypePaths = [...elementTypes.keys()].sort();
+/** @type {Object<string,string>} */
+const elementTypesObj = {};
+for (const p of sortedElementTypePaths) {
+  elementTypesObj[p] = elementTypes.get(p);
+}
+
+const outFile = path.join(outDir, `${version}.json`);
+writeJson(outFile, {
   fhirVersion:   version,
   generated,
   sourceArchive,
   sourceBundles: sourceBundleNames,
-  pathCount:     sortedArrayPaths.length,
-  arrayPaths:    sortedArrayPaths,
+  pathCounts: {
+    poly:         sortedPolyPaths.length,
+    array:        sortedArrayPaths.length,
+    elementTypes: sortedElementTypePaths.length,
+  },
+  polyPaths:    polyPathsObj,
+  arrayPaths:   sortedArrayPaths,
+  elementTypes: elementTypesObj,
 });
 
-console.error(`Wrote ${polyFile}`);
-console.error(`Wrote ${cardFile}`);
+console.error(`Wrote ${outFile}`);
 console.error(`  StructureDefinitions: ${sdSeen} (${sdSkipped} skipped, no snapshot/differential)`);
 console.error(`  Elements scanned:     ${elementsSeen}`);
 console.error(`  Polymorphic paths:    ${sortedPolyPaths.length}`);
 console.error(`  Array paths:          ${sortedArrayPaths.length}`);
+console.error(`  Scalar-type paths:    ${sortedElementTypePaths.length}`);
 if (missingTypeCodes > 0) {
   console.error(`  Elements with missing type.code: ${missingTypeCodes}`);
 }
