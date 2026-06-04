@@ -65,7 +65,10 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
     assert.equal(output.url, r4Questionnaire.url);
     assert.equal(output.status, 'draft');
     assert.equal(output.title, 'Demo form');
-    assert.equal(output.derivedFrom, r4Questionnaire.derivedFrom);
+    // Questionnaire.derivedFrom is 0..* in R4 and R5. The test input
+    // carries a (malformed) scalar value; the engine normalises to an
+    // array per R5 cardinality.
+    assert.deepEqual(output.derivedFrom, [r4Questionnaire.derivedFrom]);
   });
 
   it('copies DomainResource base fields (id, meta, extension)', function () {

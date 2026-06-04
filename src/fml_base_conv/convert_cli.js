@@ -4,7 +4,7 @@
  * @fileoverview CLI for converting FHIR resources between FHIR versions.
  *
  * Usage:
- *   node convert.js [options] <from-version> <to-version> <resource-file.json>
+ *   node convert_cli.js [options] <from-version> <to-version> <resource-file.json>
  *
  * Options:
  *   -o, --output <file>    Write output to file instead of stdout

@@ -31,6 +31,14 @@ const DEFS_FILE = {
 };
 
 /**
+ * Process-lifetime cache for parsed FHIR defs JSONs. Keyed by version
+ * label. Multi-MB files; loading once per process is a meaningful win
+ * for the chained converter and any batch tool (e.g. compare-converters).
+ * @type {Map<string, Object|null>}
+ */
+const fhirDefsCache = new Map();
+
+/**
  * Load and parse the consolidated FHIR definitions table for one version.
  * The file is produced by tools/build_fhir_tables.mjs and groups the
  * polyPaths, arrayPaths, and elementTypes sub-tables under one per-version
@@ -38,18 +46,24 @@ const DEFS_FILE = {
  * malformed; the engine treats absence as "no info" and behaves as
  * before.
  *
+ * Result is cached at module scope for the life of the process.
+ *
  * @param {string} ver           'R2' | 'R3' | 'R4' | 'R4B' | 'R5'.
  * @param {Function} [onWarning] Optional warning sink.
  * @returns {Object|null} The parsed JSON or null on failure.
  */
 function loadFhirDefs(ver, onWarning) {
+  if (fhirDefsCache.has(ver)) return fhirDefsCache.get(ver);
   const file = DEFS_FILE[ver];
-  if (!file) return null;
+  if (!file) { fhirDefsCache.set(ver, null); return null; }
   const full = path.join(FHIR_DEFS_DIR, file);
   try {
-    return JSON.parse(fs.readFileSync(full, 'utf-8'));
+    const defs = JSON.parse(fs.readFileSync(full, 'utf-8'));
+    fhirDefsCache.set(ver, defs);
+    return defs;
   } catch (e) {
     onWarning?.(`Failed to load FHIR defs for ${ver} (${full}): ${e.message}; behavior depending on these tables is disabled`);
+    fhirDefsCache.set(ver, null);
     return null;
   }
 }
@@ -97,6 +111,16 @@ function extractConceptMapUrls(fmlText) {
 }
 
 /**
+ * Process-lifetime cache for imported FML texts. Keyed by
+ * `${fmlDir}::${mainFmlFile}`. Each entry directory typically holds
+ * dozens of sibling .fml files; reading them once per process saves the
+ * batch converters (compare-converters, chained converter) significant
+ * I/O.
+ * @type {Map<string, string[]>}
+ */
+const importedFmlCache = new Map();
+
+/**
  * Extract the imports wildcard pattern from FML text and resolve matching
  * FML files in the same directory.
  *
@@ -110,6 +134,8 @@ function extractConceptMapUrls(fmlText) {
  * are plain (e.g. `Coding.fml`, not `Coding4to3.fml`), so we load all
  * sibling `.fml` files in the directory, excluding only the main file
  * itself to avoid circular imports.
+ *
+ * Results are cached at module scope for the life of the process.
  *
  * @param {string} fmlText      The raw FML source text.
  * @param {string} fmlDir       Absolute path to the directory containing
@@ -134,12 +160,16 @@ function loadImportedFmlTexts(fmlText, fmlDir, mainFmlFile, onWarning) {
 
   if (!hasWildcardImport) return [];
 
+  const cacheKey = `${fmlDir}::${mainFmlFile}`;
+  if (importedFmlCache.has(cacheKey)) return importedFmlCache.get(cacheKey);
+
   // Load all sibling .fml files (they all belong to the same import set).
   let dirEntries;
   try {
     dirEntries = fs.readdirSync(fmlDir);
   } catch (e) {
     onWarning?.(`loadImportedFmlTexts: cannot read directory ${fmlDir}: ${e.message}`);
+    importedFmlCache.set(cacheKey, []);
     return [];
   }
 
@@ -156,6 +186,7 @@ function loadImportedFmlTexts(fmlText, fmlDir, mainFmlFile, onWarning) {
     }
   }
 
+  importedFmlCache.set(cacheKey, texts);
   return texts;
 }
 

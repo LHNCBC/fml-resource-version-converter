@@ -58,7 +58,36 @@
  */
 
 import fhirpathLib from 'fhirpath';
+import dstu2Model from 'fhirpath/fhir-context/dstu2/index.js';
+import stu3Model  from 'fhirpath/fhir-context/stu3/index.js';
+import r4Model    from 'fhirpath/fhir-context/r4/index.js';
+import r5Model    from 'fhirpath/fhir-context/r5/index.js';
 import { parseFml } from './fml_parser.js';
+
+/**
+ * FHIRPath model objects per FHIR version label. A model gives the
+ * fhirpath.js evaluator FHIR-schema awareness (polymorphic JSON field
+ * collapsing, `ofType(T)` / `is T` / `as T`, type-inheritance checks).
+ * Without it, only plain field navigation and generic FHIRPath functions
+ * work. R4B has no dedicated bundled model; we reuse R4 (the two are
+ * structurally compatible for FHIRPath purposes).
+ */
+const FHIRPATH_MODEL = {
+  R2:  dstu2Model,
+  R3:  stu3Model,
+  R4:  r4Model,
+  R4B: r4Model,
+  R5:  r5Model,
+};
+
+/**
+ * Match a leading bare identifier in a FHIRPath expression. The FML
+ * parser emits expressions whose first token is either a scope-bound
+ * alias (e.g. `v.substring(...)`) or a field of the iteration context
+ * (e.g. `coding.exists(...)`). Splitting on this lets the engine pick
+ * the right FHIRPath context.
+ */
+const FHIRPATH_HEAD_RE = /^([a-zA-Z_$][a-zA-Z0-9_$]*)/;
 
 // ----- Helpers ------------------------------------------------------------
 
@@ -277,7 +306,7 @@ function makeTranslator(conceptMaps, { strict = false, onWarning, onInfo } = {})
   // Potentially lossy -- target is narrower or relationship is vague.
   const LOSSY = new Set([
     'source-is-broader-than-target', 'narrower',
-    'related-to', 'relatedto',
+    'related-to',
   ]);
 
   /**
@@ -456,6 +485,63 @@ export function compileFmlXver({
   const translator = makeTranslator(conceptMaps, { strict: strict || false, onWarning, onInfo });
 
   /**
+   * FHIRPath model for the source FHIR version (used by all
+   * fhirpath.js evaluations the engine performs). Falls back to
+   * undefined when fromVer is unknown, in which case fhirpath.js runs
+   * in plain-JSON mode (no FHIR-schema awareness).
+   */
+  const fpModel = fromVer ? FHIRPATH_MODEL[fromVer] : undefined;
+
+  /**
+   * Evaluate a FHIRPath expression authored in an FML rule.
+   *
+   * Dispatch:
+   *   1. If the expression's head identifier is bound in the current
+   *      scope, use that binding as the FHIRPath context and strip the
+   *      head (and following dot) from the expression. This handles the
+   *      common FML idiom where the head is a source alias, e.g.
+   *      `v.substring(0, 8)` with `v` bound by `src.value as v`.
+   *   2. Otherwise treat the expression as a field-access path on the
+   *      iteration context (`$this`) when set, falling back to an empty
+   *      object. This handles guards like `coding.exists(...)` or
+   *      `reference.resolve().exists()` whose head is a field of the
+   *      current iteration item, not a scope alias.
+   *
+   * Returns the FHIRPath result, normalising the single-element-array
+   * case to its bare value (matches the rest of the engine's "scalar
+   * unless plural" convention).
+   *
+   * @param {string} expr             FHIRPath expression text.
+   * @param {Scope}  scope            Current rule scope.
+   * @param {string} diagLabel        Short label used in warning messages.
+   * @returns {*}                     Evaluation result, or undefined.
+   */
+  function evalFhirpath(expr, scope, diagLabel) {
+    try {
+      const m = expr.match(FHIRPATH_HEAD_RE);
+      let context, rest;
+      if (m && scope.has(m[1])) {
+        context = scope.get(m[1]);
+        rest = expr.slice(m[1].length).replace(/^\./, '');
+      } else {
+        context = scope.has('$this') ? scope.get('$this') : {};
+        rest = expr;
+      }
+      if (context == null) context = {};
+      if (!rest) return context;
+      const result = fhirpathLib.evaluate(context, rest, {}, fpModel);
+      if (Array.isArray(result)) {
+        if (result.length === 0) return undefined;
+        if (result.length === 1) return result[0];
+      }
+      return result;
+    } catch (e) {
+      onWarning?.(`FHIRPath ${diagLabel} evaluation failed for "${expr}": ${e.message}`);
+      return undefined;
+    }
+  }
+
+  /**
    * Build the set of last-segment names that appear as polymorphic fields
    * anywhere in a FHIR version (e.g. "value", "initial", "deceased").
    *
@@ -492,17 +578,9 @@ export function compileFmlXver({
 
   /**
    * Set of absolute dotted paths whose target field is an array
-   * (`max > 1`) in the target FHIR version. Consumed at child-container
-   * creation sites (then-clause and inline-multi-target lift) by
-   * writeToSlot() to decide whether to push (or initialize an array)
-   * rather than overwrite a slot.
-   *
-   * Deliberately NOT used inside the general writeTarget() path: simple
-   * scalar copies of source values that happen to target an array field
-   * are left as plain assignments so that an FML rule like
-   * `src.X -> tgt.X` continues to copy values as-is. Wrapping is only
-   * applied when the engine itself is producing a single container
-   * object that semantically belongs in an array.
+   * (`max > 1`) in the target FHIR version. Consumed by writeToSlot()
+   * (called from every write site) to decide whether to push (or
+   * initialize an array) rather than overwrite a slot.
    */
   const tgtArrayPaths = new Set(tgtDefs?.arrayPaths || []);
 
@@ -652,9 +730,10 @@ export function compileFmlXver({
    *     currently dropped; a full implementation would write them to a
    *     sibling `_field` slot.
    *
-   * Used at the engine's child-container creation sites (then-clause and
-   * inline-multi-target lift) only; the general writeTarget() path uses
-   * plain assignment.
+   * Used at all engine write sites: the general writeTarget() path and
+   * the child-container creation sites (then-clause and inline-multi-
+   * target lift). Routing every write through this helper ensures
+   * target-version array cardinality is always honored.
    */
   function writeToSlot(parent, key, value, absolutePath) {
     if (absolutePath && isObject(value) && 'value' in value) {
@@ -668,7 +747,13 @@ export function compileFmlXver({
     }
 
     if (absolutePath && tgtArrayPaths.has(absolutePath)) {
-      if (Array.isArray(parent[key])) {
+      if (Array.isArray(value)) {
+        // Bulk copy: `value` is already the array contents (typical of
+        // `src.foo -> tgt.foo` where `foo` is array-typed in both
+        // versions). Assign directly, or concat into an existing array.
+        if (Array.isArray(parent[key])) parent[key] = parent[key].concat(value);
+        else                            parent[key] = value;
+      } else if (Array.isArray(parent[key])) {
         parent[key].push(value);
       } else if (parent[key] === undefined) {
         parent[key] = [value];
@@ -722,7 +807,13 @@ export function compileFmlXver({
         if (name === 'true')  return true;
         if (name === 'false') return false;
         if (name === 'null')  return null;
-        if (scope.has(name)) return deepClone(scope.get(name));
+        if (scope.has(name)) {
+          const v = scope.get(name);
+          const cloned = deepClone(v);
+          const srcPath = getObjectPath(v);
+          if (srcPath) setObjectPath(cloned, srcPath);
+          return cloned;
+        }
         onWarning?.(`varRef "${name}" not found in scope; treating as literal string`);
         return name;
       }
@@ -820,19 +911,7 @@ export function compileFmlXver({
 
       case 'fhirpath': {
         const expr = args[0];
-        try {
-          // Build context from scope -- use the first source alias if available
-          const context = scope.has('src') ? scope.get('src') : {};
-          // Replace %varName references with scope values in a simple env
-          const env = {};
-          const result = fhirpathLib.evaluate(context, expr, env);
-          if (Array.isArray(result) && result.length === 1) return result[0];
-          if (Array.isArray(result) && result.length === 0) return undefined;
-          return result;
-        } catch (e) {
-          onWarning?.(`FHIRPath transform evaluation failed for "${expr}": ${e.message}`);
-          return undefined;
-        }
+        return evalFhirpath(expr, scope, 'transform');
       }
 
       default:
@@ -860,26 +939,17 @@ export function compileFmlXver({
 
     // FHIRPath-based guard expression
     if (guard.fhirpath) {
-      try {
-        // Resolve context: try the primary source alias or $this
-        let context = null;
-        if (scope.has('$this')) context = scope.get('$this');
-        // Build environment with all scope variables
-        const env = {};
-        // fhirpath.js supports $this via the context parameter
-        if (context == null) context = {};
-        const result = fhirpathLib.evaluate(context, guard.fhirpath, env);
-        // FHIRPath truthy: non-empty collection, not [false]
-        if (Array.isArray(result)) {
-          if (result.length === 0) return false;
-          if (result.length === 1 && result[0] === false) return false;
-          return true;
-        }
-        return result != null && result !== false;
-      } catch (e) {
-        onWarning?.(`FHIRPath evaluation failed for guard "${guard.fhirpath}": ${e.message}; treating as true`);
+      const result = evalFhirpath(guard.fhirpath, scope, 'guard');
+      // FHIRPath truthy: non-empty collection, not [false]; evalFhirpath
+      // already collapses single-element arrays to their value and
+      // empties to undefined.
+      if (result === undefined || result === null) return false;
+      if (Array.isArray(result)) {
+        if (result.length === 0) return false;
+        if (result.length === 1 && result[0] === false) return false;
         return true;
       }
+      return result !== false;
     }
 
     const segs = guard.left.split('.');
@@ -975,6 +1045,19 @@ export function compileFmlXver({
     if (directValue !== undefined) {
       tagSourcePath(directValue, composeChildPath(ctx, srcSpec.path));
       return { ctx, value: directValue, polyName: null, polySuffix: null, sourceLeaf: null };
+    }
+
+    // Source-clause `default "value"`: when the source path is absent,
+    // substitute the literal default the FML author declared so the rule
+    // still fires. Parsed by parseOneSource into srcSpec.defaultValue.
+    if (srcSpec.defaultValue !== undefined) {
+      return {
+        ctx,
+        value: srcSpec.defaultValue,
+        polyName: null,
+        polySuffix: null,
+        sourceLeaf: null,
+      };
     }
 
     // Bare-path miss: try polymorphic variant expansion when the leaf is
@@ -1106,7 +1189,7 @@ export function compileFmlXver({
     }
 
     const { parent, key } = ensurePath(tctx, path);
-    parent[key] = value;
+    writeToSlot(parent, key, value, composeChildPath(tctx, path));
   }
 
   /**
@@ -1323,6 +1406,11 @@ export function compileFmlXver({
 
     // Build a rule-local scope binding all source aliases to their values.
     const ruleScope = scope.child();
+    // Bind $this to the primary source value so FHIRPath guards and
+    // transforms whose head is a field of the source (e.g.
+    // `where (system='X')`) have an iteration-context-like root even
+    // outside array iteration.
+    ruleScope.set('$this', primaryValue);
     for (const b of bindings) {
       if (b.spec.alias) ruleScope.set(b.spec.alias, b.value);
     }
@@ -1730,9 +1818,21 @@ export function compileFmlXver({
     if (tgt.transform) return evalTransform(tgt.transform, scope);
     if (tgt.alias) {
       const match = bindings.find(b => b.spec.alias === tgt.alias);
-      if (match) return deepClone(match.value);
+      if (match) {
+        const cloned = deepClone(match.value);
+        // Preserve the source's absolute FHIR path on the clone so that
+        // downstream <<types>> coercion (which keys off srcElementTypes
+        // via getObjectPath) keeps working after the value has been
+        // cloned into a target slot.
+        const srcPath = getObjectPath(match.value);
+        if (srcPath) setObjectPath(cloned, srcPath);
+        return cloned;
+      }
     }
-    return deepClone(iterValue);
+    const cloned = deepClone(iterValue);
+    const srcPath = getObjectPath(iterValue);
+    if (srcPath) setObjectPath(cloned, srcPath);
+    return cloned;
   }
 
   /**
@@ -1746,6 +1846,27 @@ export function compileFmlXver({
    * @throws {Error} If `input` is not an object or has no `resourceType`
    *                 and `entryGroup` is not provided.
    */
+
+  // --- meta.profile version helpers ---
+
+  /** Matches `http://hl7.org/fhir/X.Y/StructureDefinition/...` */
+  const FHIR_BASE_PROFILE_RE = /^http:\/\/hl7\.org\/fhir\/[\d.]+\/StructureDefinition\/.+$/;
+
+  /** Version label -> FHIR version number used in profile URLs. */
+  const VER_TO_FHIR = { R2: '1.0', R3: '3.0', R4: '4.0', R4B: '4.3', R5: '5.0' };
+
+  const srcVerNum = VER_TO_FHIR[fromVer];
+  const tgtVerNum = VER_TO_FHIR[toVer];
+
+  function isSourceVersionProfile(url) {
+    return srcVerNum && url.includes(`/fhir/${srcVerNum}/StructureDefinition/`);
+  }
+
+  function toTargetVersionProfile(url) {
+    if (!tgtVerNum) return url;
+    return url.replace(`/fhir/${srcVerNum}/`, `/fhir/${tgtVerNum}/`);
+  }
+
   function convert({ input, entryGroup } = {}) {
     if (!isObject(input)) throw new Error('Input must be a JSON object');
     const group = entryGroup || input.resourceType;
@@ -1794,25 +1915,6 @@ export function compileFmlXver({
     return out;
   }
 
-  // --- meta.profile version helpers ---
-
-  /** Matches `http://hl7.org/fhir/X.Y/StructureDefinition/...` */
-  const FHIR_BASE_PROFILE_RE = /^http:\/\/hl7\.org\/fhir\/[\d.]+\/StructureDefinition\/.+$/;
-
-  /** Version label -> FHIR version number used in profile URLs. */
-  const VER_TO_FHIR = { R2: '1.0', R3: '3.0', R4: '4.0', R4B: '4.3', R5: '5.0' };
-
-  const srcVerNum = VER_TO_FHIR[fromVer];
-  const tgtVerNum = VER_TO_FHIR[toVer];
-
-  function isSourceVersionProfile(url) {
-    return srcVerNum && url.includes(`/fhir/${srcVerNum}/StructureDefinition/`);
-  }
-
-  function toTargetVersionProfile(url) {
-    if (!tgtVerNum) return url;
-    return url.replace(`/fhir/${srcVerNum}/`, `/fhir/${tgtVerNum}/`);
-  }
 
   return {
     metadata: ast.metadata,
