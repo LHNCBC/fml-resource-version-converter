@@ -239,3 +239,25 @@ describe('FML exec: targeted conversions', function () {
     });
   }
 });
+
+describe('fml_base_conv: STU3->R4 polymorphic initial conversion', () => {
+  it('converts initialString to initial[{valueString}] array form', function () {
+    const engine = createFmlEngine('Questionnaire', 'R3', 'R4');
+    const input = {
+      resourceType: 'Questionnaire',
+      status: 'draft',
+      item: [{
+        linkId: '/test',
+        type: 'string',
+        initialString: 'Mint',
+      }],
+    };
+    const output = engine.convert({ input });
+    assert.ok(Array.isArray(output.item), 'item should be an array');
+    const item = output.item[0];
+    assert.ok(Array.isArray(item.initial), 'item.initial should be an array');
+    assert.equal(item.initial.length, 1);
+    assert.equal(item.initial[0].valueString, 'Mint');
+  });
+});
+

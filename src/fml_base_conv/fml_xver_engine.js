@@ -1036,17 +1036,31 @@ class Scope {
 export function compileFmlXver({
   fmlText,
   conceptMaps     = [],
+  importedFmlTexts = [],
   strict          = false,
   fromVer         = null,
   toVer           = null,
   srcPolyPaths    = null,
   tgtPolyPaths    = null,
+  tgtCardinality  = null,
   onWarning       = null,
   onInfo          = null,
   onRuleExec      = null,
 } = {}) {
   const ast        = parseFml(fmlText, onWarning);
   const groups     = ast.groups;
+
+  // Pre-load groups from imported FML texts (type groups like Coding, Reference, etc.).
+  // Imported groups are merged into the local map; local groups take precedence.
+  for (const importedText of importedFmlTexts) {
+    const importedAst = parseFml(importedText, onWarning);
+    for (const [name, group] of importedAst.groups) {
+      if (!groups.has(name)) {
+        groups.set(name, group);
+      }
+    }
+  }
+
   const translator = makeTranslator(conceptMaps, { strict: strict || false, onWarning, onInfo });
 
   /**
@@ -1085,13 +1099,99 @@ export function compileFmlXver({
   const tgtPolyLeaves = buildPolyLeaves(tgtPolyPaths);
 
   /**
+   * Set of absolute dotted paths whose target field is an array
+   * (`max > 1`) in the target FHIR version. Consumed at child-container
+   * creation sites (then-clause and inline-multi-target lift) by
+   * writeToSlot() to decide whether to push (or initialize an array)
+   * rather than overwrite a slot.
+   *
+   * Deliberately NOT used inside the general writeTarget() path: simple
+   * scalar copies of source values that happen to target an array field
+   * are left as plain assignments so that an FML rule like
+   * `src.X -> tgt.X` continues to copy values as-is. Wrapping is only
+   * applied when the engine itself is producing a single container
+   * object that semantically belongs in an array.
+   */
+  const tgtArrayPaths = new Set(tgtCardinality?.arrayPaths || []);
+
+  /**
+   * Maps each target object created by the engine to its absolute FHIR
+   * path from the resource root (e.g. {} -> "Questionnaire.item").
+   *
+   * We use a WeakMap rather than threading paths through Scope or
+   * execGroup signatures because object identity is preserved across
+   * scope binding, group invocation, and child propagation. The entry
+   * we set when a child is created is still available when the same
+   * object is later resolved as `tgt` inside a callee group.
+   *
+   * Entries are needed only on target-side objects; source paths are
+   * not consulted by the engine today.
+   */
+  const objectPaths = new WeakMap();
+
+  /** Record an object's absolute FHIR path (no-op for non-objects or null path). */
+  function setObjectPath(obj, fhirPath) {
+    if (fhirPath && obj && typeof obj === 'object') {
+      objectPaths.set(obj, fhirPath);
+    }
+  }
+
+  /** Return the absolute FHIR path for an object, or null if unknown. */
+  function getObjectPath(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    return objectPaths.get(obj) || null;
+  }
+
+  /**
+   * Compose a child path from a parent object and a relative path fragment.
+   * Returns null when the parent's path is unknown, so callers can choose
+   * to skip the path-aware behavior gracefully.
+   */
+  function composeChildPath(parentObj, fragment) {
+    const p = getObjectPath(parentObj);
+    if (!p || !fragment) return null;
+    return p + '.' + fragment;
+  }
+
+  /**
+   * Write `value` to `parent[key]`, honoring target-version cardinality:
+   * if `absolutePath` is known to be an array field, push or initialize
+   * an array; otherwise assign scalar. Used at the engine's child-container
+   * creation sites (then-clause and inline-multi-target lift) only; the
+   * general writeTarget() path uses plain assignment.
+   */
+  function writeToSlot(parent, key, value, absolutePath) {
+    if (absolutePath && tgtArrayPaths.has(absolutePath)) {
+      if (Array.isArray(parent[key])) {
+        parent[key].push(value);
+      } else if (parent[key] === undefined) {
+        parent[key] = [value];
+      } else {
+        onWarning?.(`writeToSlot: ${absolutePath} is array-typed but slot has a non-array value; wrapping`);
+        parent[key] = [parent[key], value];
+      }
+    } else {
+      parent[key] = value;
+    }
+  }
+
+  /**
    * Resolve one TransformArg against the current scope.
    *   - `kind: 'literal'` -> return the literal string.
-   *   - `kind: 'ident'`   -> look up in scope; if absent, warn and fall
-   *                          back to the bare word.
+   *   - `kind: 'ident'`   -> the bare words `true`, `false`, `null` are
+   *                          returned as their JS literal values (FML uses
+   *                          them as boolean/null literals on the RHS of
+   *                          target assignments). Otherwise look up in
+   *                          scope; if absent, warn and fall back to the
+   *                          bare word.
    */
   function resolveArg(arg, scope) {
     if (arg.kind === 'literal') return arg.value;
+    if (arg.kind === 'ident') {
+      if (arg.value === 'true')  return true;
+      if (arg.value === 'false') return false;
+      if (arg.value === 'null')  return null;
+    }
     if (scope.has(arg.value))   return scope.get(arg.value);
     onWarning?.(`Transform arg "${arg.value}" not found in scope; treating as literal string`);
     return arg.value;
@@ -1111,6 +1211,11 @@ export function compileFmlXver({
 
       case 'varRef': {
         const name = args[0];
+        // FML uses bare `true`/`false`/`null` as boolean/null literals on
+        // RHS of target assignments (e.g. `tgt.hasAnswer = true`).
+        if (name === 'true')  return true;
+        if (name === 'false') return false;
+        if (name === 'null')  return null;
         if (scope.has(name)) return deepClone(scope.get(name));
         onWarning?.(`varRef "${name}" not found in scope; treating as literal string`);
         return name;
@@ -1564,6 +1669,51 @@ export function compileFmlXver({
   }
 
   /**
+   * Compute the polymorphic-aware write path for a target slot in a
+   * then-clause. Mirrors the suffix logic in `writeTarget`: if the matched
+   * source binding carries a polymorphic suffix AND the target leaf either
+   * equals the source leaf or is itself polymorphic in the target version,
+   * append the suffix to the target leaf.
+   *
+   * Returns the (possibly rewritten) path. If the input path is null/empty,
+   * returns it unchanged.
+   *
+   * @param {Target} tgtSpec   The target clause.
+   * @param {Object} primary   The primary source binding.
+   * @param {Array}  bindings  All source bindings (for alias matching).
+   * @returns {string|null}
+   */
+  function resolveWritePath(tgtSpec, primary, bindings) {
+    if (!tgtSpec.path) return tgtSpec.path;
+
+    let polySuffix = null, sourceLeaf = null;
+    // If target has an alias and that alias matches a source binding,
+    // use that source's polymorphic info. Otherwise (target-only alias
+    // like `create('X') as vt`, or no alias) fall back to the primary
+    // source's polymorphic info.
+    let matched = false;
+    if (tgtSpec.alias) {
+      const m = bindings.find(b => b.spec.alias === tgtSpec.alias);
+      if (m) { polySuffix = m.polySuffix; sourceLeaf = m.sourceLeaf; matched = true; }
+    }
+    if (!matched) {
+      polySuffix = primary.polySuffix;
+      sourceLeaf = primary.sourceLeaf;
+    }
+    if (!polySuffix) return tgtSpec.path;
+
+    const segs       = tgtSpec.path.split('.');
+    const targetLeaf = segs[segs.length - 1];
+    const sameLeaf   = sourceLeaf && targetLeaf === sourceLeaf;
+    const tgtIsPoly  = tgtPolyLeaves.has(targetLeaf);
+    if (sameLeaf || tgtIsPoly) {
+      segs[segs.length - 1] = targetLeaf + polySuffix;
+      return segs.join('.');
+    }
+    return tgtSpec.path;
+  }
+
+  /**
    * Apply a rule to a single (non-iterated) source value.
    *
    * Three sub-modes, in priority order:
@@ -1591,13 +1741,12 @@ export function compileFmlXver({
     }
 
     if (thenGroup || thenRules) {
-      if (!isObject(primaryValue)) {
-        onWarning?.(`then-clause invoked on non-object source value (type=${typeof primaryValue}); skipping`);
-        return;
-      }
-
       // Category 3: source-level then without targets (e.g. `src.field as v then Group(v, tgt)`)
       if (targets.length === 0) {
+        if (!isObject(primaryValue)) {
+          onWarning?.(`then-clause invoked on non-object source value (type=${typeof primaryValue}); skipping`);
+          return;
+        }
         if (thenGroup) {
           const argValues = resolveInvocationArgs(thenGroup, ruleScope, [primaryValue]);
           execGroup(thenGroup.name, argValues, ruleScope);
@@ -1615,7 +1764,32 @@ export function compileFmlXver({
         return;
       }
 
+      // Resolve target write path, honoring polymorphic suffix derived
+      // from the source binding (so `tgt.answer = create('Coding') as vt
+      // then Coding(vs, vt) "answerCoding"` writes to `tgt.answerCoding`
+      // rather than `tgt.answer`).
+      const writePath = resolveWritePath(tgtSpec, primary, bindings);
+
+      // Primitive source: the FML idiom
+      //   `tgt.X = create('primType') as vt then primType(vs, vt) "polyName"`
+      // is a primitive copy. The `create(...) as vt then primType(vs, vt)`
+      // wrapper doesn't translate meaningfully when the source is a raw JS
+      // primitive (no id/extension to copy), so we write the primitive
+      // value directly to the target's polymorphic field.
+      if (!isObject(primaryValue)) {
+        if (writePath) {
+          const { parent, key } = ensurePath(tctx, writePath);
+          writeToSlot(parent, key, primaryValue, composeChildPath(tctx, writePath));
+        } else {
+          onWarning?.(`then-clause: cannot assign primitive source to bare context "${tgtSpec.context}"`);
+        }
+        return;
+      }
+
       const child = {};
+      // Record the child's absolute FHIR path so deeper writes (and the
+      // final slot write below) can consult target-version cardinality.
+      setObjectPath(child, composeChildPath(tctx, writePath));
       if (tgtSpec.alias) ruleScope.set(tgtSpec.alias, child);
 
       if (thenGroup) {
@@ -1629,9 +1803,9 @@ export function compileFmlXver({
         for (const sr of thenRules) execRule(sr, subScope);
       }
 
-      if (tgtSpec.path) {
-        const { parent, key } = ensurePath(tctx, tgtSpec.path);
-        parent[key] = child;
+      if (writePath) {
+        const { parent, key } = ensurePath(tctx, writePath);
+        writeToSlot(parent, key, child, composeChildPath(tctx, writePath));
       } else {
         Object.assign(tctx, child);
       }
@@ -1657,6 +1831,9 @@ export function compileFmlXver({
           return;
         }
         const child      = {};
+        // Record the child's absolute FHIR path so writes into it know
+        // their own absolute paths (needed for cardinality decisions).
+        setObjectPath(child, composeChildPath(tctx, firstTgt.path));
         const childScope = ruleScope.child();
         childScope.set(aliasName, child);
 
@@ -1668,7 +1845,7 @@ export function compileFmlXver({
 
         if (firstTgt.path) {
           const { parent, key } = ensurePath(tctx, firstTgt.path);
-          parent[key] = child;
+          writeToSlot(parent, key, child, composeChildPath(tctx, firstTgt.path));
         } else {
           Object.assign(tctx, child);
         }
@@ -1746,6 +1923,12 @@ export function compileFmlXver({
           continue;
         }
         const child = {};
+        // Record the child's absolute FHIR path so writes into it (and
+        // any group invoked on it) can consult target-version cardinality.
+        // FHIR paths are array-blind: an item at index i still has the
+        // parent path (no [i] segment).
+        const writePath = resolveWritePath(tgtSpec, primary, bindings);
+        setObjectPath(child, composeChildPath(tctx, writePath));
         if (tgtSpec.alias) iterScope.set(tgtSpec.alias, child);
 
         if (thenGroup) {
@@ -1841,6 +2024,11 @@ export function compileFmlXver({
 
     const out = {};
     if (input.resourceType) out.resourceType = input.resourceType;
+
+    // Seed the absolute FHIR path of the root target object so that
+    // every subsequent child write can build its path by descent.
+    // The entry group name is the resource type (e.g. "Questionnaire").
+    setObjectPath(out, group);
 
     execGroup(group, [input, out]);
 

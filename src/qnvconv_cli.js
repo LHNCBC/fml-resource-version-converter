@@ -88,6 +88,10 @@ function processResFile(inPath, outPath, vFrom, vTo, opts) {
     fs.mkdirSync(path.dirname(outPath), {recursive: true});
     fs.writeFileSync(outPath, JSON.stringify(result.data, null, opts.pretty? 4: 0));
     console.log('==== converted questionnaire written to:', outPath);
+    if(result.message) {
+      console.log("==== Info/warn/error messages registered during the conversion");
+      console.error(JSON.stringify(result.message, null, 4));
+    }
   }
   else {
     console.error('%s: result.data not set, conversion might have failed.', inPath);

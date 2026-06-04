@@ -15,14 +15,15 @@ import { compileFmlXver } from './fml_xver_engine.js';
 const __dirname = import.meta.dirname;
 const DEFAULT_XVER_ROOT = path.resolve(__dirname, '../../fhir-cross-version/input');
 const POLY_PATHS_DIR    = path.resolve(__dirname, '../../data/fhir-defs/poly-paths');
+const CARDINALITY_DIR   = path.resolve(__dirname, '../../data/fhir-defs/cardinality');
 
 const VER_SUFFIX = { R2: '2', R3: '3', R4: '4', R4B: '4B', R5: '5' };
 
 /**
- * FHIR-version label -> poly-paths JSON file basename.
- * R2 is HL7's later alias for DSTU2; the table is published under DSTU2.
+ * FHIR-version label -> derived-table JSON filename.
+ * R2 is HL7's later alias for DSTU2; the tables are published under DSTU2.
  */
-const POLY_PATHS_FILE = {
+const TABLE_FILE = {
   R2:   'DSTU2.json',
   R3:   'STU3.json',
   R4:   'R4.json',
@@ -31,24 +32,35 @@ const POLY_PATHS_FILE = {
 };
 
 /**
- * Load and parse the poly-paths table for one FHIR version.
+ * Load and parse one of the per-version derived tables under data/fhir-defs/.
  * Returns null (with a warning) when the file is missing or malformed; the
- * engine treats absence as "no expansion possible" and behaves as before.
+ * engine treats absence as "no info" and behaves as before.
  *
- * @param {string} ver        'R2' | 'R3' | 'R4' | 'R4B' | 'R5'.
+ * @param {string} dir         Absolute path to the table subdirectory.
+ * @param {string} ver         'R2' | 'R3' | 'R4' | 'R4B' | 'R5'.
  * @param {Function} [onWarning] Optional warning sink.
  * @returns {Object|null} The parsed JSON or null on failure.
  */
-function loadPolyPaths(ver, onWarning) {
-  const file = POLY_PATHS_FILE[ver];
+function loadTable(dir, ver, onWarning) {
+  const file = TABLE_FILE[ver];
   if (!file) return null;
-  const full = path.join(POLY_PATHS_DIR, file);
+  const full = path.join(dir, file);
   try {
     return JSON.parse(fs.readFileSync(full, 'utf-8'));
   } catch (e) {
-    onWarning?.(`Failed to load poly-paths table for ${ver} (${full}): ${e.message}; polymorphic expansion disabled for this version`);
+    onWarning?.(`Failed to load ${path.basename(dir)} table for ${ver} (${full}): ${e.message}; behavior depending on this table is disabled`);
     return null;
   }
+}
+
+/** Load the polymorphic-paths table for a FHIR version. */
+function loadPolyPaths(ver, onWarning) {
+  return loadTable(POLY_PATHS_DIR, ver, onWarning);
+}
+
+/** Load the cardinality (array-paths) table for a FHIR version. */
+function loadCardinality(ver, onWarning) {
+  return loadTable(CARDINALITY_DIR, ver, onWarning);
 }
 
 /**
@@ -93,6 +105,69 @@ function extractConceptMapUrls(fmlText) {
 }
 
 /**
+ * Extract the imports wildcard pattern from FML text and resolve matching
+ * FML files in the same directory.
+ *
+ * FML `imports` declarations look like:
+ *   imports "http://hl7.org/fhir/uv/xver/StructureMap/*4to3"
+ *
+ * The wildcard `*4to3` means "all StructureMaps in this package whose
+ * canonical name ends with 4to3". In practice, every `.fml` file in a
+ * version directory (e.g. R4toR3/) belongs to the same package and shares
+ * the same version suffix in its internal name. The filenames themselves
+ * are plain (e.g. `Coding.fml`, not `Coding4to3.fml`), so we load all
+ * sibling `.fml` files in the directory, excluding only the main file
+ * itself to avoid circular imports.
+ *
+ * @param {string} fmlText      The raw FML source text.
+ * @param {string} fmlDir       Absolute path to the directory containing
+ *                              the main FML file.
+ * @param {string} mainFmlFile  Absolute path of the main FML file (excluded
+ *                              from results to prevent self-import).
+ * @param {Function} [onWarning]
+ * @returns {string[]} Array of FML source texts from imported files.
+ */
+function loadImportedFmlTexts(fmlText, fmlDir, mainFmlFile, onWarning) {
+  // Only proceed if the FML text declares at least one wildcard import.
+  const importRe = /imports\s+['"]([^'"]+)['"]/g;
+  let hasWildcardImport = false;
+  let match;
+  while ((match = importRe.exec(fmlText)) !== null) {
+    const lastSeg = match[1].split('/').pop();
+    if (lastSeg && lastSeg.startsWith('*')) {
+      hasWildcardImport = true;
+      break;
+    }
+  }
+
+  if (!hasWildcardImport) return [];
+
+  // Load all sibling .fml files (they all belong to the same import set).
+  let dirEntries;
+  try {
+    dirEntries = fs.readdirSync(fmlDir);
+  } catch (e) {
+    onWarning?.(`loadImportedFmlTexts: cannot read directory ${fmlDir}: ${e.message}`);
+    return [];
+  }
+
+  const texts = [];
+  for (const entry of dirEntries) {
+    if (!entry.endsWith('.fml')) continue;
+    const fullPath = path.join(fmlDir, entry);
+    if (fullPath === mainFmlFile) continue;
+
+    try {
+      texts.push(fs.readFileSync(fullPath, 'utf-8'));
+    } catch (e) {
+      onWarning?.(`loadImportedFmlTexts: failed to read ${fullPath}: ${e.message}`);
+    }
+  }
+
+  return texts;
+}
+
+/**
  * Derive the local ConceptMap JSON filename from its canonical URL.
  * URL pattern: `http://hl7.org/fhir/uv/xver/ConceptMap/{id}`
  * File pattern: `codes/ConceptMap-{id}.json`
@@ -133,6 +208,10 @@ export function createFmlEngine(resType, fromVer, toVer, opts = {}) {
   if (!fmlFile) throw new Error(`FML file not found for ${resType} ${fromVer}->${toVer}`);
   const fmlText = fs.readFileSync(fmlFile, 'utf-8');
 
+  // Resolve imported type-group FML files (Coding, Reference, etc.)
+  const fmlDir = path.dirname(fmlFile);
+  const importedFmlTexts = loadImportedFmlTexts(fmlText, fmlDir, fmlFile, opts.onWarning);
+
   const cmUrls = extractConceptMapUrls(fmlText);
   const conceptMaps = [];
   for (const url of cmUrls) {
@@ -151,11 +230,12 @@ export function createFmlEngine(resType, fromVer, toVer, opts = {}) {
   }
 
   return compileFmlXver({
-    fmlText, conceptMaps,
+    fmlText, conceptMaps, importedFmlTexts,
     strict: opts.strict ?? false,
     fromVer, toVer,
-    srcPolyPaths: loadPolyPaths(fromVer, opts.onWarning),
-    tgtPolyPaths: loadPolyPaths(toVer,   opts.onWarning),
+    srcPolyPaths:   loadPolyPaths(fromVer, opts.onWarning),
+    tgtPolyPaths:   loadPolyPaths(toVer,   opts.onWarning),
+    tgtCardinality: loadCardinality(toVer, opts.onWarning),
     onWarning: opts.onWarning, onInfo: opts.onInfo, onRuleExec: opts.onRuleExec,
   });
 }

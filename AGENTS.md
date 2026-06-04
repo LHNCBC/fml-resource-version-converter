@@ -21,3 +21,12 @@
 
 ## Boundaries
 - Stay within this project directory
+
+## Special Notes
+- The FML framework code (under src/fml_base_conv) should execute the FML
+  transformations faithfully, and that it does not need to, and should not
+  implement the special business logic that the converters outside of this
+  framework, e.g., the legacy converter.
+- When using tools/compare-converters.js and test/data/test/data/qn-ver-conv-test* files
+  for testing/comparision, report such special business logics from the legacy but do
+  not consider these as bugs of the FML framework code.
