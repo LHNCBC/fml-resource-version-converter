@@ -66,3 +66,19 @@ output file /tmp/my-questionnaire-R5.json (note the -R5 suffix in the result fil
 
 Will process every .json file under /tmp/my-source-dir/ (recursively) and write the output
 files to /tmp/output, with the same subdirectory structure as the source directory.
+
+### An experimental FML Based Resource Version Converter
+
+This project ships with an experimental, FML (FHIR Mapping Language) based FHIR resource version
+converter that executes the HL7 [fhir-corss-version](https://build.fhir.org/ig/HL7/fhir-cross-version)
+FML mapping files to convert FHIR resources (of any type) between versions.
+
+Note that the FHIR Cross-Version Mapping Pack itself is still under development, and this converter is
+in its own early stage of development and testing and has not yet been integrated into the Questionnaire
+version converter, which still uses the hand rolled converting logic.
+
+The plan is to use this FML based converter as the base converter and a layer needs to be built on
+top of it to handle anything that the FML mapping files haven't fully covered. This FML based converter
+has built-in framework for plugging in pre and/or post processors to support this type of integration.
+
+Interested users may take a look at src/fml_base_conv/convert_cli.js as an example on how to use it.
