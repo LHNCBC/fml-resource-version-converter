@@ -40,7 +40,7 @@ const fhirDefsCache = new Map();
 
 /**
  * Load and parse the consolidated FHIR definitions table for one version.
- * The file is produced by tools/build_fhir_tables.mjs and groups the
+ * The file is produced by tools/build_fhir_tables.js and groups the
  * polyPaths, arrayPaths, and elementTypes sub-tables under one per-version
  * JSON. Returns null (with a warning) when the file is missing or
  * malformed; the engine treats absence as "no info" and behaves as

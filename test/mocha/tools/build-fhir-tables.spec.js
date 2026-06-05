@@ -1,5 +1,5 @@
 /**
- * @fileoverview Unit tests for tools/fhir_tables_lib.mjs detection rules.
+ * @fileoverview Unit tests for tools/fhir_tables_lib.js detection rules.
  *
  * Pins down each rule in classifyElement() and the accumulator behavior
  * in processElements(), so plausible-looking edits to the detection
@@ -8,7 +8,7 @@
  */
 import { strict as assert } from 'node:assert';
 import { classifyElement, processElements, BUNDLE_ENTRY_RE }
-  from '../../../tools/fhir_tables_lib.mjs';
+  from '../../../tools/fhir_tables_lib.js';
 
 describe('fhir_tables_lib: classifyElement', () => {
 
@@ -221,4 +221,3 @@ describe('fhir_tables_lib: BUNDLE_ENTRY_RE', () => {
     assert.ok(!BUNDLE_ENTRY_RE.test('valuesets.json'));
   });
 });
-

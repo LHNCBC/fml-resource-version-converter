@@ -1,5 +1,5 @@
 /**
- * @fileoverview Detection rules used by tools/build_fhir_tables.mjs.
+ * @fileoverview Detection rules used by tools/build_fhir_tables.js.
  *
  * Extracted from the CLI script so the rules can be unit-tested in
  * isolation, away from zip-reading and file-writing side effects. Keep
@@ -132,4 +132,3 @@ export function processElements(elements, polyMap, arraySet, elementTypesMap, on
   }
   return count;
 }
-

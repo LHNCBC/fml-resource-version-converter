@@ -123,7 +123,7 @@ extracted from the full `fhir-spec.zip` under the `site/` directory.
 
 ## Regenerating
 
-Use `tools/build_fhir_tables.mjs`. See its file header for full usage.
+Use `tools/build_fhir_tables.js`. See its file header for full usage.
 A single invocation per version produces both the `poly-paths/<VER>.json`
 and `cardinality/<VER>.json` files. Raw spec zip archives live under
 `data/fhir-spec-downloads/` (gitignored; see that directory's `README.md`
@@ -134,10 +134,8 @@ bundles directly out of each zip; no manual extraction is needed.
 # Assumes data/fhir-spec-downloads/ is already populated.
 for V in DSTU2 STU3 R4 R4B R5; do
   ZIP=$([ "$V" = "DSTU2" ] && echo fhir-spec.zip || echo definitions.json.zip)
-  node tools/build_fhir_tables.mjs "$V" \
+  node tools/build_fhir_tables.js "$V" \
     "data/fhir-spec-downloads/$V/$ZIP" \
     data/fhir-defs
 done
 ```
-
-
