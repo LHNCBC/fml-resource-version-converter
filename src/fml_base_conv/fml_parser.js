@@ -132,14 +132,20 @@ const SINGLE_CHAR = {
 export function tokenise(text, onWarning) {
   const tokens = [];
   let i = 0, line = 1;
-  const push = (kind, value) => tokens.push({ kind, value, line });
+  // `start` captures the character offset (in `text`) of the first
+  // character of the next token to be emitted. Parser consumers use
+  // these offsets to recover the original source substring for
+  // FHIRPath expressions, where lossy token-level reconstruction has
+  // historically dropped escapes and whitespace around word operators.
+  let start = 0;
+  const push = (kind, value) => tokens.push({ kind, value, line, start, end: i });
 
   while (i < text.length) {
     const c = text[i], c2 = text[i + 1], c3 = text[i + 2];
 
     // --- Whitespace ---
-    if (c === '\n')                 { line++; i++; continue; }
-    if (c === '\r' || /\s/.test(c)) { i++; continue; }
+    if (c === '\n')                 { line++; i++; start = i; continue; }
+    if (c === '\r' || /\s/.test(c)) { i++; start = i; continue; }
 
     // --- /// metadata comment ---
     if (c === '/' && c2 === '/' && c3 === '/') {
@@ -147,11 +153,13 @@ export function tokenise(text, onWarning) {
       let s = '';
       while (i < text.length && text[i] !== '\n') s += text[i++];
       push(TK.META, s.trim());
+      start = i;
       continue;
     }
     // --- // line comment ---
     if (c === '/' && c2 === '/') {
       while (i < text.length && text[i] !== '\n') i++;
+      start = i;
       continue;
     }
     // --- block comment (slash-star ... star-slash) ---
@@ -162,12 +170,13 @@ export function tokenise(text, onWarning) {
         i++;
       }
       i += 2;
+      start = i;
       continue;
     }
 
     // --- Multi-char operators ---
-    if (c === '-' && c2 === '>') { push(TK.ARROW, '->'); i += 2; continue; }
-    if (c === '!' && c2 === '=') { push(TK.NEQ, '!=');  i += 2; continue; }
+    if (c === '-' && c2 === '>') { i += 2; push(TK.ARROW, '->'); start = i; continue; }
+    if (c === '!' && c2 === '=') { i += 2; push(TK.NEQ, '!=');  start = i; continue; }
 
     // --- <<...>> type annotation: capture inner content as TYPE_ANNOT ---
     if (c === '<' && c2 === '<') {
@@ -183,15 +192,16 @@ export function tokenise(text, onWarning) {
         i += 2; // consume closing >>
       }
       push(TK.TYPE_ANNOT, s.trim());
+      start = i;
       continue;
     }
 
     // --- Single-char tokens ---
-    if (SINGLE_CHAR[c]) { push(SINGLE_CHAR[c], c); i++; continue; }
+    if (SINGLE_CHAR[c]) { i++; push(SINGLE_CHAR[c], c); start = i; continue; }
 
     // Stray annotation noise like '+' (used as `<<type+>>` inner content,
     // already handled above; left in for safety on malformed files).
-    if (c === '<' || c === '>' || c === '+') { i++; continue; }
+    if (c === '<' || c === '>' || c === '+') { i++; start = i; continue; }
 
     // --- Quoted strings (single or double) ---
     if (c === "'" || c === '"') {
@@ -208,6 +218,7 @@ export function tokenise(text, onWarning) {
       }
       i++;
       push(TK.STRING, s);
+      start = i;
       continue;
     }
 
@@ -216,6 +227,7 @@ export function tokenise(text, onWarning) {
       let n = '';
       while (i < text.length && /[0-9.]/.test(text[i])) n += text[i++];
       push(TK.WORD, n);
+      start = i;
       continue;
     }
 
@@ -230,11 +242,13 @@ export function tokenise(text, onWarning) {
         while (i < text.length && /[a-zA-Z0-9_$%]/.test(text[i])) w += text[i++];
       }
       push(TK.WORD, w);
+      start = i;
       continue;
     }
 
     onWarning?.(`Tokenizer: skipping unrecognised character ${JSON.stringify(c)} at line ${line}`);
     i++;
+    start = i;
   }
   push(TK.EOF, '');
   return tokens;
@@ -256,6 +270,7 @@ export function tokenise(text, onWarning) {
  * @throws {SyntaxError} On malformed rule, group, or guard syntax.
  */
 export function parseFml(fmlText, onWarning) {
+  const text   = fmlText;
   const tokens = tokenise(fmlText, onWarning);
   let pos = 0;
 
@@ -473,6 +488,40 @@ export function parseFml(fmlText, onWarning) {
   }
 
   /**
+   * Consume a balanced parenthesised expression starting at the current
+   * `(` token and return the original FML source substring inside it
+   * (trimmed, without the outer parens). The exact bytes are preserved
+   * - whitespace, string escapes, and word-operator spacing - which is
+   * essential when handing the substring to fhirpath.js: lossy token-
+   * level reconstruction historically dropped backslash escapes
+   * (`'\n'` -> `'n'`) and merged adjacent identifiers across word
+   * operators (`vs in (...)` -> `vsin(...)`).
+   *
+   * Assumes `peek().kind === TK.LPAREN`. Consumes the matching closing
+   * `)` on success.
+   */
+  function captureBalancedParenText() {
+    const openTok = advance(); // consume opening LPAREN
+    const startOffset = openTok.end;
+    let depth = 1;
+    while (depth > 0 && !at(TK.EOF)) {
+      const t = peek();
+      if (t.kind === TK.LPAREN) depth++;
+      else if (t.kind === TK.RPAREN) {
+        depth--;
+        if (depth === 0) {
+          const endOffset = t.start;
+          advance(); // consume closing RPAREN
+          return text.slice(startOffset, endOffset).trim();
+        }
+      }
+      advance();
+    }
+    // Unbalanced; return what we have so the caller can still continue.
+    return text.slice(startOffset).trim();
+  }
+
+  /**
    * Parse a guard expression: `(fhirpath-expr)` or a bare `path`.
    * For simple cases like `(linkId = 'foo')`, returns { left, op, right }.
    * For complex FHIRPath expressions, captures the raw text as { fhirpath }.
@@ -509,30 +558,8 @@ export function parseFml(fmlText, onWarning) {
         pos = startPos;
       }
 
-      // Complex expression: extract balanced parens as raw FHIRPath text
-      advance(); // consume LPAREN again
-      let depth = 1;
-      let exprParts = [];
-      while (depth > 0 && !at(TK.EOF)) {
-        if (at(TK.LPAREN)) depth++;
-        if (at(TK.RPAREN)) { depth--; if (depth === 0) break; }
-        const tk = advance();
-        // Reconstruct text from tokens
-        if (tk.kind === TK.STRING) exprParts.push("'" + tk.value + "'");
-        else if (tk.kind === TK.DOT) exprParts.push('.');
-        else if (tk.kind === TK.COMMA) exprParts.push(', ');
-        else if (tk.kind === TK.COLON) exprParts.push(':');
-        else if (tk.kind === TK.EQ) exprParts.push(' = ');
-        else if (tk.kind === TK.NEQ) exprParts.push(' != ');
-        else if (tk.kind === TK.LPAREN) exprParts.push('(');
-        else if (tk.kind === TK.RPAREN) exprParts.push(')');
-        else if (tk.kind === TK.SEMI) exprParts.push(';');
-        else if (tk.kind === TK.PIPE) exprParts.push(' | ');
-        else exprParts.push(tk.value);
-      }
-      expect(TK.RPAREN); // consume closing paren
-      const fhirpathExpr = exprParts.join('').trim();
-      return { fhirpath: fhirpathExpr };
+      // Complex expression: capture original source text byte-for-byte.
+      return { fhirpath: captureBalancedParenText() };
     }
     let left = expect(TK.WORD).value;
     while (at(TK.DOT)) { advance(); left += '.' + expect(TK.WORD).value; }
@@ -554,26 +581,8 @@ export function parseFml(fmlText, onWarning) {
   function parseOneTarget() {
     // Parenthesized FHIRPath expression as target: `(expr) as alias`
     if (at(TK.LPAREN)) {
-      advance();
-      let depth = 1;
-      let exprParts = [];
-      while (depth > 0 && !at(TK.EOF)) {
-        if (at(TK.LPAREN)) depth++;
-        if (at(TK.RPAREN)) { depth--; if (depth === 0) break; }
-        const tk = advance();
-        if (tk.kind === TK.STRING) exprParts.push("'" + tk.value + "'");
-        else if (tk.kind === TK.DOT) exprParts.push('.');
-        else if (tk.kind === TK.COMMA) exprParts.push(', ');
-        else if (tk.kind === TK.COLON) exprParts.push(':');
-        else if (tk.kind === TK.EQ) exprParts.push(' = ');
-        else if (tk.kind === TK.NEQ) exprParts.push(' != ');
-        else if (tk.kind === TK.LPAREN) exprParts.push('(');
-        else if (tk.kind === TK.RPAREN) exprParts.push(')');
-        else if (tk.kind === TK.PIPE) exprParts.push(' | ');
-        else exprParts.push(tk.value);
-      }
-      expect(TK.RPAREN);
-      const tgt = { context: null, path: null, alias: null, transform: null, fhirpathExpr: exprParts.join('').trim() };
+      const fhirpathExpr = captureBalancedParenText();
+      const tgt = { context: null, path: null, alias: null, transform: null, fhirpathExpr };
       if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
       return tgt;
     }
@@ -606,27 +615,7 @@ export function parseFml(fmlText, onWarning) {
 
     // Parenthesized FHIRPath expression as transform value: `(expr)`
     if (at(TK.LPAREN)) {
-      advance();
-      let depth = 1;
-      let exprParts = [];
-      while (depth > 0 && !at(TK.EOF)) {
-        if (at(TK.LPAREN)) depth++;
-        if (at(TK.RPAREN)) { depth--; if (depth === 0) break; }
-        const tk = advance();
-        if (tk.kind === TK.STRING) exprParts.push("'" + tk.value + "'");
-        else if (tk.kind === TK.DOT) exprParts.push('.');
-        else if (tk.kind === TK.COMMA) exprParts.push(', ');
-        else if (tk.kind === TK.COLON) exprParts.push(':');
-        else if (tk.kind === TK.EQ) exprParts.push(' = ');
-        else if (tk.kind === TK.NEQ) exprParts.push(' != ');
-        else if (tk.kind === TK.LPAREN) exprParts.push('(');
-        else if (tk.kind === TK.RPAREN) exprParts.push(')');
-        else if (tk.kind === TK.SEMI) exprParts.push(';');
-        else if (tk.kind === TK.PIPE) exprParts.push(' | ');
-        else exprParts.push(tk.value);
-      }
-      expect(TK.RPAREN);
-      return { fn: 'fhirpath', args: [exprParts.join('').trim()] };
+      return { fn: 'fhirpath', args: [captureBalancedParenText()] };
     }
 
     const name = expect(TK.WORD).value;

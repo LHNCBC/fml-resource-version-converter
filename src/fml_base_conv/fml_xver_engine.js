@@ -521,8 +521,21 @@ export function compileFmlXver({
       const m = expr.match(FHIRPATH_HEAD_RE);
       let context, rest;
       if (m && scope.has(m[1])) {
+        // Head identifier is a scope-bound alias.
+        const tail = expr.slice(m[1].length);
         context = scope.get(m[1]);
-        rest = expr.slice(m[1].length).replace(/^\./, '');
+        if (tail === '' || tail[0] === '.') {
+          // `alias` alone, or `alias.path...` -- strip the alias and
+          // optional dot; the remainder evaluates against the binding.
+          rest = tail.startsWith('.') ? tail.slice(1) : '';
+        } else {
+          // Alias followed by a non-dot continuation, typically an
+          // infix word operator: `vs in (...)`, `s = 'x' and ...`, etc.
+          // Replacing the head with $this lets fhirpath.js parse the
+          // operator correctly while still rooting evaluation at the
+          // alias binding (which is the context passed in).
+          rest = '$this' + tail;
+        }
       } else {
         context = scope.has('$this') ? scope.get('$this') : {};
         rest = expr;
@@ -1637,7 +1650,11 @@ export function compileFmlXver({
       return;
     }
     const { parent, key } = ensurePath(tctx, tgtSpec.path);
-    parent[key] = results;
+    // Route through writeToSlot for consistency with the rest of the
+    // write paths: it preserves the array contents on a fresh slot and
+    // concatenates into an existing array when two rules feed the same
+    // target field.
+    writeToSlot(parent, key, results, composeChildPath(tctx, tgtSpec.path));
   }
 
   /**
@@ -1849,22 +1866,51 @@ export function compileFmlXver({
 
   // --- meta.profile version helpers ---
 
-  /** Matches `http://hl7.org/fhir/X.Y/StructureDefinition/...` */
-  const FHIR_BASE_PROFILE_RE = /^http:\/\/hl7\.org\/fhir\/[\d.]+\/StructureDefinition\/.+$/;
+  /**
+   * Matches HL7 FHIR base StructureDefinition URLs in their two seen
+   * forms:
+   *   - numeric:  http://hl7.org/fhir/4.0/StructureDefinition/...
+   *   - aliased:  http://hl7.org/fhir/stu3/StructureDefinition/...
+   * The version segment captures both `[\d.]+` and the textual aliases
+   * `stu3` and `dstu2` (older HL7 publications use those labels).
+   */
+  const FHIR_BASE_PROFILE_RE =
+    /^http:\/\/hl7\.org\/fhir\/(?:[\d.]+|stu3|dstu2)\/StructureDefinition\/.+$/i;
 
   /** Version label -> FHIR version number used in profile URLs. */
   const VER_TO_FHIR = { R2: '1.0', R3: '3.0', R4: '4.0', R4B: '4.3', R5: '5.0' };
 
+  /**
+   * Source-version URL segment aliases that also identify a profile as
+   * belonging to the source FHIR version. Lower-cased; matched case-
+   * insensitively. Empty for versions with no known alias.
+   */
+  const VER_URL_ALIASES = { R2: ['dstu2'], R3: ['stu3'], R4: [], R4B: [], R5: [] };
+
   const srcVerNum = VER_TO_FHIR[fromVer];
   const tgtVerNum = VER_TO_FHIR[toVer];
+  const srcVerAliases = (VER_URL_ALIASES[fromVer] || []).map(a => a.toLowerCase());
 
   function isSourceVersionProfile(url) {
-    return srcVerNum && url.includes(`/fhir/${srcVerNum}/StructureDefinition/`);
+    if (!srcVerNum) return false;
+    if (url.includes(`/fhir/${srcVerNum}/StructureDefinition/`)) return true;
+    const lc = url.toLowerCase();
+    return srcVerAliases.some(a => lc.includes(`/fhir/${a}/structuredefinition/`));
   }
 
   function toTargetVersionProfile(url) {
     if (!tgtVerNum) return url;
-    return url.replace(`/fhir/${srcVerNum}/`, `/fhir/${tgtVerNum}/`);
+    // Try the numeric source segment first; fall back to each known
+    // alias (case-insensitive replace) so `stu3` / `dstu2` URLs are
+    // rewritten to the target's numeric form.
+    if (url.includes(`/fhir/${srcVerNum}/`)) {
+      return url.replace(`/fhir/${srcVerNum}/`, `/fhir/${tgtVerNum}/`);
+    }
+    for (const alias of srcVerAliases) {
+      const re = new RegExp(`/fhir/${alias}/`, 'i');
+      if (re.test(url)) return url.replace(re, `/fhir/${tgtVerNum}/`);
+    }
+    return url;
   }
 
   function convert({ input, entryGroup } = {}) {

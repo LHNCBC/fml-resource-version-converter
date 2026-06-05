@@ -235,7 +235,14 @@ export function createFmlEngine(resType, fromVer, toVer, opts = {}) {
   const fmlDir = path.dirname(fmlFile);
   const importedFmlTexts = loadImportedFmlTexts(fmlText, fmlDir, fmlFile, opts.onWarning);
 
-  const cmUrls = extractConceptMapUrls(fmlText);
+  const cmUrls = new Set(extractConceptMapUrls(fmlText));
+  // Imported type-group FML files (e.g. Coding.fml, Reference.fml) can
+  // contain their own translate() calls; the main file isn't required
+  // to reference those ConceptMaps directly. Scan them too so every
+  // map a transitively-invoked group might need is preloaded.
+  for (const importedText of importedFmlTexts) {
+    for (const url of extractConceptMapUrls(importedText)) cmUrls.add(url);
+  }
   const conceptMaps = [];
   for (const url of cmUrls) {
     const cmFile = conceptMapPath(url, codesDir);
