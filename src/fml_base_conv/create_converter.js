@@ -13,7 +13,7 @@ import path from 'node:path';
 import { compileFmlXver } from './fml_xver_engine.js';
 
 const __dirname = import.meta.dirname;
-const DEFAULT_XVER_ROOT = path.resolve(__dirname, '../../fhir-cross-version/input');
+const DEFAULT_XVER_ROOT = path.resolve(__dirname, '../../data/fhir-cross-version/input');
 const FHIR_DEFS_DIR     = path.resolve(__dirname, '../../data/fhir-defs');
 
 const VER_SUFFIX = { R2: '2', R3: '3', R4: '4', R4B: '4B', R5: '5' };
@@ -213,7 +213,7 @@ function conceptMapPath(url, codesDir) {
  * @param {string}  fromVer  'R2' | 'R3' | 'R4' | 'R4B' | 'R5'.
  * @param {string}  toVer    'R2' | 'R3' | 'R4' | 'R4B' | 'R5'.
  * @param {Object}  [opts]
- * @param {string}  [opts.xverInputRoot]         Path to fhir-cross-version/input.
+ * @param {string}  [opts.xverInputRoot]         Path to data/fhir-cross-version/input.
  * @param {boolean} [opts.strict=false]           Throw on missing maps/codes and
  *                                                disallow R4B->R4 substitution.
  * @param {Function}[opts.onWarning]             `(msg) => void`

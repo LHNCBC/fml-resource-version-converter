@@ -1,5 +1,5 @@
 /**
- * Exhaustive test: parse every FML file in fhir-cross-version/input and
+ * Exhaustive test: parse every FML file in data/fhir-cross-version/input and
  * ensure compileFmlXver succeeds without throwing.
  */
 import { strict as assert } from 'node:assert';
@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { compileFmlXver } from '../../../src/fml_base_conv/fml_xver_engine.js';
 
-const FML_ROOT = path.resolve(import.meta.dirname, '../../../fhir-cross-version/input');
+const FML_ROOT = path.resolve(import.meta.dirname, '../../../data/fhir-cross-version/input');
 
 const DIRS = [
   'R2toR3', 'R3toR2', 'R3toR4', 'R4toR3',
