@@ -1,5 +1,9 @@
 # Agent Guidelines
 
+## General
+- Check my directions/instructions first to see if they make sense before execution 
+- If, at any point, you feel that my directions are off, please confirm with me first.
+
 ## Workflow
 - Questions: Answer, but do NOT make changes until ordered.
 - Tasks: Propose a plan, wait for approval, then execute.
