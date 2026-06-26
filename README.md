@@ -54,15 +54,15 @@ command line.
 
 
 To get detailed usage instructions, run
-- node src/qnvconv_cli.js --help
+- node src/hand_rolled_qn_conv/qnvconv_cli.js --help
 
 For examples:
-- node src/qnvconv_cli.js R4 R5 /tmp/my-questionnaire.json /tmp
+- node src/hand_rolled_qn_conv/qnvconv_cli.js R4 R5 /tmp/my-questionnaire.json /tmp
 
 Will convert the given questionnaire file (single Questionnaire or bundle) from R4 to R5 and write to the
 output file /tmp/my-questionnaire-R5.json (note the -R5 suffix in the result file name).
 
-- node src/qnvconv_cli.js R4 R5 /tmp/my-source-dir/ /tmp/output
+- node src/hand_rolled_qn_conv/qnvconv_cli.js R4 R5 /tmp/my-source-dir/ /tmp/output
 
 Will process every .json file under /tmp/my-source-dir/ (recursively) and write the output
 files to /tmp/output, with the same subdirectory structure as the source directory.

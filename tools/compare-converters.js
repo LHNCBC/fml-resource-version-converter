@@ -23,7 +23,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createConverter } from '../src/fml_base_conv/create_converter.js';
-import { getConverter } from '../src/qnvconv.js';
+import { getConverter } from '../src/hand_rolled_qn_conv/qnvconv.js';
 
 
 /**

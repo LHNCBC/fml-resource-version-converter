@@ -7,7 +7,7 @@
     "Questionnaire",
     "converter"
   ],
-  "main": "src/qnvconv.js",
+  "main": "src/hand_rolled_qn_conv/qnvconv.js",
   "type": "module",
   "homepage": "https://github.com/LHNCBC/questionnaire-version-converter",
   "repository": {

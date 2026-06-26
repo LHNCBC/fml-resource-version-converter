@@ -1,22 +1,22 @@
 import { strict as assert } from 'assert';
 import * as fs from 'fs';
 import * as path from "path";
-import { getConverter } from '../../src/qnvconv.js';
-import { newPathFrom } from "../../src/cli_util.js";
-import {toIntVerExtUrl} from "../../src/qnvconv_common.js";
+import { getConverter } from '../../../src/hand_rolled_qn_conv/qnvconv.js';
+import { newPathFrom } from "../../../src/hand_rolled_qn_conv/cli_util.js";
+import {toIntVerExtUrl} from "../../../src/hand_rolled_qn_conv/qnvconv_common.js";
 
 // A map of the supported FHIR versions (mapped to itself)
 const FHIR_V = ['STU3', 'R4', 'R4B', 'R5'].reduce((acc, v) => {acc[v] = v; return acc;}, {});
 const iveUrl = (fhirVer, urlPath) => `http://hl7.org/fhir/${fhirVer}/StructureDefinition/extension-Questionnaire.item.answerConstraint`
 const __dirname= import.meta.dirname;
 const testFiles = {
-  STU3: path.resolve(__dirname, '../data/qn-ver-conv-test-stu3base.json'),
-  R4: path.resolve(__dirname, '../data/qn-ver-conv-test-r4base.json'),
-  R4B: path.resolve(__dirname, '../data/qn-ver-conv-test-r4bbase.json'),
-  R5: path.resolve(__dirname, '../data/qn-ver-conv-test-r5base.json'),
-  R4_IVE: path.resolve(__dirname, '../data/qnvconv-test-r4-with-inter-ver-ext.json'),
-  R5_IVE: path.resolve(__dirname, '../data/qnvconv-test-r5-for-inter-ver-ext.json'),
-  output: path.resolve(__dirname, '../data/output')
+  STU3: path.resolve(__dirname, '../../data/qn-ver-conv-test-stu3base.json'),
+  R4: path.resolve(__dirname, '../../data/qn-ver-conv-test-r4base.json'),
+  R4B: path.resolve(__dirname, '../../data/qn-ver-conv-test-r4bbase.json'),
+  R5: path.resolve(__dirname, '../../data/qn-ver-conv-test-r5base.json'),
+  R4_IVE: path.resolve(__dirname, '../../data/qnvconv-test-r4-with-inter-ver-ext.json'),
+  R5_IVE: path.resolve(__dirname, '../../data/qnvconv-test-r5-for-inter-ver-ext.json'),
+  output: path.resolve(__dirname, '../../data/output')
 }
 
 let PROFILE = {
