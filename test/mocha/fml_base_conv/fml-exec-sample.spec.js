@@ -4,7 +4,9 @@
  * and that core fields survive conversion.
  */
 import { strict as assert } from 'node:assert';
-import { createFmlEngine } from '../../../src/fml_base_conv/create_converter.js';
+import { createFmlEngineFactory } from '../../../src/fml_base_conv/create_converter.js';
+
+const { createEngine } = createFmlEngineFactory();
 
 /** @type {Array<{from: string, to: string}>} */
 const DIRECTIONS = [
@@ -130,7 +132,7 @@ function makeObservationInput(version) {
  */
 function convertWithWarnings(resourceType, from, to, input) {
   const warnings = [];
-  const engine = createFmlEngine(resourceType, from, to, {
+  const engine = createEngine(resourceType, from, to, {
     onWarning: msg => warnings.push(msg),
   });
 
@@ -242,7 +244,7 @@ describe('FML exec: targeted conversions', function () {
 
 describe('fml_base_conv: STU3->R4 polymorphic initial conversion', () => {
   it('converts initialString to initial[{valueString}] array form', function () {
-    const engine = createFmlEngine('Questionnaire', 'R3', 'R4');
+    const engine = createEngine('Questionnaire', 'R3', 'R4');
     const input = {
       resourceType: 'Questionnaire',
       status: 'draft',

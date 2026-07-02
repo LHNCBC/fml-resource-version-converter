@@ -1,44 +1,48 @@
 /**
- * Tests for the fml_base_conv module: engine compilation, single-hop
- * conversion, chained conversion, meta.profile handling, and ConceptMap
- * translation.
+ * Tests for the fml_base_conv module: engine factory, single-hop conversion,
+ * hop-math (planHops), meta.profile handling, and ConceptMap translation.
  */
 import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createFmlEngine, createConverter, createChainedConverter } from '../../../src/fml_base_conv/create_converter.js';
+import { createFmlEngineFactory, planHops } from '../../../src/fml_base_conv/create_converter.js';
 import { compileFmlXver } from '../../../src/fml_base_conv/fml_xver_engine.js';
+
+const { createEngine } = createFmlEngineFactory();
 
 const TEST_DATA = path.resolve(import.meta.dirname, '../../data');
 const r4Questionnaire = JSON.parse(fs.readFileSync(path.join(TEST_DATA, 'qn-ver-conv-test-r4base.json'), 'utf-8'));
-const stu3Questionnaire = JSON.parse(fs.readFileSync(path.join(TEST_DATA, 'qn-ver-conv-test-stu3base.json'), 'utf-8'));
 
-// ---------- createChainedConverter ---------------------------------------------------
+// ---------- createFmlEngineFactory / createEngine --------------------------
 
-describe('fml_base_conv/createFmlEngine', function () {
+describe('fml_base_conv/createEngine', function () {
   it('creates an engine for Questionnaire R4->R5', function () {
-    const engine = createFmlEngine('Questionnaire', 'R4', 'R5');
-    assert.ok(engine.convert, 'engine should have a convert function');
-    assert.ok(Array.isArray(engine.groups), 'engine should expose groups');
-    assert.ok(engine.groups.includes('Questionnaire'));
+    const engine = createEngine('Questionnaire', 'R4', 'R5');
+    assert.equal(typeof engine.convert, 'function', 'engine should expose convert()');
   });
 
   it('creates an engine for Questionnaire R4B->R5', function () {
-    const engine = createFmlEngine('Questionnaire', 'R4B', 'R5');
+    const engine = createEngine('Questionnaire', 'R4B', 'R5');
     assert.ok(engine.convert);
   });
 
   it('creates an engine for Questionnaire R5->R4', function () {
-    const engine = createFmlEngine('Questionnaire', 'R5', 'R4');
+    const engine = createEngine('Questionnaire', 'R5', 'R4');
     assert.ok(engine.convert);
   });
 
+  it('reports mapping availability via hasMapping', function () {
+    const factory = createFmlEngineFactory();
+    assert.equal(factory.hasMapping('Questionnaire', 'R4', 'R5'), true);
+    assert.equal(factory.hasMapping('NoSuchResource', 'R4', 'R5'), false);
+  });
+
   it('throws for unknown resource type', function () {
-    assert.throws(() => createFmlEngine('NoSuchResource', 'R4', 'R5'), /FML file not found/);
+    assert.throws(() => createEngine('NoSuchResource', 'R4', 'R5'), /FML file not found/);
   });
 
   it('throws for unknown FHIR version', function () {
-    assert.throws(() => createFmlEngine('Questionnaire', 'R4', 'R99'), /not found|Unknown/);
+    assert.throws(() => createEngine('Questionnaire', 'R4', 'R99'), /not found|Unknown/);
   });
 });
 
@@ -50,7 +54,7 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
   const warnings = [];
 
   before(function () {
-    engine = createFmlEngine('Questionnaire', 'R4', 'R5', {
+    engine = createEngine('Questionnaire', 'R4', 'R5', {
       onWarning: msg => warnings.push(msg),
     });
     output = engine.convert({ input: r4Questionnaire });
@@ -149,7 +153,7 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
 
 describe('fml_base_conv: meta.profile handling', function () {
   it('updates standard R4 profile to R5', function () {
-    const engine = createFmlEngine('Questionnaire', 'R4', 'R5');
+    const engine = createEngine('Questionnaire', 'R4', 'R5');
     const out = engine.convert({ input: r4Questionnaire });
     assert.ok(out.meta.profile.includes('http://hl7.org/fhir/5.0/StructureDefinition/Questionnaire'));
     assert.ok(!out.meta.profile.includes('http://hl7.org/fhir/4.0/StructureDefinition/Questionnaire'));
@@ -157,7 +161,7 @@ describe('fml_base_conv: meta.profile handling', function () {
 
   it('adds target profile when source has no profile', function () {
     const input = { resourceType: 'Questionnaire', status: 'draft' };
-    const engine = createFmlEngine('Questionnaire', 'R4', 'R5');
+    const engine = createEngine('Questionnaire', 'R4', 'R5');
     const out = engine.convert({ input });
     assert.deepEqual(out.meta.profile, ['http://hl7.org/fhir/5.0/StructureDefinition/Questionnaire']);
   });
@@ -173,7 +177,7 @@ describe('fml_base_conv: meta.profile handling', function () {
         ],
       },
     };
-    const engine = createFmlEngine('Questionnaire', 'R4', 'R5');
+    const engine = createEngine('Questionnaire', 'R4', 'R5');
     const out = engine.convert({ input });
     assert.ok(out.meta.profile.includes('http://myorg.com/fhir/StructureDefinition/CustomQuestionnaire'));
     assert.ok(out.meta.profile.includes('http://hl7.org/fhir/5.0/StructureDefinition/Questionnaire'));
@@ -181,41 +185,42 @@ describe('fml_base_conv: meta.profile handling', function () {
   });
 });
 
-// ---------- createChainedEngine --------------------------------------------
+// ---------- planHops (version-graph hop-math) ------------------------------
+// Multi-hop chaining now lives in the integration layer; the engine module
+// only provides the pure hop-math. End-to-end chained conversion tests will
+// be added with the integration layer.
 
-describe('fml_base_conv/createChainedConverter', function () {
-  it('same version returns input unchanged', function () {
-    const engine = createChainedConverter('Questionnaire', 'R4', 'R4');
-    assert.deepEqual(engine.hops, []);
-    const out = engine.convert({ input: r4Questionnaire });
-    assert.deepEqual(out, r4Questionnaire);
+describe('fml_base_conv/planHops', function () {
+  it('throws for same source and target version', function () {
+    assert.throws(() => planHops('R4', 'R4'), /source and target versions are the same/);
   });
 
-  it('adjacent versions produce single hop', function () {
-    const engine = createChainedConverter('Questionnaire', 'R4', 'R5');
-    assert.equal(engine.hops.length, 2); // R4->R4B, R4B->R5
-    assert.ok(engine.convert);
+  it('adjacent versions yield a single hop', function () {
+    assert.deepEqual(planHops('R4', 'R5'), [['R4', 'R5']]);
   });
 
-  it('R3->R5 chains through R4', function () {
-    const engine = createChainedConverter('Questionnaire', 'R3', 'R5');
-    assert.ok(engine.hops.length >= 2);
-    assert.ok(engine.convert);
+  it('R3->R5 routes through R4', function () {
+    assert.deepEqual(planHops('R3', 'R5'), [['R3', 'R4'], ['R4', 'R5']]);
   });
 
-  it('R4->R4B emits compatibility warning', function () {
-    const warnings = [];
-    const engine = createChainedConverter('Questionnaire', 'R4', 'R4B', {
-      onWarning: msg => warnings.push(msg),
-    });
-    assert.ok(warnings.some(w => w.includes('not guaranteed')));
+  it('keeps R4B for direct R4B<->R5 conversions', function () {
+    assert.deepEqual(planHops('R4B', 'R5'), [['R4B', 'R5']]);
+    assert.deepEqual(planHops('R5', 'R4B'), [['R5', 'R4B']]);
   });
 
-  it('chained R3->R5 produces valid output', function () {
-    const engine = createChainedConverter('Questionnaire', 'R3', 'R5');
-    const out = engine.convert({ input: stu3Questionnaire });
-    assert.ok(out);
-    assert.equal(out.resourceType, 'Questionnaire');
+  it('throws for R4<->R4B (near-equivalent, no conversion between them)', function () {
+    assert.throws(() => planHops('R4', 'R4B'), /no conversion between them/);
+    assert.throws(() => planHops('R4B', 'R4'), /no conversion between them/);
+  });
+
+  it('throws for R4B paired with R2 or R3 (unsupported)', function () {
+    assert.throws(() => planHops('R3', 'R4B'), /Unsupported conversion/);
+    assert.throws(() => planHops('R4B', 'R3'), /Unsupported conversion/);
+    assert.throws(() => planHops('R2', 'R4B'), /Unsupported conversion/);
+  });
+
+  it('throws on unknown version', function () {
+    assert.throws(() => planHops('R4', 'R99'), /Unknown FHIR version/);
   });
 });
 

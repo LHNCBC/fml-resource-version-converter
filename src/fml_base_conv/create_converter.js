@@ -1,10 +1,14 @@
 /**
- * @fileoverview Factory functions to create FML cross-version converters.
+ * @fileoverview The pure FML cross-version conversion engine.
  *
- * Three levels of abstraction:
- *   - `createFmlEngine`        — compiles a single FML file (lowest level)
- *   - `createConverter`        — single-hop conversion with optional pre/post processors
- *   - `createChainedConverter` — multi-hop conversion with per-hop processors via factory
+ * Public surface:
+ *   - createFmlEngineFactory({ xverInputRoot }) -> { hasMapping, createEngine }
+ *       a root-bound factory; createEngine(...) yields a single-hop { convert }.
+ *   - planHops(fromVer, toVer) -> [[from, to], ...]
+ *       pure version-graph hop-math (no filesystem access).
+ *
+ * This module owns NO processor orchestration or multi-hop chaining; those
+ * belong to the integration layer.
  *
  * @module fml_base_conv/create_converter
  */
@@ -204,27 +208,87 @@ function conceptMapPath(url, codesDir) {
   return path.join(codesDir, `ConceptMap-${id}.json`);
 }
 
-// ===== createFmlEngine =====================================================
+// ===== version lanes (hop-math) ============================================
 
 /**
- * Compile a single FML file into a conversion engine. Lowest level.
- *
- * @param {string}  resType  FHIR resource type, e.g. 'Questionnaire'.
- * @param {string}  fromVer  'R2' | 'R3' | 'R4' | 'R4B' | 'R5'.
- * @param {string}  toVer    'R2' | 'R3' | 'R4' | 'R4B' | 'R5'.
- * @param {Object}  [opts]
- * @param {string}  [opts.xverInputRoot]         Path to data/fhir-cross-version/input.
- * @param {boolean} [opts.strict=false]           Throw on missing maps/codes and
- *                                                disallow R4B->R4 substitution.
- * @param {Function}[opts.onWarning]             `(msg) => void`
- * @param {Function}[opts.onInfo]                `(msg) => void`
- * @param {Function}[opts.onRuleExec]            `({rule, srcVal}) => void`
- * @returns {{metadata: Object, uses: Object[], groups: string[], convert: Function}}
- * @throws {Error} If the FML file is missing, or if strict is set
- *                 and a referenced ConceptMap file is missing or unparseable.
+ * Linear conversion lanes: ordered version sequences connected by direct FML
+ * mappings. A conversion is supported only when both endpoints lie on the SAME
+ * lane; the hops are then the consecutive steps between them along that lane.
+ *   - main lane: R2 - R3 - R4 - R5
+ *   - R4B lane:  R4B - R5
+ * R5 is the only version shared by both lanes; every other version belongs to
+ * exactly one. Consequently R4B converts only with R5, and R4B is never an
+ * intermediate hop (multi-hop routing stays on the main lane).
+ * @type {string[][]}
  */
-export function createFmlEngine(resType, fromVer, toVer, opts = {}) {
-  const xverRoot = opts.xverInputRoot || DEFAULT_XVER_ROOT;
+const CONVERSION_LANES = [
+  ['R2', 'R3', 'R4', 'R5'],
+  ['R4B', 'R5'],
+];
+
+/** All canonical versions known to the hop-math (the union of the lanes). */
+const KNOWN_VERSIONS = new Set(CONVERSION_LANES.flat());
+
+/**
+ * Plan the (shortest) conversion path from fromVer to toVer, e.g., R3 -> R5 is
+ * accomplished by two hops: R3->R4 and R4->R5, because there is no direct FML
+ * mapping file between R3 and R5.
+ *
+ * R4B has FML mappings only with R5. Conversions between R4B and {R2,R3} are not
+ * supported and an error will be thrown. Callers may consider using R4 in place
+ * of R4B for this type of conversion, which should be sufficient in general.
+ *
+ * @param {string} fromVer  Canonical source version (R2|R3|R4|R4B|R5).
+ * @param {string} toVer    Canonical target version (R2|R3|R4|R4B|R5).
+ * @returns {Array<[string, string]>} e.g. [['R3','R4'], ['R4','R5']].
+ * @throws {Error} On unknown versions, an unsupported R4B pair, or when no path
+ *          exists. Specifically, an error will be thrown if fromVer === toVer
+ *          or if the conversion is between R4 and R4B (in either direction).
+ */
+export function planHops(fromVer, toVer) {
+  if (!KNOWN_VERSIONS.has(fromVer)) throw new Error(`Unknown FHIR version: ${fromVer}`);
+  if (!KNOWN_VERSIONS.has(toVer))   throw new Error(`Unknown FHIR version: ${toVer}`);
+
+  // Special cases handled up front.
+  if (fromVer === toVer) {
+    throw new Error(`Unsupported conversion ${fromVer} -> ${toVer}: source and target versions are the same`);
+  }
+  if ((fromVer === 'R4' && toVer === 'R4B') || (fromVer === 'R4B' && toVer === 'R4')) {
+    throw new Error(`Unsupported conversion ${fromVer} -> ${toVer}: R4 and R4B are near-equivalent and have no conversion between them`);
+  }
+
+  // Both endpoints must lie on the same lane; the hops are the consecutive
+  // steps between them along that lane (in the requested direction).
+  for (const lane of CONVERSION_LANES) {
+    const i = lane.indexOf(fromVer);
+    const j = lane.indexOf(toVer);
+    if (i === -1 || j === -1) continue;
+    const step = i < j ? 1 : -1;
+    const hops = [];
+    for (let k = i; k !== j; k += step) hops.push([lane[k], lane[k + step]]);
+    return hops;
+  }
+
+  // No shared lane: e.g. R4B paired with R2 or R3.
+  throw new Error(`Unsupported conversion ${fromVer} -> ${toVer}`);
+}
+
+// ===== engine factory ======================================================
+
+/**
+ * Compile a single FML file into a single-hop conversion engine. Internal
+ * helper behind the factory's createEngine().
+ *
+ * @param {string}  resType   FHIR resource type, e.g. 'Questionnaire'.
+ * @param {string}  fromVer   Canonical source version.
+ * @param {string}  toVer     Canonical target version.
+ * @param {string}  xverRoot  Absolute path to the FML input root.
+ * @param {Object}  [opts]    Per-conversion options (see createEngine).
+ * @returns {{convert: Function}}
+ * @throws {Error} If the FML file is missing, or if strict is set and a
+ *                 referenced ConceptMap file is missing or unparseable.
+ */
+function buildEngine(resType, fromVer, toVer, xverRoot, opts = {}) {
   const codesDir = path.join(xverRoot, 'codes');
 
   const fmlFile = findFmlFile(resType, fromVer, toVer, xverRoot);
@@ -259,7 +323,7 @@ export function createFmlEngine(resType, fromVer, toVer, opts = {}) {
     }
   }
 
-  return compileFmlXver({
+  const engine = compileFmlXver({
     fmlText, conceptMaps, importedFmlTexts,
     strict: opts.strict ?? false,
     fromVer, toVer,
@@ -267,126 +331,59 @@ export function createFmlEngine(resType, fromVer, toVer, opts = {}) {
     tgtDefs: loadFhirDefs(toVer,   opts.onWarning),
     onWarning: opts.onWarning, onInfo: opts.onInfo, onRuleExec: opts.onRuleExec,
   });
-}
 
-// ===== createConverter =====================================================
-
-/**
- * Run an array of processor functions over a resource, in order.
- * Each processor receives the resource and must return the (possibly modified) resource.
- *
- * @param {Array<Function>|null|undefined} processors
- * @param {Object} resource
- * @returns {Object} The processed resource.
- */
-function runProcessors(processors, resource) {
-  if (!processors || processors.length === 0) return resource;
-  let current = resource;
-  for (const fn of processors) current = fn(current);
-  return current;
+  // Pure engine surface: expose only convert(). The compiler's introspection
+  // fields (metadata/uses/groups) stay internal to keep the contract minimal.
+  return { convert: engine.convert };
 }
 
 /**
- * Single-hop converter: pre-processors -> FML engine -> post-processors.
+ * Create a root-bound FML engine factory. The FML mapping files root is
+ * resolved once here; the returned helpers are keyed only by resource type
+ * and version pair.
  *
- * @param {string} resType
- * @param {string} fromVer
- * @param {string} toVer
- * @param {Object} [opts]
- * @param {Array<Function>} [opts.pre]  Pre-processors: (resource) => resource
- * @param {Array<Function>} [opts.post] Post-processors: (resource) => resource
+ * @param {Object} [config]
+ * @param {string} [config.xverInputRoot] FML mapping files root; defaults to
+ *        the bundled data path (data/fhir-cross-version/input).
+ * @returns {{
+ *   hasMapping: (resType: string, fromVer: string, toVer: string) => boolean,
+ *   createEngine: (resType: string, fromVer: string, toVer: string, opts?: Object) => {convert: Function},
+ * }}
  */
-export function createConverter(resType, fromVer, toVer, opts = {}) {
-  const pre  = opts.pre  || [];
-  const post = opts.post || [];
-  const engine = createFmlEngine(resType, fromVer, toVer, opts);
+export function createFmlEngineFactory({ xverInputRoot } = {}) {
+  const xverRoot = xverInputRoot || DEFAULT_XVER_ROOT;
 
   return {
-    ...engine,
-    convert({ input }) {
-      let resource = runProcessors(pre, input);
-      resource = engine.convert({ input: resource });
-      resource = runProcessors(post, resource);
-      return resource;
+    /**
+     * Whether an FML mapping exists for this resource type on this hop.
+     * Lets the integration layer decide before building an engine.
+     *
+     * @param {string} resType
+     * @param {string} fromVer
+     * @param {string} toVer
+     * @returns {boolean}
+     */
+    hasMapping(resType, fromVer, toVer) {
+      return !!findFmlFile(resType, fromVer, toVer, xverRoot);
     },
-  };
-}
 
-// ===== createChainedConverter ==============================================
-
-/** Ordered list of FHIR versions for determining hop chains. */
-const VERSION_ORDER = ['R2', 'R3', 'R4', 'R4B', 'R5'];
-
-/**
- * Compute single-hop [from, to] pairs needed to get from `fromVer` to `toVer`.
- *
- * @param {string} fromVer
- * @param {string} toVer
- * @returns {Array<[string, string]>} e.g. [['R3','R4'], ['R4','R5']]
- * @throws {Error} If either version is not in VERSION_ORDER.
- */
-function versionHops(fromVer, toVer) {
-  const fromIdx = VERSION_ORDER.indexOf(fromVer);
-  const toIdx   = VERSION_ORDER.indexOf(toVer);
-  if (fromIdx < 0) throw new Error(`Unknown FHIR version: ${fromVer}`);
-  if (toIdx < 0)   throw new Error(`Unknown FHIR version: ${toVer}`);
-  if (fromIdx === toIdx) return [];
-
-  const step = fromIdx < toIdx ? 1 : -1;
-  const hops = [];
-  for (let i = fromIdx; i !== toIdx; i += step) hops.push([VERSION_ORDER[i], VERSION_ORDER[i + step]]);
-  return hops;
-}
-
-/**
- * Multi-hop converter with per-hop processors via processorFactory.
- *
- * @param {string} resType
- * @param {string} fromVer
- * @param {string} toVer
- * @param {Object} [opts]
- * @param {Object} [opts.processorFactory] { getPre(fromVer), getPost(fromVer) }
- */
-export function createChainedConverter(resType, fromVer, toVer, opts = {}) {
-  if (fromVer === toVer) {
-    return { hops: [], convert({ input }) { return input; } };
-  }
-
-  const hops = versionHops(fromVer, toVer);
-  const xverRoot = opts.xverInputRoot || DEFAULT_XVER_ROOT;
-  const factory = opts.processorFactory || null;
-
-  const converters = [];
-  for (const [hopFrom, hopTo] of hops) {
-    // R4<->R4B: skip this hop entirely (they are treated as equivalent).
-    if ((hopFrom === 'R4' && hopTo === 'R4B') || (hopFrom === 'R4B' && hopTo === 'R4')) {
-      opts.onWarning?.(`${resType}: R4 and R4B are treated as equivalent; compatibility is not guaranteed for all resource types`);
-      continue;
-    }
-
-    let actualFrom = hopFrom, actualTo = hopTo;
-    if (!findFmlFile(resType, actualFrom, actualTo, xverRoot)) {
-      if (opts.strict) {
-        throw new Error(`FML file not found for ${resType} ${hopFrom}->${hopTo}`);
-      }
-      // Non-strict: attempt R4B <-> R4 substitution with a warning.
-      if (actualFrom === 'R4B' && findFmlFile(resType, 'R4', actualTo, xverRoot)) actualFrom = 'R4';
-      else if (actualTo === 'R4B' && findFmlFile(resType, actualFrom, 'R4', xverRoot)) actualTo = 'R4';
-      else throw new Error(`FML file not found for ${resType} ${hopFrom}->${hopTo} (no R4 substitution available)`);
-      opts.onWarning?.(`${resType}: No FML for ${hopFrom}->${hopTo}; using ${actualFrom}->${actualTo} as substitute. R4/R4B compatibility is not guaranteed for all resource types.`);
-    }
-
-    const pre  = factory?.getPre?.(hopFrom)  || [];
-    const post = factory?.getPost?.(hopFrom) || [];
-    converters.push(createConverter(resType, actualFrom, actualTo, { ...opts, pre, post }));
-  }
-
-  return {
-    hops,
-    convert({ input }) {
-      let current = input;
-      for (const c of converters) current = c.convert({ input: current });
-      return current;
+    /**
+     * Build a single-hop engine for this resource type and version pair.
+     *
+     * @param {string}   resType
+     * @param {string}   fromVer
+     * @param {string}   toVer
+     * @param {Object}   [opts]              Per-conversion options.
+     * @param {boolean}  [opts.strict=false] Throw on missing ConceptMap /
+     *        unmappable code (otherwise warn and continue).
+     * @param {Function} [opts.onWarning]    `(msg) => void` soft-issue sink.
+     * @param {Function} [opts.onInfo]       `(msg) => void` info sink.
+     * @param {Function} [opts.onRuleExec]   `({rule, srcVal}) => void` per-rule
+     *        tracing hook (observational only).
+     * @returns {{convert: Function}}
+     */
+    createEngine(resType, fromVer, toVer, opts = {}) {
+      return buildEngine(resType, fromVer, toVer, xverRoot, opts);
     },
   };
 }

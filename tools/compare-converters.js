@@ -22,7 +22,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { createConverter } from '../src/fml_base_conv/create_converter.js';
+import { createFmlEngineFactory } from '../src/fml_base_conv/create_converter.js';
 import { getConverter } from '../src/hand_rolled_qn_conv/qnvconv.js';
 
 
@@ -202,7 +202,7 @@ let fmlOutput = null;
 let fmlError = null;
 try {
   const fmlWarnings = [];
-  const fmlEngine = createConverter('Questionnaire', fmlFrom, fmlTo, {
+  const fmlEngine = createFmlEngineFactory().createEngine('Questionnaire', fmlFrom, fmlTo, {
     onWarning: msg => fmlWarnings.push(msg),
   });
   fmlOutput = fmlEngine.convert({ input });
