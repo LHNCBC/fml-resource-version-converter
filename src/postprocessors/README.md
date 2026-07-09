@@ -28,7 +28,10 @@ Notes:
 
 ## Status
 
-Scaffolding only. Concrete registries and resource-type processors are added
-incrementally (Phase 5 onward).
+The top-level `registry.js` exists (Phase 3) and exposes `lookup(resourceType,
+fromVer, toVer)`. It currently returns the functional default entry
+(`{ fml_coverage: 'not_reviewed', processors: [] }`) for every tuple. Concrete
+per-pair registries and resource-type processors are added incrementally
+(Phase 5 onward); until then, every lookup resolves to that default.
 
 

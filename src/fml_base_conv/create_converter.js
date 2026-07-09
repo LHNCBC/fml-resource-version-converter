@@ -74,9 +74,21 @@ function loadFhirDefs(ver, onWarning) {
 
 
 /**
+ * Process-lifetime cache for FML-file existence resolution. Keyed by
+ * `${xverRoot}::${resType}::${fromVer}::${toVer}` -> resolved path | null.
+ * hasMapping()/buildEngine() both resolve the same paths repeatedly (e.g. the
+ * integration layer checks hasMapping, then the registry consults it again),
+ * and each resolution does up to two fs.existsSync calls; caching removes that
+ * redundant filesystem work.
+ * @type {Map<string, string|null>}
+ */
+const fmlFileCache = new Map();
+
+/**
  * Find the FML file path for a resource type and version pair.
  * Tries the versioned filename first (e.g. `Questionnaire4to5.fml`), then
- * falls back to the plain filename (e.g. `Questionnaire.fml`).
+ * falls back to the plain filename (e.g. `Questionnaire.fml`). The result
+ * (path or null) is cached for the life of the process.
  *
  * @param {string} resType  FHIR resource type, e.g. 'Questionnaire'.
  * @param {string} fromVer  Source version, e.g. 'R4'.
@@ -85,6 +97,25 @@ function loadFhirDefs(ver, onWarning) {
  * @returns {string|null} Absolute path to the FML file, or null if not found.
  */
 function findFmlFile(resType, fromVer, toVer, xverRoot) {
+  const cacheKey = `${xverRoot}::${resType}::${fromVer}::${toVer}`;
+  if (fmlFileCache.has(cacheKey)) return fmlFileCache.get(cacheKey);
+
+  const result = resolveFmlFile(resType, fromVer, toVer, xverRoot);
+  fmlFileCache.set(cacheKey, result);
+  return result;
+}
+
+/**
+ * Resolve the FML file path without caching (see findFmlFile for the cached
+ * entry point).
+ *
+ * @param {string} resType  FHIR resource type.
+ * @param {string} fromVer  Source version.
+ * @param {string} toVer    Target version.
+ * @param {string} xverRoot Absolute path to the xver input directory.
+ * @returns {string|null} Absolute path to the FML file, or null if not found.
+ */
+function resolveFmlFile(resType, fromVer, toVer, xverRoot) {
   const fromSuffix = VER_SUFFIX[fromVer];
   const toSuffix   = VER_SUFFIX[toVer];
   if (!fromSuffix || !toSuffix) return null;
@@ -273,6 +304,32 @@ export function planHops(fromVer, toVer) {
   throw new Error(`Unsupported conversion ${fromVer} -> ${toVer}`);
 }
 
+/**
+ * List every directed adjacent version pair that has a direct FML mapping.
+ *
+ * Derived from the conversion lanes (the single source of truth for the
+ * version graph): each consecutive lane pair contributes both directions.
+ * Duplicates are removed (R5 is shared by both lanes). This is the closed set
+ * of one-hop conversions and drives the postprocessor sub-registry layout.
+ *
+ * @returns {Array<[string, string]>} e.g. [['R2','R3'],['R3','R2'],...].
+ */
+export function getAdjacentPairs() {
+  const seen = new Set();
+  const pairs = [];
+  for (const lane of CONVERSION_LANES) {
+    for (let i = 0; i < lane.length - 1; i++) {
+      for (const [from, to] of [[lane[i], lane[i + 1]], [lane[i + 1], lane[i]]]) {
+        const key = `${from}->${to}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pairs.push([from, to]);
+      }
+    }
+  }
+  return pairs;
+}
+
 // ===== engine factory ======================================================
 
 /**
@@ -387,3 +444,4 @@ export function createFmlEngineFactory({ xverInputRoot } = {}) {
     },
   };
 }
+
