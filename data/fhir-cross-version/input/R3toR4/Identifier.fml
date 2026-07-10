@@ -1,0 +1,27 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/Identifier3to4"
+/// name = "Identifier3to4"
+/// title = "Identifier Transforms: R3 to R4"
+/// status = "active"
+
+uses "http://hl7.org/fhir/3.0/StructureDefinition/Identifier" alias IdentifierR3 as source
+uses "http://hl7.org/fhir/4.0/StructureDefinition/Identifier" alias Identifier as target
+uses "http://hl7.org/fhir/4.0/StructureDefinition/CodeableConcept" alias CodeableConceptR4 as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*3to4"
+
+group Identifier(source src : IdentifierR3, target tgt : Identifier) extends Element <<type+>> {
+  src.use -> tgt.use;
+  src.type -> tgt.type;
+  src.system -> tgt.system;
+  src.value -> tgt.value;
+  src.period -> tgt.period;
+  src.assigner -> tgt.assigner;
+}
+
+group Identifier2Codeable(source src : IdentifierR3, target tgt : CodeableConceptR4) extends Element {
+  src -> tgt.coding as c then {
+    src.system -> c.system;
+    src.value -> c.code;
+  } "coding";
+}
+

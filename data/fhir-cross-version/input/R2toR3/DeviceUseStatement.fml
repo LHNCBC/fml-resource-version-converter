@@ -1,0 +1,22 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/DeviceUseStatement2to3"
+/// name = "DeviceUseStatement2to3"
+/// title = "DeviceUseStatement Transforms: R2 to R3"
+/// status = "active"
+
+uses "http://hl7.org/fhir/1.0/StructureDefinition/DeviceUseStatement" alias DeviceUseStatementR2 as source
+uses "http://hl7.org/fhir/3.0/StructureDefinition/DeviceUseStatement" alias DeviceUseStatement as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*2to3"
+
+group DeviceUseStatement(source src : DeviceUseStatementR2, target tgt : DeviceUseStatement) extends DomainResource <<type+>> {
+  src.bodySite : CodeableConcept -> tgt.bodySite "DeviceUseStatementBodySite";
+  src.whenUsed -> tgt.whenUsed "DeviceUseStatementWhenUsed";
+  src.device -> tgt.device "DeviceUseStatementDevice";
+  src.identifier -> tgt.identifier "DeviceUseStatementIdentifier";
+  src.indication -> tgt.indication "DeviceUseStatementIndication";
+  src.notes as v ->  tgt.note as n,  n.text = v "DeviceUseStatementNotes";
+  src.recordedOn -> tgt.recordedOn "DeviceUseStatementRecordedOn";
+  src.subject -> tgt.subject "DeviceUseStatementSubject";
+  src.timing -> tgt.timing "DeviceUseStatementTiming";
+}
+

@@ -1,0 +1,55 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/Immunization2to3"
+/// name = "Immunization2to3"
+/// title = "Immunization Transforms: R2 to R3"
+/// status = "active"
+
+uses "http://hl7.org/fhir/1.0/StructureDefinition/Immunization" alias ImmunizationR2 as source
+uses "http://hl7.org/fhir/3.0/StructureDefinition/Immunization" alias Immunization as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*2to3"
+
+group Immunization(source src : ImmunizationR2, target tgt : Immunization) extends DomainResource <<type+>> {
+  src.identifier -> tgt.identifier "ImmunizationIdentifier";
+  src.status where (($this = 'completed') or ($this = 'entered-in-error')) -> tgt.status "ImmunizationStatus";
+  src.date -> tgt.date "ImmunizationDate";
+  src.vaccineCode -> tgt.vaccineCode "ImmunizationVaccineCode";
+  src.patient -> tgt.patient "ImmunizationPatient";
+  src.wasNotGiven -> tgt.notGiven "ImmunizationWasNotGiven";
+  src.performer as v ->  tgt.practitioner as p,  p.role = cc('http://hl7.org/fhir/v2/0443', 'AP'),  p.actor = v "ImmunizationPerformer";
+  src.requester as v ->  tgt.practitioner as p,  p.role = cc('http://hl7.org/fhir/v2/0443', 'OP'),  p.actor = v "ImmunizationRequester";
+  src.encounter -> tgt.encounter "ImmunizationEncounter";
+  src.manufacturer -> tgt.manufacturer "ImmunizationManufacturer";
+  src.location -> tgt.location "ImmunizationLocation";
+  src.lotNumber -> tgt.lotNumber "ImmunizationLotNumber";
+  src.expirationDate -> tgt.expirationDate "ImmunizationExpirationDate";
+  src.site -> tgt.site "ImmunizationSite";
+  src.route -> tgt.route "ImmunizationRoute";
+  src.doseQuantity -> tgt.doseQuantity "ImmunizationDoseQuantity";
+  src.note -> tgt.note "ImmunizationNote";
+  src.explanation as vs0 -> tgt.explanation as vt0 then immExplanation(vs0, vt0) "ImmunizationExplanation";
+  src.reaction as vs0 -> tgt.reaction as vt0 then immReaction(vs0, vt0) "ImmunizationReaction";
+  src.vaccinationProtocol as vs0 -> tgt.vaccinationProtocol as vt0 then immProtocol(vs0, vt0) "ImmunizationVaccinationProtocol";
+}
+
+group immExplanation(source src, target tgt) extends BackboneElement {
+  src.reason -> tgt.reason "explanation-reason";
+  src.reasonNotGiven -> tgt.reasonNotGiven "explanation-reasonNotGiven";
+}
+
+group immReaction(source src, target tgt) extends BackboneElement {
+  src.date -> tgt.date "reaction-date";
+  src.detail -> tgt.detail "reaction-detail";
+  src.reported -> tgt.reported "reaction-reported";
+}
+
+group immProtocol(source src, target tgt) extends BackboneElement {
+  src.doseSequence -> tgt.doseSequence "vaccinationProtocolDoseSequence";
+  src.description -> tgt.description "vaccinationProtocolDescription";
+  src.authority -> tgt.authority "vaccinationProtocolAuthority";
+  src.series -> tgt.series "vaccinationProtocolSeries";
+  src.seriesDoses -> tgt.seriesDoses "vaccinationProtocolSeriesDoses";
+  src.targetDisease -> tgt.targetDisease "vaccinationProtocolTargetDisease";
+  src.doseStatus -> tgt.doseStatus "vaccinationProtocolDoseStatus";
+  src.doseStatusReason -> tgt.doseStatusReason "vaccinationProtocolDoseStatusReason";
+}
+

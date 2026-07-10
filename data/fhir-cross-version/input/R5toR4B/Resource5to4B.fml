@@ -1,0 +1,18 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/Resource5to4b"
+/// name = "Resource5to4b"
+/// title = "Resource Transforms: R5 to R4B"
+/// status = "active"
+
+uses "http://hl7.org/fhir/5.0/StructureDefinition/Resource" alias ResourceR5 as source
+uses "http://hl7.org/fhir/4.3/StructureDefinition/Resource" alias ResourceR4B as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*5to4b"
+
+group Resource(source src : ResourceR5, target tgt : ResourceR4B) <<type+>> {
+  src.id -> tgt.id;
+  src.meta -> tgt.meta;
+  src.implicitRules -> tgt.implicitRules;
+  src.language -> tgt.language;
+}
+
+// Base doesn't exist in R4B, so nothing to map there (or extend above).

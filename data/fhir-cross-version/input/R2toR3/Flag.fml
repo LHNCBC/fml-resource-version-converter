@@ -1,0 +1,21 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/Flag2to3"
+/// name = "Flag2to3"
+/// title = "Flag Transforms: R2 to R3"
+/// status = "active"
+
+uses "http://hl7.org/fhir/1.0/StructureDefinition/Flag" alias FlagR2 as source
+uses "http://hl7.org/fhir/3.0/StructureDefinition/Flag" alias Flag as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*2to3"
+
+group Flag(source src : FlagR2, target tgt : Flag) extends DomainResource <<type+>> {
+  src.identifier -> tgt.identifier "FlagIdentifier";
+  src.category -> tgt.category "FlagCategory";
+  src.status -> tgt.status "FlagStatus";
+  src.period -> tgt.period "FlagPeriod";
+  src.subject -> tgt.subject "FlagSubject";
+  src.encounter -> tgt.encounter "FlagEncounter";
+  src.author -> tgt.author "FlagAuthor";
+  src.code -> tgt.code "FlagCode";
+}
+

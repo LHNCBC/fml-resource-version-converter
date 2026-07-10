@@ -1,0 +1,35 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/DiagnosticOrder3to2"
+/// name = "DiagnosticOrder3to2"
+/// title = "DiagnosticOrder Transforms: R3 to R2"
+/// status = "active"
+
+uses "http://hl7.org/fhir/3.0/StructureDefinition/ProcedureRequest" alias ProcedureRequest as source
+uses "http://hl7.org/fhir/1.0/StructureDefinition/DiagnosticOrder" alias DiagnosticOrderR2 as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*3to2"
+
+group DiagnosticOrder(source src : ProcedureRequest, target tgt : DiagnosticOrderR2) extends DomainResource <<types>> {
+  src.subject -> tgt.subject "DiagnosticOrderSubject";
+  src.requester -> tgt.orderer "DiagnosticOrderOrderer";
+  src.identifier -> tgt.identifier "DiagnosticOrderIdentifier";
+  src.context -> tgt.encounter "DiagnosticOrderEncounter";
+  src.reasonCode -> tgt.reason "DiagnosticOrderReason";
+  src.supportingInfo -> tgt.supportingInformation "DiagnosticOrderSupportingInformation";
+  src.status where (src.intent = 'proposal') -> tgt.status = 'proposed' "DiagnosticOrderStatus1";
+  src.status where (src.intent = 'plan') -> tgt.status = 'planned' "DiagnosticOrderStatus2";
+  src.status as v where ((src.intent != 'proposal') and (src.intent != 'plan')) -> tgt.status = translate(v, 'http://hl7.org/fhir/uv/xver/ConceptMap/pcrq.status-dgo.status-3to2', 'code') "DiagnosticOrderStatus3";
+  src.priority -> tgt.priority "DiagnosticOrderPriority";
+  src where (src.authoredOn.exists() or src.requester.exists()) -> tgt.event as ev then doEvent(src, ev) "DiagnosticOrderEvent";
+  src where (src.code.exists()) -> tgt.item as it then doItem(src, it) "DiagnosticOrderItem";
+  src.note -> tgt.note "DiagnosticOrderNote";
+}
+
+group doEvent(source src, target tgt) {
+  src -> tgt.status = 'requested' "event-status";
+  src.authoredOn -> tgt.dateTime "event-dateTime";
+}
+
+group doItem(source src, target tgt) {
+  src.code -> tgt.code "item-code";
+}
+

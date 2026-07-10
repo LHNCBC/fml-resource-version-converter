@@ -1,0 +1,51 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/Procedure4to3"
+/// name = "Procedure4to3"
+/// title = "Procedure Transforms: R4 to R3"
+/// status = "active"
+
+uses "http://hl7.org/fhir/4.0/StructureDefinition/Procedure" alias Procedure as source
+uses "http://hl7.org/fhir/3.0/StructureDefinition/Procedure" alias ProcedureR3 as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*4to3"
+
+group Procedure(source src : Procedure, target tgt : ProcedureR3) extends DomainResource <<type+>> {
+  src.identifier -> tgt.identifier;
+  src.basedOn -> tgt.basedOn;
+  src.partOf -> tgt.partOf;
+  src.status where ($this = 'not-done') ->  tgt.status = 'suspended',  tgt.notDone = true;
+  src.status as vs where ((vs = 'not-done').not()) -> tgt.status = translate(vs, 'http://hl7.org/fhir/uv/xver/ConceptMap/pro.status-4to3', 'code');
+  src.statusReason as vs where (src.status = 'not-done') -> tgt.notDoneReason = create('CodeableConcept') as vt then CodeableConcept(vs, vt);
+  src.category -> tgt.category;
+  src.code -> tgt.code;
+  src.subject -> tgt.subject;
+  src.encounter : Reference as vs -> tgt.context = create('Reference') as vt then Reference(vs, vt) "encounterReference";
+  // Note that there is no support for string, age or range in STU3 (but is in R4)
+  src.performed : dateTime -> tgt.performed;
+  src.performed : Period -> tgt.performed;
+  src.performer as s -> tgt.performer as t then ProcedurePerformer(s, t);
+  src.location -> tgt.location;
+  src.reasonCode -> tgt.reasonCode;
+  src.reasonReference -> tgt.reasonReference;
+  src.bodySite -> tgt.bodySite;
+  src.outcome -> tgt.outcome;
+  src.report -> tgt.report;
+  src.complication -> tgt.complication;
+  src.complicationDetail -> tgt.complicationDetail;
+  src.followUp -> tgt.followUp;
+  src.note -> tgt.note;
+  src.focalDevice as s -> tgt.focalDevice as t then ProcedureFocalDevice(s, t);
+  src.usedReference -> tgt.usedReference;
+  src.usedCode -> tgt.usedCode;
+}
+
+group ProcedurePerformer(source src, target tgt) extends BackboneElement {
+  src.function -> tgt.role;
+  src.actor -> tgt.actor;
+  src.onBehalfOf -> tgt.onBehalfOf;
+}
+
+group ProcedureFocalDevice(source src, target tgt) extends BackboneElement {
+  src.action -> tgt.action;
+  src.manipulated -> tgt.manipulated;
+}
+

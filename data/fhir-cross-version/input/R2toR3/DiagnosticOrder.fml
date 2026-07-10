@@ -1,0 +1,39 @@
+/// url = "http://hl7.org/fhir/uv/xver/StructureMap/DiagnosticOrder2to3"
+/// name = "DiagnosticOrder2to3"
+/// title = "DiagnosticOrder Transforms: R2 to R3"
+/// status = "active"
+
+uses "http://hl7.org/fhir/1.0/StructureDefinition/DiagnosticOrder" alias DiagnosticOrderR2 as source
+uses "http://hl7.org/fhir/3.0/StructureDefinition/ProcedureRequest" alias ProcedureRequest as target
+
+imports "http://hl7.org/fhir/uv/xver/StructureMap/*2to3"
+
+// in R3, DiagnosticOrder is folded into ProcedureRequest, and there's no easy
+// way to tell them apart. it requires special knowledge to decide to convert
+// a procedure request back to a DiagnosticOrder, but we mark them with an
+// extension in case this helps
+group DiagnosticOrder(source src : DiagnosticOrderR2, target tgt : ProcedureRequest) extends DomainResource <<type+>> {
+  src ->  tgt.extension as ex,  ex.url = 'http://hl7.org/fhir/diagnosticorder-r2-marker',  ex.value = 'true' "DiagnosticOrderMark";
+  src.subject -> tgt.subject "DiagnosticOrderSubject";
+  src.orderer as v ->  tgt.requester as t,  t.agent = v "DiagnosticOrderOrderer";
+  src.identifier -> tgt.identifier "DiagnosticOrderIdentifier";
+  src.encounter -> tgt.context "DiagnosticOrderEncounter";
+  src.reason -> tgt.reasonCode "DiagnosticOrderReason";
+  src.supportingInformation -> tgt.supportingInfo "DiagnosticOrderSupportingInformation";
+  src.specimen -> tgt.specimen "DiagnosticOrderReason";
+  src.status as v -> tgt.status = translate(v, 'http://hl7.org/fhir/uv/xver/ConceptMap/dgo.status-pcrq.status-2to3', 'code') "DiagnosticOrderStatus";
+  src.status as v -> tgt.intent = translate(v, 'http://hl7.org/fhir/uv/xver/ConceptMap/dgo.status-pcrq.intent-2to3', 'code') "DiagnosticOrderIntent";
+  src.priority -> tgt.priority "DiagnosticOrderPriority";
+  src.event as vs where (status = 'requested') then doEvent(vs, tgt) "DiagnosticOrderEvent";
+  src.item only_one as vs then doItem(vs, tgt) "DiagnosticOrderItem";
+  src.note -> tgt.note "DiagnosticOrderNote";
+}
+
+group doEvent(source src, target tgt) {
+  src.dateTime -> tgt.authoredOn "event-dateTime";
+}
+
+group doItem(source src, target tgt) {
+  src.code -> tgt.code "item-code";
+}
+

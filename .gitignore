@@ -4,3 +4,9 @@ tmp/
 node_modules
 **/*.swp
 test/data/output
+
+# Raw FHIR spec downloads
+# - keep the README so that the directory's purpose stays visible in the repo.
+data/fhir-spec-downloads/*
+!data/fhir-spec-downloads/README.md
+
