@@ -28,17 +28,24 @@ describe('postprocessors/registry', function () {
     });
 
     it('returns the functional default entry for a valid but unreviewed tuple', function () {
+      // Patient R4->R5 has an FML mapping but no registry entry -> default.
+      const entry = registry.lookup('Patient', 'R4', 'R5');
+      assert.deepEqual(entry, { fml: { coverage: COVERAGE.NOT_REVIEWED }, processors: [] });
+    });
+
+    it('returns the reviewed coverage for a registered resource type', function () {
       const entry = registry.lookup('Questionnaire', 'R4', 'R5');
-      assert.deepEqual(entry, { fml_coverage: COVERAGE.NOT_REVIEWED, processors: [] });
+      assert.equal(entry.fml.coverage, COVERAGE.COMPLETE);
+      assert.deepEqual(entry.processors, []);
     });
 
     it('returns a fresh copy each call (mutation-safe)', function () {
-      const a = registry.lookup('Questionnaire', 'R4', 'R5');
+      const a = registry.lookup('Patient', 'R4', 'R5');
       a.processors.push({ name: 'x' });
-      a.fml_coverage = COVERAGE.COMPLETE;
+      a.fml.coverage = COVERAGE.COMPLETE;
 
-      const b = registry.lookup('Questionnaire', 'R4', 'R5');
-      assert.deepEqual(b, { fml_coverage: COVERAGE.NOT_REVIEWED, processors: [] });
+      const b = registry.lookup('Patient', 'R4', 'R5');
+      assert.deepEqual(b, { fml: { coverage: COVERAGE.NOT_REVIEWED }, processors: [] });
     });
   });
 

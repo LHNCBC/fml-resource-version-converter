@@ -109,7 +109,7 @@ export function convertSingleHop(resource, fromVer, toVer, opts = {}) {
   // The registry supplies the FML coverage and the package default
   // postprocessor list; caller postprocs combine per postprocessPolicy.
   const registryEntry = registry.lookup(resType, fromVer, toVer);
-  const fmlCoverage = registryEntry.fml_coverage;
+  const fmlCoverage = registryEntry.fml.coverage;
   const postprocessors = resolvePostprocessors(
     registryEntry.processors,
     postprocs,

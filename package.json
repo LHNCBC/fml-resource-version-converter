@@ -1,20 +1,31 @@
 {
-  "name": "questionnaire-version-converter",
-  "version": "1.2.0",
-  "description": "For converting FHIR questionnaires between FHIR versions.",
+  "name": "fml-resource-version-converter",
+  "version": "0.1.0",
+  "description": "For converting FHIR resources between FHIR versions.",
   "keywords": [
     "fhir",
-    "Questionnaire",
-    "converter"
+    "resource",
+    "version",
+    "converter",
+    "convert",
+    "conversion"
   ],
-  "main": "src/hand_rolled_qn_conv/qnvconv.js",
+  "main": "src/index.js",
   "type": "module",
-  "homepage": "https://github.com/LHNCBC/questionnaire-version-converter",
+  "exports": {
+    ".": "./src/index.js",
+    "./fml-engine": "./src/fml-engine.js",
+    "./package.json": "./package.json"
+  },
+  "homepage": "https://github.com/LHNCBC/fml-resource-version-converter",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LHNCBC/questionnaire-version-converter"
+    "url": "git+https://github.com/LHNCBC/fml-resource-version-converter.git"
   },
-  "license": "See LICENSE.md",
+  "bugs": {
+    "url": "https://github.com/LHNCBC/fml-resource-version-converter/issues"
+  },
+  "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
     "test": "mocha test/mocha --recursive"
   },

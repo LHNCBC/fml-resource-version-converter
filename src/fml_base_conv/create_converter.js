@@ -226,17 +226,38 @@ function loadImportedFmlTexts(fmlText, fmlDir, mainFmlFile, onWarning) {
 }
 
 /**
- * Derive the local ConceptMap JSON filename from its canonical URL.
- * URL pattern: `http://hl7.org/fhir/uv/xver/ConceptMap/{id}`
- * File pattern: `codes/ConceptMap-{id}.json`
+ * ConceptMap id-prefix -> containing subdirectory.
+ *
+ * The cross-version package groups ConceptMaps by the vocabulary they translate:
+ * the data-type and resource-type name maps live in their own folders under a
+ * fixed `types-`/`resources-` id prefix (likewise `elements-`/`search-params-`),
+ * while every value-set/terminology map is named after its value set and lives
+ * in `codes/`. The id therefore determines the folder with no filesystem probing.
+ * @type {Array<[string, string]>}
+ */
+const CM_SUBDIR_BY_PREFIX = [
+  ['types-',         'types'],
+  ['resources-',     'resources'],
+  ['elements-',      'elements'],
+  ['search-params-', 'search-params'],
+];
+
+/**
+ * Derive the local ConceptMap JSON path from its canonical URL.
+ * URL pattern:  `http://hl7.org/fhir/uv/xver/ConceptMap/{id}`
+ * File pattern: `{subdir}/ConceptMap-{id}.json`, where the subdirectory is
+ * chosen from the id prefix (see CM_SUBDIR_BY_PREFIX); unprefixed ids are
+ * value-set maps under `codes/`.
  *
  * @param {string} url      The canonical ConceptMap URL.
- * @param {string} codesDir Absolute path to the codes directory.
+ * @param {string} xverRoot Absolute path to the FML input root.
  * @returns {string} Absolute path to the ConceptMap JSON file.
  */
-function conceptMapPath(url, codesDir) {
+function conceptMapPath(url, xverRoot) {
   const id = url.split('/').pop();
-  return path.join(codesDir, `ConceptMap-${id}.json`);
+  const hit = CM_SUBDIR_BY_PREFIX.find(([prefix]) => id.startsWith(prefix));
+  const subdir = hit ? hit[1] : 'codes';
+  return path.join(xverRoot, subdir, `ConceptMap-${id}.json`);
 }
 
 // ===== version lanes (hop-math) ============================================
@@ -346,7 +367,6 @@ export function getAdjacentPairs() {
  *                 referenced ConceptMap file is missing or unparseable.
  */
 function buildEngine(resType, fromVer, toVer, xverRoot, opts = {}) {
-  const codesDir = path.join(xverRoot, 'codes');
 
   const fmlFile = findFmlFile(resType, fromVer, toVer, xverRoot);
   if (!fmlFile) throw new Error(`FML file not found for ${resType} ${fromVer}->${toVer}`);
@@ -366,7 +386,7 @@ function buildEngine(resType, fromVer, toVer, xverRoot, opts = {}) {
   }
   const conceptMaps = [];
   for (const url of cmUrls) {
-    const cmFile = conceptMapPath(url, codesDir);
+    const cmFile = conceptMapPath(url, xverRoot);
     if (!fs.existsSync(cmFile)) {
       if (opts.strict) throw new Error(`ConceptMap file not found: ${cmFile} (referenced by ${url})`);
       opts.onWarning?.(`ConceptMap file not found: ${cmFile} (referenced by ${url}); translations using this map will return source codes unchanged`);

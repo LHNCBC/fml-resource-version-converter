@@ -64,7 +64,7 @@ describe('converter/singleHopConverter', function () {
       // is expected to be either ok or warning; check the enum and the
       // warning invariant instead of a hard-coded value.
       assert.ok([STATUS.OK, STATUS.WARNING].includes(result.status));
-      assert.equal(result.coverage, COVERAGE.NOT_REVIEWED);
+      assert.equal(result.coverage, COVERAGE.COMPLETE);
       // Flat result: no hops array; the FML report is at the top level.
       assert.equal('hops' in result, false);
       assert.equal(typeof result.fml_base_conv, 'object');
@@ -85,7 +85,7 @@ describe('converter/singleHopConverter', function () {
     it('describes the FML engine step in the result', function () {
       const fml = result.fml_base_conv;
       assert.equal(fml.name, '_FML_');
-      assert.equal(fml.coverage, COVERAGE.NOT_REVIEWED);
+      assert.equal(fml.coverage, COVERAGE.COMPLETE);
       assert.ok([STATUS.OK, STATUS.WARNING].includes(fml.status));
       assert.equal(Array.isArray(fml.messages), true);
       // Warning-invariant: if status is warning, at least one warning message.

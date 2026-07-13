@@ -5,6 +5,21 @@
  * advisory and separate from runtime status.
  */
 
+/**
+ * Coverage levels for a converter component (the FML step or a postprocessor).
+ *
+ * Completeness is judged against the conversions that are NECESSARY to map
+ * standard, valid input from the source version to the target version.
+ *
+ * In particular, inter-version-extension (IVE) round-trip preservation is not a
+ * factor. A component may therefore be COMPLETE without implementing IVE handling.
+ *
+ * - NOT_REVIEWED: completeness has not been assessed (functional default).
+ * - PARTIAL: some, but not all, necessary conversions are implemented.
+ * - COMPLETE: all necessary conversions for valid input are implemented.
+ * - NEUTRAL: makes no completeness claim; exempt from ordered comparison and
+ *            ignored by the rollups (used by coverage-agnostic postprocessors).
+ */
 export const COVERAGE = Object.freeze({
   NOT_REVIEWED: 'not_reviewed',
   PARTIAL: 'partial',

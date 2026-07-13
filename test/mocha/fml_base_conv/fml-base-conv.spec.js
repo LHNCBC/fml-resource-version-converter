@@ -46,6 +46,30 @@ describe('fml_base_conv/createEngine', function () {
   });
 });
 
+// ---------- ConceptMap path resolution -------------------------------------
+
+describe('fml_base_conv: ConceptMap path resolution', function () {
+  // The data-type / resource-type ConceptMaps referenced by translate() live in
+  // types/ and resources/, not codes/; the resolver routes by id prefix. This
+  // guards that such a map resolves (no "not found" warning) and translates.
+  it('resolves a types-* ConceptMap referenced by translate() (OperationDefinition R4->R5)', function () {
+    const input = {
+      resourceType: 'OperationDefinition', name: 'Test', status: 'active',
+      kind: 'operation', code: 'test', system: false, type: false, instance: true,
+      parameter: [{ name: 'subject', use: 'in', min: 1, max: '1', type: 'Reference' }],
+    };
+    const warnings = [];
+    const engine = createEngine('OperationDefinition', 'R4', 'R5', { onWarning: m => warnings.push(m) });
+    const output = engine.convert({ input });
+
+    assert.equal(output.parameter[0].type, 'Reference');
+    const typeMapNotFound = warnings.filter(
+      w => /not found/.test(w) && /ConceptMap-(types|resources)-/.test(w),
+    );
+    assert.equal(typeMapNotFound.length, 0, 'types-/resources- ConceptMaps should resolve');
+  });
+});
+
 // ---------- Basic conversion R4->R5 -----------------------------------------
 
 describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {

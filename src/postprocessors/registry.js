@@ -8,10 +8,16 @@
  *
  * Entry shape:
  *   {
- *     fml_coverage: 'not_reviewed' | 'partial' | 'complete',  // default not_reviewed
- *     fml_note?:    string,        // optional note on the FML coverage
- *     processors:   Array<Object>, // postprocessor descriptors, possibly empty
+ *     fml: {
+ *       coverage:     'not_reviewed' | 'partial' | 'complete',  // default not_reviewed
+ *       description?: string,       // optional note on the FML coverage
+ *     },
+ *     processors:     Array<Object>, // postprocessor descriptors, possibly empty
  *   }
+ *
+ * The final cumulative coverage for a conversion (FML stage rolled up with the
+ * postprocessors) is not stored on the entry - it is derived. It is generated
+ * into COVERAGE.md from fml.coverage and each processor's coverage.
  *
  * Loading strategy: the sub-registries are imported statically (one file per
  * direction, always present as at least an empty placeholder). This keeps the
@@ -30,7 +36,7 @@
  * cannot be converted. The consolidated postprocessor tables are root-
  * independent and built once at module load; only validity uses the factory.
  *
- * See next-step.md ("The postprocessor registry") for the authoritative design.
+ * See the design documents ("The postprocessor registry") for the authoritative design.
  *
  * @module postprocessors/registry
  */
@@ -80,10 +86,31 @@ function directionKey(fromVer, toVer) {
  * A fresh object is returned on every call so callers may freely mutate the
  * entry (e.g. append processors) without affecting later lookups.
  *
- * @returns {{fml_coverage: string, processors: Array<Object>}} Default entry.
+ * @returns {{fml: {coverage: string}, processors: Array<Object>}} Default entry.
  */
 function defaultEntry() {
-  return { fml_coverage: COVERAGE.NOT_REVIEWED, processors: [] };
+  return { fml: { coverage: COVERAGE.NOT_REVIEWED }, processors: [] };
+}
+
+/**
+ * Normalize and validate an entry's `fml` stage object.
+ *
+ * A missing fml object or coverage falls through to the default; an unknown
+ * coverage level throws (fail-fast). The optional `description` is passed
+ * through untouched.
+ *
+ * @param {Object|null|undefined} rawFml Raw fml object from a sub-registry entry.
+ * @param {string} label Human-readable label for error messages.
+ * @returns {{coverage: string, description?: string}} Normalized fml object.
+ * @throws {Error} If fml.coverage is an unknown level.
+ */
+function normalizeFml(rawFml, label) {
+  const fml = { ...(rawFml || {}) };
+  fml.coverage ??= COVERAGE.NOT_REVIEWED;   // coerce missing/null/undefined -> default
+  if (!isCoverageLevel(fml.coverage)) {
+    throw new Error(`registry: invalid fml.coverage for ${label}: ${fml.coverage}`);
+  }
+  return fml;
 }
 
 /**
@@ -97,17 +124,14 @@ function defaultEntry() {
  *
  * @param {Object} raw   Raw entry from a sub-registry.
  * @param {string} label Human-readable label for error messages.
- * @returns {{fml_coverage: string, processors: Array<Object>}} Normalized entry.
- * @throws {Error} If fml_coverage or processors are malformed.
+ * @returns {{fml: {coverage: string}, processors: Array<Object>}} Normalized entry.
+ * @throws {Error} If fml.coverage or processors are malformed.
  */
 function normalizeEntry(raw, label) {
   const entry = { ...defaultEntry(), ...raw };
+  entry.fml = normalizeFml(entry.fml, label);
   entry.processors ??= [];                       // coerce null/undefined -> default
-  entry.fml_coverage ??= COVERAGE.NOT_REVIEWED;   // same spread quirk, same fix
 
-  if (!isCoverageLevel(entry.fml_coverage)) {
-    throw new Error(`registry: invalid fml_coverage for ${label}: ${entry.fml_coverage}`);
-  }
   if (!Array.isArray(entry.processors)) {
     throw new Error(`registry: processors must be an array for ${label}`);
   }
@@ -133,15 +157,15 @@ for (const [key, subRegistry] of Object.entries(DIRECTION_REGISTRIES)) {
 }
 
 /**
- * Return a fresh copy of a normalized entry with a copied processors array,
+ * Return a fresh copy of a normalized entry with copied fml and processors,
  * so callers can mutate the result without corrupting the shared table.
  * The processor descriptors themselves are shared (they are stateless).
  *
- * @param {{fml_coverage: string, processors: Array<Object>}} entry Source entry.
- * @returns {{fml_coverage: string, processors: Array<Object>}} A safe copy.
+ * @param {{fml: {coverage: string}, processors: Array<Object>}} entry Source entry.
+ * @returns {{fml: {coverage: string}, processors: Array<Object>}} A safe copy.
  */
 function cloneEntry(entry) {
-  return { ...entry, processors: [...entry.processors] };
+  return { ...entry, fml: { ...entry.fml }, processors: [...entry.processors] };
 }
 
 /**
@@ -174,7 +198,7 @@ export function createRegistry(engineFactory) {
    * @param {string} resourceType FHIR resource type, e.g. 'Patient'.
    * @param {string} fromVer      Canonical source version (R2|R3|R4|R4B|R5).
    * @param {string} toVer        Canonical target version (R2|R3|R4|R4B|R5).
-   * @returns {{fml_coverage: string, processors: Array<Object>}} Registry entry.
+   * @returns {{fml: {coverage: string}, processors: Array<Object>}} Registry entry.
    * @throws {Error} If the tuple is not convertible (invalid version pair or
    *   unknown resource type).
    */
