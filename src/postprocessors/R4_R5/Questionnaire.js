@@ -1,14 +1,17 @@
 /**
  * @fileoverview Questionnaire postprocessors for the R4 <-> R5 version pair.
  *
- * Currently provides the R5 -> R4 direction only. The R4 -> R5 direction needs
- * no postprocessor for the necessary (non-IVE) conversions: the FML mapping
- * covers it.
+ * Provides the R5 -> R4 direction only. The R4 -> R5 direction needs no
+ * postprocessor for the necessary (non-IVE) conversions: the FML mapping covers
+ * it.
  *
- * The FML issues the R5 -> R4 direction handles are listed as a bullet block
- * directly above its descriptor (see the design documents, "The postprocessor
- * registry"). Inter-version-extension (IVE) handling is out of scope and
- * deferred to a later phase (see the design documents, "Inter-version extensions").
+ * The R5 -> R4 item.type narrowing here is also reused verbatim by R5 -> R4B
+ * (R4B is identical to R4 for Questionnaire.item); see
+ * postprocessors/R4B_R5/Questionnaire.js. The FML issues handled are listed as a
+ * bullet block directly above the descriptor (see the design documents, "The
+ * postprocessor registry"). Inter-version-extension (IVE) handling is out of
+ * scope and deferred to a later phase (see the design documents,
+ * "Inter-version extensions").
  *
  * @module postprocessors/R4_R5/Questionnaire
  */
@@ -36,6 +39,7 @@ function hasAnswerOptions(item) {
  * R5 `coding` (plus `answerConstraint`/options) maps back to R4
  * `choice`/`open-choice`, while non-coding types keep their base type.
  * Ambiguous or lossy cases push an info/warning message onto `messages`.
+ * (R4 and R4B are identical here, so R5 -> R4B reuses this.)
  *
  * @param {Object} sItem R5 source item (read-only).
  * @param {Array<Object>} messages Diagnostic messages to append to.
@@ -114,7 +118,7 @@ function indexSourceItemsByLinkId(items, map) {
  * @param {Array<Object>} messages Diagnostic messages to append to.
  */
 function fixItemType(tItem, sItem, messages) {
-  // R4 has no item.answerConstraint; drop anything the FML step left behind.
+  // R4/R4B have no item.answerConstraint; drop anything the FML step left behind.
   if ('answerConstraint' in tItem) delete tItem.answerConstraint;
 
   if (sItem && typeof sItem === 'object' && sItem.type != null) {
@@ -169,7 +173,9 @@ export const conv_R5_to_R4 = {
   description:
     'Corrects Questionnaire item.type for R5->R4 (coding/answerConstraint -> '
     + 'choice/open-choice) from the R5 source, fixing the FML step\'s malformed '
-    + 'and over-widened narrowing. Does not handle inter-version extensions.',
+    + 'and over-widened narrowing. Also reused verbatim by R5->R4B (R4B is '
+    + 'identical to R4 for Questionnaire.item). Does not handle inter-version '
+    + 'extensions.',
 
   /**
    * @param {Object} target FML-converted R4 Questionnaire (mutated in place).

@@ -1,28 +1,39 @@
 #!/usr/bin/env node
 
 /**
- * @fileoverview Compare FML-based and legacy (hand-coded) Questionnaire converters.
+ * @fileoverview Compare Questionnaire converters: raw FML engine, full
+ * integration pipeline (convertSingleHop), and the legacy (hand-coded) converter.
+ *
+ * Three outputs per run:
+ *   - FML: the raw FML engine only (no postprocessors)
+ *   - Full: the integration API convertSingleHop() (FML + package postprocessors)
+ *   - Legacy: the hand-rolled Questionnaire converter
  *
  * Usage:
- *   node test/compare-converters.js <from-version> <to-version> <questionnaire.json> [output-dir]
+ *   node tools/compare-converters.js <from-version> <to-version> <questionnaire.json> [output-dir]
  *
  * Examples:
- *   node test/compare-converters.js R4 R5 test/data/qn-ver-conv-test-r4base.json
- *   node test/compare-converters.js R4 R5 test/data/qn-ver-conv-test-r4base.json ./output
- *   node test/compare-converters.js STU3 R4 my-questionnaire.json /tmp/out
+ *   node tools/compare-converters.js R4 R5 test/data/qn-ver-conv-test-r4base.json
+ *   node tools/compare-converters.js R4 R5 test/data/qn-ver-conv-test-r4base.json ./output
+ *   node tools/compare-converters.js STU3 R4 my-questionnaire.json /tmp/out
  *
  * Versions: STU3 (or R3), R4, R4B, R5
  *
  * Output:
- *   - Runs both converters and reports success/failure
- *   - Optionally writes results to output-dir as <basename>-fml.json and <basename>-legacy.json
- *   - Compares outputs (key order insignificant, array order significant)
- *   - Reports "MATCH" or lists specific differences with JSON paths
+ *   - Runs all three converters and reports success/failure
+ *   - Optionally writes results to output-dir as
+ *       <basename>-input.json, <basename>-fml.json, <basename>-full.json,
+ *       <basename>-legacy.json
+ *   - Compares FML-vs-Legacy AND Full-vs-Legacy (key order insignificant, array
+ *     order significant), reporting "MATCH" or listing specific differences
+ *     with JSON paths. Exit code is 0 only when the Full pipeline matches
+ *     Legacy (the primary comparison); the raw-FML comparison is informational.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { createFmlEngineFactory } from '../src/fml_base_conv/create_converter.js';
+import { convertSingleHop } from '../src/converter/singleHopConverter.js';
 import { getConverter } from '../src/hand_rolled_qn_conv/qnvconv.js';
 
 
@@ -83,8 +94,12 @@ function sortKeys(value) {
  * @param {*} b Second value.
  * @param {string} path Current JSON path.
  * @param {string[]} diffs Accumulator for difference descriptions.
+ * @param {{labelA?: string, labelB?: string}} [labels] Labels for asymmetric
+ *   messages (default: 'A' and 'B').
  */
-function findDiffs(a, b, path, diffs) {
+function findDiffs(a, b, path, diffs, labels = {}) {
+  const labelA = labels.labelA || 'A';
+  const labelB = labels.labelB || 'B';
   if (a === b) return;
 
   if (a === null || b === null || typeof a !== typeof b) {
@@ -110,7 +125,7 @@ function findDiffs(a, b, path, diffs) {
     }
     const len = Math.max(a.length, b.length);
     for (let i = 0; i < len; i++) {
-      findDiffs(a[i], b[i], `${path}[${i}]`, diffs);
+      findDiffs(a[i], b[i], `${path}[${i}]`, diffs, labels);
     }
     return;
   }
@@ -121,15 +136,15 @@ function findDiffs(a, b, path, diffs) {
 
   for (const key of keysA) {
     if (!keysB.has(key)) {
-      diffs.push(`${path}.${key}: present in FML output, missing in legacy`);
+      diffs.push(`${path}.${key}: present in ${labelA} output, missing in ${labelB}`);
     } else {
-      findDiffs(a[key], b[key], `${path}.${key}`, diffs);
+      findDiffs(a[key], b[key], `${path}.${key}`, diffs, labels);
     }
   }
 
   for (const key of keysB) {
     if (!keysA.has(key)) {
-      diffs.push(`${path}.${key}: missing in FML output, present in legacy`);
+      diffs.push(`${path}.${key}: missing in ${labelA} output, present in ${labelB}`);
     }
   }
 }
@@ -140,9 +155,10 @@ function findDiffs(a, b, path, diffs) {
  *
  * @param {*} a First value.
  * @param {*} b Second value.
+ * @param {{labelA?: string, labelB?: string}} [labels] Labels for asymmetric messages.
  * @returns {{ match: boolean, diffs: string[] }}
  */
-function compareJson(a, b) {
+function compareJson(a, b, labels = {}) {
   const sortedA = sortKeys(a);
   const sortedB = sortKeys(b);
 
@@ -151,8 +167,29 @@ function compareJson(a, b) {
   }
 
   const diffs = [];
-  findDiffs(sortedA, sortedB, '$', diffs);
+  findDiffs(sortedA, sortedB, '$', diffs, labels);
   return { match: false, diffs };
+}
+
+
+/**
+ * Report a comparison to stdout: MATCH or a bounded list of differences.
+ *
+ * @param {string} title Comparison title, e.g. 'FML vs Legacy'.
+ * @param {{match: boolean, diffs: string[]}} result Result from compareJson.
+ */
+function reportComparison(title, result) {
+  if (result.match) {
+    console.log(`${title}: MATCH`);
+    return;
+  }
+  console.log(`${title}: ${result.diffs.length} difference(s)`);
+  for (const diff of result.diffs.slice(0, 20)) {
+    console.log(`  ${diff}`);
+  }
+  if (result.diffs.length > 20) {
+    console.log(`  ... and ${result.diffs.length - 20} more`);
+  }
 }
 
 
@@ -166,8 +203,10 @@ if (args.length < 3 || args.includes('-h') || args.includes('--help')) {
 Versions: STU3 (or R3), R4, R4B, R5
 
 If output-dir is provided, writes:
-  <basename>-fml.json     FML converter output
-  <basename>-legacy.json  Legacy converter output
+  <basename>-input.json   input (with keys sorted)
+  <basename>-fml.json     raw FML engine output
+  <basename>-full.json    full integration pipeline (convertSingleHop) output
+  <basename>-legacy.json  legacy converter output
 
 Examples:
   node tools/compare-converters.js R4 R5 test/data/qn-ver-conv-test-r4base.json
@@ -212,6 +251,22 @@ try {
   console.log(`FML converter: FAILED - ${fmlError}`);
 }
 
+// Run full integration pipeline (FML + package postprocessors)
+let fullOutput = null;
+let fullError = null;
+try {
+  const result = convertSingleHop(input, fmlFrom, fmlTo);
+  fullOutput = result.resource;
+  const ppCount = Array.isArray(result.postprocessors) ? result.postprocessors.length : 0;
+  console.log(
+    `Full pipeline:  OK (coverage=${result.coverage}, status=${result.status}, `
+    + `postprocessors=${ppCount})`,
+  );
+} catch (e) {
+  fullError = e.message;
+  console.log(`Full pipeline:  FAILED - ${fullError}`);
+}
+
 // Run legacy converter
 let legacyOutput = null;
 let legacyError = null;
@@ -243,6 +298,12 @@ if (outputDir) {
     console.log(`Wrote: ${fmlPath}`);
   }
 
+  if (fullOutput) {
+    const fullPath = path.join(outputDir, `${basename}-full.json`);
+    fs.writeFileSync(fullPath, JSON.stringify(sortKeys(fullOutput), null, 2));
+    console.log(`Wrote: ${fullPath}`);
+  }
+
   if (legacyOutput) {
     const legacyPath = path.join(outputDir, `${basename}-legacy.json`);
     fs.writeFileSync(legacyPath, JSON.stringify(sortKeys(legacyOutput), null, 2));
@@ -257,30 +318,35 @@ if (!outputDir) {
   console.log('(Provide output-dir argument to save converted results to files)\n');
 }
 
-if (fmlOutput && legacyOutput) {
-  const { match, diffs } = compareJson(fmlOutput, legacyOutput);
-
-  if (match) {
-    console.log('Comparison: MATCH');
-    process.exit(0);
-  } else {
-    console.log(`Comparison: ${diffs.length} difference(s) (FML vs Legacy)`);
-    for (const diff of diffs.slice(0, 20)) {
-      console.log(`  ${diff}`);
-    }
-    if (diffs.length > 20) {
-      console.log(`  ... and ${diffs.length - 20} more`);
-    }
-    process.exit(1);
-  }
-} else if (fmlOutput && !legacyOutput) {
-  console.log('Comparison: SKIPPED (legacy converter failed)');
-  process.exit(1);
-} else if (!fmlOutput && legacyOutput) {
-  console.log('Comparison: SKIPPED (FML converter failed)');
-  process.exit(1);
+// Two comparisons against the legacy converter (the ground-truth reference):
+//   - Full  vs Legacy: the primary check; drives the process exit code.
+//   - FML   vs Legacy: informational (shows what the postprocessors correct).
+let exitCode;
+if (fullOutput && legacyOutput) {
+  const fullResult = compareJson(fullOutput, legacyOutput, { labelA: 'Full', labelB: 'Legacy' });
+  reportComparison('Full vs Legacy', fullResult);
+  exitCode = fullResult.match ? 0 : 1;
+} else if (!fullOutput && legacyOutput) {
+  console.log('Full vs Legacy: SKIPPED (full pipeline failed)');
+  exitCode = 1;
+} else if (fullOutput && !legacyOutput) {
+  console.log('Full vs Legacy: SKIPPED (legacy converter failed)');
+  exitCode = 1;
 } else {
-  console.log('Comparison: SKIPPED (both converters failed)');
-  process.exit(1);
+  console.log('Full vs Legacy: SKIPPED (both failed)');
+  exitCode = 1;
 }
+
+if (fmlOutput && legacyOutput) {
+  const fmlResult = compareJson(fmlOutput, legacyOutput, { labelA: 'FML', labelB: 'Legacy' });
+  reportComparison('FML  vs Legacy', fmlResult);
+} else if (!fmlOutput && legacyOutput) {
+  console.log('FML  vs Legacy: SKIPPED (FML converter failed)');
+} else if (fmlOutput && !legacyOutput) {
+  console.log('FML  vs Legacy: SKIPPED (legacy converter failed)');
+} else {
+  console.log('FML  vs Legacy: SKIPPED (both failed)');
+}
+
+process.exit(exitCode);
 

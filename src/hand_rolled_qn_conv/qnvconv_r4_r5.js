@@ -171,7 +171,7 @@ function qnItemR5ToR4(item, options) {
         addExtension(item, ive);
       }
       delete item[field];
-      updateRetStatus(ret, -1, createMsg(item, -1, 'Dropped ') + field);
+      updateRetStatus(ret, -1, createMsg(item, -1, 'Dropped ' + field));
     }
   }
 
