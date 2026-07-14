@@ -1,4 +1,4 @@
-tmp/
+.scratch
 .tmp
 .idea
 node_modules

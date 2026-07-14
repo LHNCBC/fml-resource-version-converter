@@ -1,6 +1,8 @@
 # Agent Guidelines
 
 ## General
+- The .scratch/ directory is a work area for use to communicate with you (AI agent).
+  It's not going into the build.
 - Check my directions/instructions first to see if they make sense before execution 
 - If, at any point, you feel that my directions are off, please confirm with me first.
 
