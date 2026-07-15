@@ -227,3 +227,29 @@ export function createRegistry(engineFactory) {
 export function registeredDirections() {
   return Object.keys(DIRECTION_REGISTRIES);
 }
+
+/**
+ * Return a read-only snapshot of the consolidated, normalized registry tables,
+ * for tooling such as the COVERAGE.md generator.
+ *
+ * The shape is `directionKey -> (resourceType -> entry)`, where each entry is
+ * the same normalized object `lookup()` returns. Entries are copied (via
+ * cloneEntry), so callers cannot mutate the shared tables. This reads the
+ * root-independent postprocessor tables only; it needs no engine factory and
+ * performs no validity check (unlike lookup()).
+ *
+ * @returns {Object<string, Object<string, {fml: {coverage: string, description?: string}, processors: Array<Object>}>>}
+ *   The consolidated tables.
+ */
+export function getConsolidatedRegistry() {
+  const snapshot = {};
+  for (const [key, table] of Object.entries(CONSOLIDATED)) {
+    const perType = {};
+    for (const [resourceType, entry] of Object.entries(table)) {
+      perType[resourceType] = cloneEntry(entry);
+    }
+    snapshot[key] = perType;
+  }
+  return snapshot;
+}
+

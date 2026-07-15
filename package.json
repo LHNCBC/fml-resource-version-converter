@@ -27,7 +27,9 @@
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
-    "test": "mocha test/mocha --recursive"
+    "test": "mocha test/mocha --recursive",
+    "build": "npm run build:coverage",
+    "build:coverage": "node tools/build-coverage.js"
   },
   "devDependencies": {
     "commander": "^13.1.0",
