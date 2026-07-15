@@ -60,7 +60,7 @@
  * @property {GuardExpr|null} where     `where (...)` guard.
  * @property {GuardExpr|null} check     `check (...)` guard. Warning only;
  *                                      does not short-circuit the rule.
- * @property {'first'|'last'|'not_first'|'not_last'|null} listMode
+ * @property {'first'|'last'|'not_first'|'not_last'|'only_one'|null} listMode
  *
  * @typedef {Object} Target
  * @property {string}         context    Variable name in scope (e.g. 'tgt').

@@ -1340,6 +1340,16 @@ export function compileFmlXver({
         case 'last':      primaryValue = primaryValue.length ? [primaryValue.at(-1)] : []; break;
         case 'not_first': primaryValue = primaryValue.slice(1);     break;
         case 'not_last':  primaryValue = primaryValue.slice(0, -1); break;
+        // `only_one` asserts the source list holds exactly one item and
+        // collapses it to that single element. Per FML semantics more than
+        // one item is an error condition; we warn and keep the first so the
+        // rule still produces the single value the map author expects.
+        case 'only_one':
+          if (primaryValue.length > 1) {
+            onWarning?.(`only_one: source "${primary.spec.context}${primary.spec.path ? '.' + primary.spec.path : ''}" has ${primaryValue.length} items; using the first`);
+          }
+          primaryValue = primaryValue.length ? [primaryValue[0]] : [];
+          break;
       }
     }
 
