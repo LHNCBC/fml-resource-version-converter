@@ -1,4 +1,0 @@
-
-# Put a symbolic link from the version of node to use to your home directory, then:
-NODE_DIR=node-v22.11.0;
-PATH=~/${NODE_DIR}/bin:/bin:/usr/local/bin:/usr/bin:/usr/sbin:/sbin:/etc:$PATH
