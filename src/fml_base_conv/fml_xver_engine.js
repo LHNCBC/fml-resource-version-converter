@@ -54,7 +54,7 @@
  *   uuid, dateOp, evaluate, pointer, escape: recognised but not implemented;
  *   emit a warning and return undefined.
  *
- * @module sonnet/fml_xver_engine
+ * @module fml_base_conv/fml_xver_engine
  */
 
 import fhirpathLib from 'fhirpath';
