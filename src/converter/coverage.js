@@ -15,21 +15,25 @@
  * factor. A component may therefore be COMPLETE without implementing IVE handling.
  *
  * - NOT_REVIEWED: completeness has not been assessed (functional default).
- * - PARTIAL: some, but not all, necessary conversions are implemented.
+ * - KNOWN_GAPS: known conversion gaps remain.
+ * - BEST_EFFORT: reviewed and implemented as far as practical; documented
+ *                limitations remain.
  * - COMPLETE: all necessary conversions for valid input are implemented.
  * - NEUTRAL: makes no completeness claim; exempt from ordered comparison and
  *            ignored by the rollups (used by coverage-agnostic postprocessors).
  */
 export const COVERAGE = Object.freeze({
   NOT_REVIEWED: 'not_reviewed',
-  PARTIAL: 'partial',
+  KNOWN_GAPS: 'known_gaps',
+  BEST_EFFORT: 'best_effort',
   COMPLETE: 'complete',
   NEUTRAL: 'neutral',
 });
 
 const ORDERED_COVERAGES = [
   COVERAGE.NOT_REVIEWED,
-  COVERAGE.PARTIAL,
+  COVERAGE.KNOWN_GAPS,
+  COVERAGE.BEST_EFFORT,
   COVERAGE.COMPLETE,
 ];
 

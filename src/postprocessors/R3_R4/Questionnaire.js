@@ -128,12 +128,12 @@ function convertItemsUpgrade(targetItems, sourceByLinkId, messages) {
  *
  * Drops enableWhen entries whose STU3 answer type (uri or Attachment) has no R4
  * equivalent, using the R4-converted output aligned to the STU3 source by
- * linkId. Coverage is COMPLETE for the necessary (non-IVE) conversions of valid
- * input.
+ * linkId. Coverage is BEST_EFFORT because valid STU3 source content with no R4
+ * equivalent is dropped with warnings.
  */
 export const conv_R3_to_R4 = {
   name: 'Questionnaire_R3_to_R4',
-  coverage: COVERAGE.COMPLETE,
+  coverage: COVERAGE.BEST_EFFORT,
   description:
     'Drops Questionnaire enableWhen entries whose STU3 answer type (uri or '
     + 'Attachment) has no R4 equivalent. Does not handle inter-version '
@@ -399,12 +399,12 @@ function convertItems(targetItems, sourceByLinkId, messages) {
  * R4 -> R3 (STU3) Questionnaire postprocessor descriptor.
  *
  * Corrects the FML step's item-level issues from the R4 source (see the issue
- * list above). Coverage is COMPLETE for the necessary (non-IVE) conversions of
- * valid input.
+ * list above). Coverage is BEST_EFFORT because valid R4 source content with no
+ * STU3 equivalent is dropped or narrowed with warnings.
  */
 export const conv_R4_to_R3 = {
   name: 'Questionnaire_R4_to_R3',
-  coverage: COVERAGE.COMPLETE,
+  coverage: COVERAGE.BEST_EFFORT,
   description:
     'Corrects Questionnaire R4->R3 item fields from the R4 source: rebuilds '
     + 'enableWhen (dropping operators with no STU3 equivalent), fixes options to '

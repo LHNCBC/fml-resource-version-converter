@@ -2,8 +2,7 @@
  * @fileoverview Postprocessor registry for the R5 -> R4B direction.
  *
  * Maps FHIR resource type name -> registry entry for R5 -> R4B conversions.
- * See src/postprocessors/README.md and the design documents ("The postprocessor
- * registry") for the entry shape.
+ * See CONTRIBUTING.md for the registry workflow and entry examples.
  *
  * @module postprocessors/R4B_R5/registry_R5_to_R4B
  */
@@ -15,11 +14,10 @@ export const registry = {
   // (no answerConstraint, same type set), so the FML mis-narrows item.type the
   // same way as R5->R4: a malformed wrapped primitive when answerConstraint is
   // involved, and over-widening to open-choice. The postprocessor recomputes
-  // item.type from the R5 source, bringing the necessary (non-IVE) conversion to
-  // COMPLETE.
+  // item.type from the R5 source, bringing the conversion to BEST_EFFORT.
   Questionnaire: {
     fml: {
-      coverage: COVERAGE.PARTIAL,
+      coverage: COVERAGE.KNOWN_GAPS,
       description:
         'FML mis-narrows item.type (malformed wrapped primitive and over-widened '
         + 'open-choice); corrected by the Questionnaire_R5_to_R4B postprocessor.',

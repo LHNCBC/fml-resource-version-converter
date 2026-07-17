@@ -40,12 +40,12 @@ describe('postprocessors/R4B_R5 Questionnaire R5 -> R4B', function () {
     result = convertSingleHop(r5Questionnaire, 'R5', 'R4B');
   });
 
-  it('registers the postprocessor and reports partial FML + complete hop', function () {
-    assert.equal(result.coverage, COVERAGE.COMPLETE);
-    assert.equal(result.fml_base_conv.coverage, COVERAGE.PARTIAL);
+  it('registers the postprocessor and reports FML known gaps + best-effort hop', function () {
+    assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
+    assert.equal(result.fml_base_conv.coverage, COVERAGE.KNOWN_GAPS);
     assert.equal(result.postprocessors.length, 1);
     assert.equal(result.postprocessors[0].name, 'Questionnaire_R5_to_R4B');
-    assert.equal(result.postprocessors[0].coverage, COVERAGE.COMPLETE);
+    assert.equal(result.postprocessors[0].coverage, COVERAGE.BEST_EFFORT);
   });
 
   it('corrects item.type narrowing from the R5 source', function () {

@@ -27,19 +27,6 @@ import { COVERAGE, rollupHopCoverage } from '../src/converter/coverage.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 
-/** Coverage level -> short human blurb, shown in the legend. */
-const LEVEL_BLURB = {
-  [COVERAGE.NOT_REVIEWED]:
-    'the level of coverage by the FML mapping file has not yet been reviewed (no completeness '
-    + 'claim is made); even so, the FML mapping alone is expected to accomplish the majority of '
-    + 'the conversion',
-  [COVERAGE.PARTIAL]: 'some, but not all, necessary conversions are implemented',
-  [COVERAGE.COMPLETE]:
-    'all necessary conversions for valid input are implemented; note this does NOT mean loss-less '
-    + '- for example, some source data may have no representation in the target version and is '
-    + 'dropped (with a warning)',
-};
-
 /**
  * Turn a direction key like 'R4->R5' into a display label 'R4 -> R5'.
  *
@@ -180,8 +167,7 @@ function buildDocument() {
   out.push('');
   out.push(
     'For each resource type, the tables report the coverage of the FML step, of the postprocessors '
-    + '(when any apply), and of the two combined as the overall coverage. See '
-    + '[Coverage levels](#coverage-levels) for what each level means.',
+    + '(when any apply), and of the two combined as the overall coverage.',
     '',
   );
   out.push(
@@ -191,9 +177,12 @@ function buildDocument() {
   );
 
   out.push('## Coverage levels', '');
-  for (const level of [COVERAGE.NOT_REVIEWED, COVERAGE.PARTIAL, COVERAGE.COMPLETE]) {
-    out.push(`- **${level}** - ${LEVEL_BLURB[level]}`);
-  }
+  out.push(
+    `This report uses **${COVERAGE.NOT_REVIEWED}**, **${COVERAGE.KNOWN_GAPS}**, `
+    + `**${COVERAGE.BEST_EFFORT}**, and **${COVERAGE.COMPLETE}**. See `
+    + '[Coverage levels](README.md#coverage-levels) '
+    + 'in `README.md` for definitions.',
+  );
   out.push('');
 
   out.push('## Contents', '');

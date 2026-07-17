@@ -36,8 +36,7 @@ const DEFS_FILE = {
 
 /**
  * Process-lifetime cache for parsed FHIR defs JSONs. Keyed by version
- * label. Multi-MB files; loading once per process is a meaningful win
- * for the chained converter and any batch tool (e.g. compare-converters).
+ * label.
  * @type {Map<string, Object|null>}
  */
 const fhirDefsCache = new Map();
@@ -148,8 +147,7 @@ function extractConceptMapUrls(fmlText) {
 /**
  * Process-lifetime cache for imported FML texts. Keyed by
  * `${fmlDir}::${mainFmlFile}`. Each entry directory typically holds
- * dozens of sibling .fml files; reading them once per process saves the
- * batch converters (compare-converters, chained converter) significant
+ * dozens of sibling .fml files.
  * I/O.
  * @type {Map<string, string[]>}
  */

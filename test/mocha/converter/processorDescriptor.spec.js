@@ -48,12 +48,12 @@ describe('converter/processorDescriptor', function () {
     const fn = resource => ({ resource, status: 'ok' });
     const descriptor = makeProcessor(fn, {
       name: 'tagger',
-      coverage: COVERAGE.COMPLETE,
+      coverage: COVERAGE.BEST_EFFORT,
       description: 'Adds a tag.',
     });
 
     assert.equal(descriptor.name, 'tagger');
-    assert.equal(descriptor.coverage, COVERAGE.COMPLETE);
+    assert.equal(descriptor.coverage, COVERAGE.BEST_EFFORT);
     assert.equal(descriptor.description, 'Adds a tag.');
   });
 

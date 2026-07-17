@@ -164,12 +164,13 @@ function convertItems(targetItems, sourceByLinkId, messages) {
  * R5 -> R4 Questionnaire postprocessor descriptor.
  *
  * Recomputes each item's R4 `type` from the R5 source item, fixing the FML
- * step's malformed and over-widened item-type narrowing. Coverage is COMPLETE
- * for the necessary (non-IVE) conversions of valid input.
+ * step's malformed and over-widened item-type narrowing. Coverage is
+ * BEST_EFFORT because valid R5 answerConstraint details have no R4 equivalent
+ * and may be narrowed with warnings.
  */
 export const conv_R5_to_R4 = {
   name: 'Questionnaire_R5_to_R4',
-  coverage: COVERAGE.COMPLETE,
+  coverage: COVERAGE.BEST_EFFORT,
   description:
     'Corrects Questionnaire item.type for R5->R4 (coding/answerConstraint -> '
     + 'choice/open-choice) from the R5 source, fixing the FML step\'s malformed '

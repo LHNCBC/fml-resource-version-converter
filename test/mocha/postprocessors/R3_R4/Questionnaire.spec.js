@@ -1,11 +1,11 @@
 /**
  * Tests for the Questionnaire R3 <-> R4 conversions.
  *
- * R3 -> R4: the FML mapping covers the common cases but is partial for
+ * R3 -> R4: the FML mapping covers the common cases but has known gaps for
  * enableWhen answer types STU3 has and R4 removed (uri, Attachment); the
  * Questionnaire_R3_to_R4 postprocessor drops those.
  *
- * R4 -> R3: the FML mapping is partial (malformed options, invalid enableWhen,
+ * R4 -> R3: the FML mapping has known gaps (malformed options, invalid enableWhen,
  * dropped initialSelected); the Questionnaire_R4_to_R3 postprocessor corrects it.
  */
 import { strict as assert } from 'node:assert';
@@ -43,12 +43,12 @@ describe('postprocessors/R3_R4 Questionnaire R3 -> R4', function () {
     result = convertSingleHop(r3Questionnaire, 'R3', 'R4');
   });
 
-  it('registers the postprocessor and reports partial FML + complete hop', function () {
-    assert.equal(result.coverage, COVERAGE.COMPLETE);
-    assert.equal(result.fml_base_conv.coverage, COVERAGE.PARTIAL);
+  it('registers the postprocessor and reports FML known gaps + best-effort hop', function () {
+    assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
+    assert.equal(result.fml_base_conv.coverage, COVERAGE.KNOWN_GAPS);
     assert.equal(result.postprocessors.length, 1);
     assert.equal(result.postprocessors[0].name, 'Questionnaire_R3_to_R4');
-    assert.equal(result.postprocessors[0].coverage, COVERAGE.COMPLETE);
+    assert.equal(result.postprocessors[0].coverage, COVERAGE.BEST_EFFORT);
   });
 
   it('rewrites meta.profile to the R4 base profile', function () {
@@ -201,12 +201,12 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       result = convertSingleHop(r4Questionnaire, 'R4', 'R3');
     });
 
-    it('registers the postprocessor and reports partial FML + complete hop', function () {
-      assert.equal(result.coverage, COVERAGE.COMPLETE);
-      assert.equal(result.fml_base_conv.coverage, COVERAGE.PARTIAL);
+    it('registers the postprocessor and reports FML known gaps + best-effort hop', function () {
+      assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
+      assert.equal(result.fml_base_conv.coverage, COVERAGE.KNOWN_GAPS);
       assert.equal(result.postprocessors.length, 1);
       assert.equal(result.postprocessors[0].name, 'Questionnaire_R4_to_R3');
-      assert.equal(result.postprocessors[0].coverage, COVERAGE.COMPLETE);
+      assert.equal(result.postprocessors[0].coverage, COVERAGE.BEST_EFFORT);
     });
 
     it('fixes options to the STU3 Reference shape', function () {

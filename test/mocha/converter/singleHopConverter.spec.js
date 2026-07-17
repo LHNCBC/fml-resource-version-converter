@@ -220,15 +220,15 @@ describe('converter/singleHopConverter', function () {
 
   // -------- checkCoverage --------------------------------------------------
   describe('checkCoverage', function () {
-    const completeThenPartial = () => [
+    const completeThenKnownGaps = () => [
       { name: 'first',  coverage: COVERAGE.COMPLETE, execute: r => ({ resource: r, status: STATUS.OK }) },
-      { name: 'second', coverage: COVERAGE.PARTIAL,  execute: r => ({ resource: r, status: STATUS.OK }) },
+      { name: 'second', coverage: COVERAGE.KNOWN_GAPS, execute: r => ({ resource: r, status: STATUS.OK }) },
     ];
 
     it('rejects decreasing coverage by default', function () {
       assert.throws(
         () => convertSingleHop(r4Questionnaire, 'R4', 'R5', {
-          postprocs: completeThenPartial(),
+          postprocs: completeThenKnownGaps(),
         }),
         /Coverage decreases at second/,
       );
@@ -236,7 +236,7 @@ describe('converter/singleHopConverter', function () {
 
     it('accepts decreasing coverage when checkCoverage is false', function () {
       assert.doesNotThrow(() => convertSingleHop(r4Questionnaire, 'R4', 'R5', {
-        postprocs: completeThenPartial(),
+        postprocs: completeThenKnownGaps(),
         checkCoverage: false,
       }));
     });

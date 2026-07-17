@@ -44,6 +44,8 @@ describe('public API (src/index.js)', function () {
 
   it('re-exports the same enum values as their source modules', function () {
     assert.equal(api.COVERAGE.COMPLETE, 'complete');
+    assert.equal(api.COVERAGE.KNOWN_GAPS, 'known_gaps');
+    assert.equal(api.COVERAGE.BEST_EFFORT, 'best_effort');
     assert.equal(api.STATUS.WARNING, 'warning');
     assert.equal(api.MESSAGE_TYPE.INFO, 'info');
     assert.equal(api.POSTPROCESS_POLICY.APPEND, 'append');

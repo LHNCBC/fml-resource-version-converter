@@ -3,7 +3,7 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-07-16
 
 Initial release of the FML-based FHIR resource version converter.
 

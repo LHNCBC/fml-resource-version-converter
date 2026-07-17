@@ -7,15 +7,13 @@ A conversion runs in up to two steps:
 - **FML mapping** - the FHIR Mapping Language (FML) mapping file is executed, handling most (sometimes all) data elements.
 - **Postprocessing** - where the FML mapping falls short, one or more postprocessors may be used to refine the result and complete the conversion. At this point, the package only supplies postprocessors in very limited cases.
 
-For each resource type, the tables report the coverage of the FML step, of the postprocessors (when any apply), and of the two combined as the overall coverage. See [Coverage levels](#coverage-levels) for what each level means.
+For each resource type, the tables report the coverage of the FML step, of the postprocessors (when any apply), and of the two combined as the overall coverage.
 
 > _Generated file - do not edit by hand. Regenerate with `npm run build:coverage` (see `tools/build-coverage.js`)._
 
 ## Coverage levels
 
-- **not_reviewed** - the level of coverage by the FML mapping file has not yet been reviewed (no completeness claim is made); even so, the FML mapping alone is expected to accomplish the majority of the conversion
-- **partial** - some, but not all, necessary conversions are implemented
-- **complete** - all necessary conversions for valid input are implemented; note this does NOT mean loss-less - for example, some source data may have no representation in the target version and is dropped (with a warning)
+This report uses **not_reviewed**, **known_gaps**, **best_effort**, and **complete**. See [Coverage levels](README.md#coverage-levels) in `README.md` for definitions.
 
 ## Contents
 
@@ -44,14 +42,14 @@ For each resource type, the tables report the coverage of the FML step, of the p
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
-| Questionnaire | partial | complete | complete | **FML:** FML maps enableWhen answerUri straight through (invalid in R4) and leaves a malformed entry for answerAttachment; corrected by the Questionnaire_R3_to_R4 postprocessor.<br>**Questionnaire_R3_to_R4:** Drops Questionnaire enableWhen entries whose STU3 answer type (uri or Attachment) has no R4 equivalent. Does not handle inter-version extensions. |
+| Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML maps enableWhen answerUri straight through (invalid in R4) and leaves a malformed entry for answerAttachment; corrected by the Questionnaire_R3_to_R4 postprocessor.<br>**Questionnaire_R3_to_R4:** Drops Questionnaire enableWhen entries whose STU3 answer type (uri or Attachment) has no R4 equivalent. Does not handle inter-version extensions. |
 | _All other resource types_ | not_reviewed | - | not_reviewed | _Default: FML mapping not yet reviewed; no postprocessors._ |
 
 ## R4 -> R3
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
-| Questionnaire | partial | complete | complete | **FML:** FML emits a malformed options string, leaves invalid enableWhen for non-representable operators, drops answerOption.initialSelected, leaves an empty option entry for answerOption.valueReference, and keeps the last (not first) of multiple initial values; corrected by the Questionnaire_R4_to_R3 postprocessor. Some R4-only data elements (e.g. derivedFrom, enableBehavior) have no R3 mapping and are dropped.<br>**Questionnaire_R4_to_R3:** Corrects Questionnaire R4->R3 item fields from the R4 source: rebuilds enableWhen (dropping operators with no STU3 equivalent), fixes options to the STU3 Reference shape, and re-derives initial[x] from answerOption.initialSelected. Does not handle inter-version extensions. |
+| Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML emits a malformed options string, leaves invalid enableWhen for non-representable operators, drops answerOption.initialSelected, leaves an empty option entry for answerOption.valueReference, and keeps the last (not first) of multiple initial values; corrected by the Questionnaire_R4_to_R3 postprocessor. Some R4-only data elements (e.g. derivedFrom, enableBehavior) have no R3 mapping and are dropped.<br>**Questionnaire_R4_to_R3:** Corrects Questionnaire R4->R3 item fields from the R4 source: rebuilds enableWhen (dropping operators with no STU3 equivalent), fixes options to the STU3 Reference shape, and re-derives initial[x] from answerOption.initialSelected. Does not handle inter-version extensions. |
 | _All other resource types_ | not_reviewed | - | not_reviewed | _Default: FML mapping not yet reviewed; no postprocessors._ |
 
 ## R4 -> R5
@@ -65,7 +63,7 @@ For each resource type, the tables report the coverage of the FML step, of the p
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
-| Questionnaire | partial | complete | complete | **FML:** FML mis-narrows item.type (over-produces open-choice) and emits a malformed type object; corrected by the Questionnaire_R5_to_R4 postprocessor.<br>**Questionnaire_R5_to_R4:** Corrects Questionnaire item.type for R5->R4 (coding/answerConstraint -> choice/open-choice) from the R5 source, fixing the FML step's malformed and over-widened narrowing. Also reused verbatim by R5->R4B (R4B is identical to R4 for Questionnaire.item). Does not handle inter-version extensions. |
+| Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML mis-narrows item.type (over-produces open-choice) and emits a malformed type object; corrected by the Questionnaire_R5_to_R4 postprocessor.<br>**Questionnaire_R5_to_R4:** Corrects Questionnaire item.type for R5->R4 (coding/answerConstraint -> choice/open-choice) from the R5 source, fixing the FML step's malformed and over-widened narrowing. Also reused verbatim by R5->R4B (R4B is identical to R4 for Questionnaire.item). Does not handle inter-version extensions. |
 | _All other resource types_ | not_reviewed | - | not_reviewed | _Default: FML mapping not yet reviewed; no postprocessors._ |
 
 ## R4B -> R5
@@ -79,5 +77,5 @@ For each resource type, the tables report the coverage of the FML step, of the p
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
-| Questionnaire | partial | complete | complete | **FML:** FML mis-narrows item.type (malformed wrapped primitive and over-widened open-choice); corrected by the Questionnaire_R5_to_R4B postprocessor.<br>**Questionnaire_R5_to_R4B:** Corrects Questionnaire item.type for R5->R4B (coding/answerConstraint -> choice/open-choice) from the R5 source, fixing the FML step's malformed and over-widened narrowing. Reuses the R5->R4 transform. Does not handle inter-version extensions. |
+| Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML mis-narrows item.type (malformed wrapped primitive and over-widened open-choice); corrected by the Questionnaire_R5_to_R4B postprocessor.<br>**Questionnaire_R5_to_R4B:** Corrects Questionnaire item.type for R5->R4B (coding/answerConstraint -> choice/open-choice) from the R5 source, fixing the FML step's malformed and over-widened narrowing. Reuses the R5->R4 transform. Does not handle inter-version extensions. |
 | _All other resource types_ | not_reviewed | - | not_reviewed | _Default: FML mapping not yet reviewed; no postprocessors._ |

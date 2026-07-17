@@ -9,7 +9,8 @@
  * Entry shape:
  *   {
  *     fml: {
- *       coverage:     'not_reviewed' | 'partial' | 'complete',  // default not_reviewed
+ *       coverage:     'not_reviewed' | 'known_gaps' | 'best_effort' | 'complete',
+ *                     // default not_reviewed
  *       description?: string,       // optional note on the FML coverage
  *     },
  *     processors:     Array<Object>, // postprocessor descriptors, possibly empty
