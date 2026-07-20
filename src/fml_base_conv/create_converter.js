@@ -15,10 +15,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { compileFmlXver } from './fml_xver_engine.js';
+import {
+  DEFAULT_XVER_ROOT,
+  extractConceptMapUrls,
+  resolveConceptMaps,
+} from './conceptmaps.js';
 
 const __dirname = import.meta.dirname;
-const DEFAULT_XVER_ROOT = path.resolve(__dirname, '../../data/fhir-cross-version/input');
-const FHIR_DEFS_DIR     = path.resolve(__dirname, '../../data/fhir-defs');
+const FHIR_DEFS_DIR = path.resolve(__dirname, '../../data/fhir-defs');
 
 const VER_SUFFIX = { R2: '2', R3: '3', R4: '4', R4B: '4B', R5: '5' };
 
@@ -130,21 +134,6 @@ function resolveFmlFile(resType, fromVer, toVer, xverRoot) {
 }
 
 /**
- * Scan FML text for ConceptMap URLs referenced by `translate(...)` calls.
- * Tolerates both single and double quotes around URL and code-mode args.
- *
- * @param {string} fmlText  The raw FML source text.
- * @returns {string[]} Unique canonical ConceptMap URLs, in declaration order.
- */
-function extractConceptMapUrls(fmlText) {
-  const urls = new Set();
-  const re = /translate\s*\([^,]+,\s*['"]([^'"]+)['"]\s*,\s*['"][^'"]*['"]\s*\)/g;
-  let m;
-  while ((m = re.exec(fmlText)) !== null) urls.add(m[1]);
-  return [...urls];
-}
-
-/**
  * Process-lifetime cache for imported FML texts. Keyed by
  * `${fmlDir}::${mainFmlFile}`. Each entry directory typically holds
  * dozens of sibling .fml files.
@@ -221,41 +210,6 @@ function loadImportedFmlTexts(fmlText, fmlDir, mainFmlFile, onWarning) {
 
   importedFmlCache.set(cacheKey, texts);
   return texts;
-}
-
-/**
- * ConceptMap id-prefix -> containing subdirectory.
- *
- * The cross-version package groups ConceptMaps by the vocabulary they translate:
- * the data-type and resource-type name maps live in their own folders under a
- * fixed `types-`/`resources-` id prefix (likewise `elements-`/`search-params-`),
- * while every value-set/terminology map is named after its value set and lives
- * in `codes/`. The id therefore determines the folder with no filesystem probing.
- * @type {Array<[string, string]>}
- */
-const CM_SUBDIR_BY_PREFIX = [
-  ['types-',         'types'],
-  ['resources-',     'resources'],
-  ['elements-',      'elements'],
-  ['search-params-', 'search-params'],
-];
-
-/**
- * Derive the local ConceptMap JSON path from its canonical URL.
- * URL pattern:  `http://hl7.org/fhir/uv/xver/ConceptMap/{id}`
- * File pattern: `{subdir}/ConceptMap-{id}.json`, where the subdirectory is
- * chosen from the id prefix (see CM_SUBDIR_BY_PREFIX); unprefixed ids are
- * value-set maps under `codes/`.
- *
- * @param {string} url      The canonical ConceptMap URL.
- * @param {string} xverRoot Absolute path to the FML input root.
- * @returns {string} Absolute path to the ConceptMap JSON file.
- */
-function conceptMapPath(url, xverRoot) {
-  const id = url.split('/').pop();
-  const hit = CM_SUBDIR_BY_PREFIX.find(([prefix]) => id.startsWith(prefix));
-  const subdir = hit ? hit[1] : 'codes';
-  return path.join(xverRoot, subdir, `ConceptMap-${id}.json`);
 }
 
 // ===== version lanes (hop-math) ============================================
@@ -382,20 +336,19 @@ function buildEngine(resType, fromVer, toVer, xverRoot, opts = {}) {
   for (const importedText of importedFmlTexts) {
     for (const url of extractConceptMapUrls(importedText)) cmUrls.add(url);
   }
-  const conceptMaps = [];
-  for (const url of cmUrls) {
-    const cmFile = conceptMapPath(url, xverRoot);
-    if (!fs.existsSync(cmFile)) {
-      if (opts.strict) throw new Error(`ConceptMap file not found: ${cmFile} (referenced by ${url})`);
-      opts.onWarning?.(`ConceptMap file not found: ${cmFile} (referenced by ${url}); translations using this map will return source codes unchanged`);
-      continue;
-    }
-    try {
-      conceptMaps.push(JSON.parse(fs.readFileSync(cmFile, 'utf-8')));
-    } catch (e) {
-      if (opts.strict) throw e;
-      opts.onWarning?.(`Failed to parse ConceptMap ${cmFile}: ${e.message}`);
-    }
+  // Resolve referenced ConceptMaps. Missing files and parse errors are
+  // environmental facts (a property of the data install), surfaced up front by
+  // the maintainer scan (tools/check-data.js), NOT the per-conversion sink:
+  // they affect a conversion only if a rule actually translates against the map,
+  // in which case the engine warns at translate time. In strict mode, any such
+  // gap is instead a hard error.
+  const { conceptMaps, missingConceptMaps, parseErrors } = resolveConceptMaps(cmUrls, xverRoot);
+  if (opts.strict && (missingConceptMaps.length || parseErrors.length)) {
+    const miss = missingConceptMaps.join(', ');
+    const perr = parseErrors.map(p => `${p.id}: ${p.error}`).join('; ');
+    throw new Error(
+      `ConceptMap resolution failed (strict): missing [${miss}]; parseErrors [${perr}]`,
+    );
   }
 
   const engine = compileFmlXver({

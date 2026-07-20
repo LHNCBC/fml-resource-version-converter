@@ -60,9 +60,9 @@ describe('converter/singleHopConverter', function () {
 
     it('returns the standard result object shape', function () {
       assert.equal(typeof result, 'object');
-      // Real Questionnaire R4->R5 conversion emits FML warnings, so status
-      // is expected to be either ok or warning; check the enum and the
-      // warning invariant instead of a hard-coded value.
+      // Environmental noise (absent contained/standalone maps) no longer forces
+      // a warning; a fixture may still legitimately warn if a rule hits a lossy
+      // translation, so accept either ok or warning and check the invariant.
       assert.ok([STATUS.OK, STATUS.WARNING].includes(result.status));
       assert.equal(result.coverage, COVERAGE.COMPLETE);
       // Flat result: no hops array; the FML report is at the top level.
@@ -93,6 +93,24 @@ describe('converter/singleHopConverter', function () {
         assert.ok(fml.messages.some(m => m.type === MESSAGE_TYPE.WARNING));
       }
       assert.equal('postprocessors' in result, false);
+    });
+  });
+
+  // -------- environmental noise must not affect conversion status ----------
+  describe('clean conversion reports ok (no environmental warning noise)', function () {
+    it('a minimal valid Questionnaire R4->R5 has status ok and no warnings', function () {
+      const q = {
+        resourceType: 'Questionnaire',
+        status: 'active',
+        item: [{ linkId: 'q1', type: 'choice', answerOption: [{ valueCoding: { code: 'b' } }] }],
+      };
+      const res = convertSingleHop(q, 'R4', 'R5');
+      assert.equal(res.status, STATUS.OK);
+      const warnings = res.fml_base_conv.messages.filter(m => m.type === MESSAGE_TYPE.WARNING);
+      assert.equal(
+        warnings.length, 0,
+        'absent contained ConceptMaps must not surface as conversion warnings',
+      );
     });
   });
 
