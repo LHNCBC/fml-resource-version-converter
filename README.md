@@ -114,7 +114,7 @@ resource. Please keep the following in mind:
 - **Reviewed postprocessors are supplied only for Questionnaire.** Other resource
   types are converted by the FML mapping alone (see [COVERAGE.md](COVERAGE.md)),
   and more postprocessors may be added in future releases. You certainly can
-  supply your own postprocessors as needed, and better yet, if you contribute
+  supply your own postprocessors as needed - and better yet, contribute
   them back to the project.
 
 ## Understanding the result
@@ -159,7 +159,7 @@ completeness of the FML mapping and any related postprocessors.
   affect conversion completeness.
 
 The top-level `result.coverage` is normally one of the ordered levels:
-**not_reviewed**, **known_gaps**, **best_effort**, or **complete**. 
+**not_reviewed**, **known_gaps**, **best_effort**, or **complete**.
 The **neutral** level is mostly seen on individual processor reports,
 especially for caller-provided processors.
 
@@ -180,10 +180,14 @@ const result = convertSingleHop(resource, 'R3', 'R4', {
 ```
 
 **postprocessPolicy** controls how your postprocessors combine with the package's
-registered postprocessors:
+registered postprocessors (if any):
 
 - **append** (default): run package postprocessors first, then yours.
-- **replace**: run only your postprocessors for this conversion.
+- **replace**: run only the postprocessors specified in the request -
+  this may include the package postprocessors if you explicitly include
+  them in your list (in any order you deem appropriate). The package
+  postprocessors may be obtained using the `getRegistryEntry()`
+  function in the public API.
 
 The processor contract is documented in [CONTRIBUTING.md](CONTRIBUTING.md) for
 contributors and advanced users.
