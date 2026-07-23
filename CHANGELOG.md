@@ -3,6 +3,20 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- FML engine: multi-target `then` rules now process intermediate targets
+  (e.g. `tgt.A as t, t.B as tc then Group(s, tc)`), binding their variables
+  before the `then`-clause runs. Previously these were ignored.
+- FML parser and engine: target list modes are now recognized. `first` and
+  `last` are applied as list-element reuse (the rule writes into the first /
+  last existing element of the target list instead of appending a new one).
+  List modes `single`/`share`/`collate` are parsed but currently not
+  handled and diagnostic messages are emitted instead - they have not been
+  seen in the known mapping files. 
+
 ## [0.1.0] - 2026-07-20
 
 Initial release of the FML-based FHIR resource version converter.

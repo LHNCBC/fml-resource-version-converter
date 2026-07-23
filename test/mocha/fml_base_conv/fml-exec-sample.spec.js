@@ -327,3 +327,155 @@ describe('fml_base_conv: source list mode only_one', function () {
 });
 
 
+describe('fml_base_conv: multi-target then-rule (intermediate target binding)', function () {
+  // A helper group that copies `text` from source to target; used as the
+  // `then` group so we can observe whether the intermediate alias was bound.
+  const FILL = 'group Fill(source src, target tgt) {\n  src.text -> tgt.text;\n}';
+
+  it('binds an intermediate target alias so the then-group fills it (scalar)', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.item as s -> tgt.wrap as t, t.inner as tc then Fill(s, tc);',
+      '}',
+      FILL,
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      item: { text: 'hello' },
+    });
+
+    // Before the fix `t.inner as tc` was ignored: `tc` was unbound, Fill ran
+    // on `undefined`, and `tgt.wrap.inner` never received the value.
+    assert.equal(output?.wrap?.inner?.text, 'hello');
+
+    // No "not in scope" warnings (the old bug signature).
+    assert.deepEqual(warnings.filter(w => /not in scope/.test(w)), []);
+  });
+
+  it('binds intermediate aliases per item (array context)', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.items as s -> tgt.out as t, t.inner as tc then Fill(s, tc);',
+      '}',
+      FILL,
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      items: [{ text: 'a' }, { text: 'b' }],
+    });
+
+    assert.ok(Array.isArray(output.out), 'out should be an array');
+    assert.equal(output.out.length, 2);
+    assert.equal(output.out[0].inner.text, 'a');
+    assert.equal(output.out[1].inner.text, 'b');
+    assert.deepEqual(warnings.filter(w => /not in scope/.test(w)), []);
+  });
+
+  it('binds a bare-transform intermediate alias (create ... as v)', function () {
+    // Mirrors the R2->R3 StructureDefinition idiom:
+    //   ... -> tgt.a as t, create('boolean') as flag, flag.value = 'true'
+    //          then Fill3(s, t, flag);
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      "  src.item as s -> tgt.a as t, create('boolean') as flag, flag.value = 'true' then Fill3(s, t, flag);",
+      '}',
+      'group Fill3(source src, target tgt, source flag) {',
+      '  src.text -> tgt.text;',
+      '  flag.value as fv -> tgt.flagged = fv;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      item: { text: 'x' },
+    });
+
+    assert.equal(output?.a?.text, 'x');
+    assert.equal(output?.a?.flagged, 'true');
+    assert.deepEqual(warnings.filter(w => /not in scope/.test(w)), []);
+  });
+
+  it('binds a parenthesized FHIRPath intermediate target (expr) as v', function () {
+    // Mirrors the R3->R2 ValueSet idiom:
+    //   ... -> vst.codeSystem as vt, (vs.system.resolve()) as cs
+    //          then codeSystem(cs, vt);
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.item as s -> tgt.a as t, (s.code) as cs then Fill2(cs, t);',
+      '}',
+      'group Fill2(source src, target tgt) {',
+      '  src.value as v -> tgt.picked = v;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      item: { code: 'C' },
+    });
+
+    // `cs` is the FHIRPath result 'C'; Fill2 receives it and copies it.
+    assert.equal(output?.a?.picked, 'C');
+    assert.deepEqual(warnings.filter(w => /not in scope/.test(w)), []);
+  });
+});
+
+
+describe('fml_base_conv: target list mode parsing', function () {
+  it('parses a target list mode without mis-consuming the next target', function () {
+    // `tgt.x as t first, tgt.y = ...`: the `first` keyword must be consumed
+    // as a target list mode, not left to terminate the target list (which
+    // previously caused the remainder of the rule to be mis-parsed).
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.a as s -> tgt.x as t first, tgt.y = s;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      a: 'v',
+    });
+
+    // The second target still executes (was dropped by the old mis-parse).
+    assert.equal(output.y, 'v');
+    // `first` on a non-then target is recognised but not applied (warned).
+    assert.ok(warnings.some(w => /list mode "first"/.test(w)));
+  });
+});
+
+
+describe('fml_base_conv: target list mode first/last reuse', function () {
+  it('merges every item into the first existing list element (first)', function () {
+    // Mirrors R3->R2 HealthcareService: one rule builds `list` entries, a
+    // second rule (`first`) merges into the first existing entry rather than
+    // appending new ones.
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.a as s -> tgt.list as t, t.x as v then Fill(s, v);',
+      '  src.b as s -> tgt.list as t first, t.y as v then Fill(s, v);',
+      '}',
+      'group Fill(source src, target tgt) {',
+      '  src.text -> tgt.text;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      a: [{ text: 'A1' }, { text: 'A2' }],
+      b: [{ text: 'B1' }, { text: 'B2' }],
+    });
+
+    // No new elements appended by the `first` rule: still 2 entries.
+    assert.equal(output.list.length, 2);
+    // First entry gains `y` from both `b` items; second is untouched.
+    assert.equal(output.list[0].x.text, 'A1');
+    assert.equal(output.list[0].y.text, 'B2'); // last write wins into shared slot
+    assert.equal(output.list[1].x.text, 'A2');
+    assert.ok(output.list[1].y === undefined);
+    // first-mode reuse is implemented, so no unhandled-list-mode warning.
+    assert.deepEqual(warnings.filter(w => /list mode/.test(w)), []);
+  });
+});
+

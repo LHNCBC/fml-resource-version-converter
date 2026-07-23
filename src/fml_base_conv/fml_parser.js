@@ -67,6 +67,11 @@
  * @property {string|null}    path       Dot-path on context.
  * @property {string|null}    alias      Bound name from `as X`.
  * @property {Transform|null} transform  RHS expression after `=`, if any.
+ * @property {'first'|'last'|'single'|'share'|'collate'} [listMode]  Target
+ *                                       list mode from the FML grammar's
+ *                                       targetListMode (e.g. `tgt.x as t first`).
+ * @property {string} [shareVar]         Variable name captured for `share`
+ *                                       mode (`... share var`).
  *
  * @typedef {Object} Transform
  * @property {string}              fn     Transform function name.
@@ -577,14 +582,14 @@ export function parseFml(fmlText, onWarning) {
     return out;
   }
 
-  /** Parse one target clause: `context [. dotPath] [= transform] [as alias]` or `(expr) as alias`. */
+  /** Parse one target clause: `context [. dotPath] [= transform] [as alias] [listMode]` or `(expr) as alias`. */
   function parseOneTarget() {
     // Parenthesized FHIRPath expression as target: `(expr) as alias`
     if (at(TK.LPAREN)) {
       const fhirpathExpr = captureBalancedParenText();
       const tgt = { context: null, path: null, alias: null, transform: null, fhirpathExpr };
       if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
-      return tgt;
+      return parseTargetListMode(tgt);
     }
 
     const tgt = { context: expect(TK.WORD).value, path: null, alias: null, transform: null };
@@ -593,11 +598,32 @@ export function parseFml(fmlText, onWarning) {
       tgt.transform = parseTransformFromName(tgt.context);
       tgt.context = null;
       if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
-      return tgt;
+      return parseTargetListMode(tgt);
     }
     if (at(TK.DOT))   { advance(); tgt.path = parseDotPath(); }
     if (at(TK.EQ))    { advance(); tgt.transform = parseTransform(); }
     if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
+    return parseTargetListMode(tgt);
+  }
+
+  /**
+   * Capture an optional target list mode keyword following a target clause,
+   * per the FML grammar's targetListMode: `first | last | single | share |
+   * collate`. `share` is followed by a variable name. Recognising these
+   * keeps the parser from mis-reading `tgt.x as t first, ...` (where the
+   * bare `first` token previously terminated the target list and was then
+   * mis-consumed as the next rule's source context). Stores the mode on
+   * `tgt.listMode` (and the variable on `tgt.shareVar` for `share`).
+   *
+   * @param {Object} tgt  The target node being built.
+   * @returns {Object}    The same target node, for chaining.
+   */
+  function parseTargetListMode(tgt) {
+    if (atWord('first') || atWord('last') || atWord('single') ||
+        atWord('share') || atWord('collate')) {
+      tgt.listMode = advance().value;
+      if (tgt.listMode === 'share' && at(TK.WORD)) tgt.shareVar = advance().value;
+    }
     return tgt;
   }
 
