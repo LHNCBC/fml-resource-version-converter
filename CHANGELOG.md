@@ -16,6 +16,10 @@ This project follows [Semantic Versioning](http://semver.org/).
   List modes `single`/`share`/`collate` are parsed but currently not
   handled and diagnostic messages are emitted instead - they have not been
   seen in the known mapping files. 
+- FML parser: recognizes the source `log (...)` clause (parsed and ignored,
+  as the FML spec treats it as diagnostic-only) and backtick-delimited
+  identifiers in bare paths, so neither triggers a mis-parse or tokenizer
+  warning if encountered. Neither appears in the known mapping files.
 
 ## [0.1.0] - 2026-07-20
 

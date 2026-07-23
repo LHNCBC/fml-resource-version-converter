@@ -60,6 +60,11 @@
  * @property {GuardExpr|null} where     `where (...)` guard.
  * @property {GuardExpr|null} check     `check (...)` guard. Warning only;
  *                                      does not short-circuit the rule.
+ * @property {GuardExpr|null} log       `log (...)` clause. Diagnostic only:
+ *                                      per the FML spec its evaluated result
+ *                                      is a log message; it does not affect
+ *                                      the transformation. Parsed and stored
+ *                                      but not executed.
  * @property {'first'|'last'|'not_first'|'not_last'|'only_one'|null} listMode
  *
  * @typedef {Object} Target
@@ -207,6 +212,30 @@ export function tokenise(text, onWarning) {
     // Stray annotation noise like '+' (used as `<<type+>>` inner content,
     // already handled above; left in for safety on malformed files).
     if (c === '<' || c === '>' || c === '+') { i++; start = i; continue; }
+
+    // --- Backtick-delimited identifier (FHIRPath): `div`, `where`, ... ---
+    // FHIRPath (and thus FML paths) allow an identifier that collides with a
+    // reserved word or contains special characters to be delimited with
+    // backticks. We emit the inner text as a plain WORD so downstream path
+    // navigation sees the real field name. (Backticks inside parenthesised
+    // FHIRPath expressions are already preserved verbatim and handed to
+    // fhirpath.js; this covers the bare-path case.)
+    if (c === '`') {
+      i++;
+      let s = '';
+      while (i < text.length && text[i] !== '`') {
+        if (text[i] === '\\') { i++; s += text[i++] ?? ''; continue; }
+        if (text[i] === '\n') line++;
+        s += text[i++];
+      }
+      if (i >= text.length) {
+        onWarning?.(`Tokenizer: unterminated backtick identifier starting near line ${line}`);
+      }
+      i++; // consume closing backtick
+      push(TK.WORD, s);
+      start = i;
+      continue;
+    }
 
     // --- Quoted strings (single or double) ---
     if (c === "'" || c === '"') {
@@ -462,13 +491,13 @@ export function parseFml(fmlText, onWarning) {
 
   /**
    * Parse one source clause:
-   *   context [. dotPath] [: TypeHint] [listMode] [as alias] [where (...)] [check (...)]
+   *   context [. dotPath] [: TypeHint] [listMode] [as alias] [where (...)] [check (...)] [log (...)]
    */
   function parseOneSource() {
     const src = {
       context: expect(TK.WORD).value,
       path: null, alias: null, typeHint: null,
-      where: null, check: null, listMode: null,
+      where: null, check: null, log: null, listMode: null,
     };
     if (at(TK.DOT))    { advance(); src.path     = parseDotPath(); }
     if (at(TK.COLON))  { advance(); src.typeHint = expect(TK.WORD).value; }
@@ -482,6 +511,9 @@ export function parseFml(fmlText, onWarning) {
     if (atWord('as'))    { advance(); src.alias = expect(TK.WORD).value; }
     if (atWord('where')) { advance(); src.where = parseGuardExpr(); }
     if (atWord('check')) { advance(); src.check = parseGuardExpr(); }
+    // `log (...)` -- diagnostic only per the FML spec; parsed so it does not
+    // mis-terminate the source clause, but not executed (no output effect).
+    if (atWord('log'))   { advance(); src.log = parseGuardExpr(); }
     return src;
   }
 

@@ -446,6 +446,44 @@ describe('fml_base_conv: target list mode parsing', function () {
 });
 
 
+describe('fml_base_conv: log clause and backtick identifiers', function () {
+  it('parses a source `log (...)` clause without disrupting the rule', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.a as s log (s) -> tgt.b = s;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      a: 'v',
+    });
+
+    // The rule still runs: the log clause is parsed and ignored.
+    assert.equal(output.b, 'v');
+    assert.deepEqual(warnings, []);
+  });
+
+  it('tokenises a backtick-delimited identifier in a bare path', function () {
+    // `div` is a FHIRPath reserved word; backticks quote it as a field name.
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.`div` -> tgt.out;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      div: 'hello',
+    });
+
+    assert.equal(output.out, 'hello');
+    // No "unrecognised character" tokenizer warning.
+    assert.deepEqual(warnings, []);
+  });
+});
+
+
 describe('fml_base_conv: target list mode first/last reuse', function () {
   it('merges every item into the first existing list element (first)', function () {
     // Mirrors R3->R2 HealthcareService: one rule builds `list` entries, a
