@@ -446,6 +446,44 @@ describe('fml_base_conv: target list mode parsing', function () {
 });
 
 
+describe('fml_base_conv: unsupported top-level constructs warn cleanly', function () {
+  it('emits one clear warning for `let` and skips it (rest still runs)', function () {
+    const fml = [
+      'let base = src.url;',
+      'group TestRes(source src, target tgt) {',
+      '  src.a -> tgt.b;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, { resourceType: 'TestRes', a: 'x' });
+
+    // The following group still parses and runs.
+    assert.equal(output.b, 'x');
+    // Exactly one clear "not yet supported" message; no token-by-token noise.
+    assert.equal(warnings.filter(w => /'let' constants are not yet supported/.test(w)).length, 1);
+    assert.deepEqual(warnings.filter(w => /unexpected token/.test(w)), []);
+  });
+
+  it('emits one clear warning for inline `conceptmap` and skips the block', function () {
+    const fml = [
+      'conceptmap "http://x" {',
+      '  prefix s = "http://sys"',
+      '  s:foo == t:bar',
+      '}',
+      'group TestRes(source src, target tgt) {',
+      '  src.a -> tgt.b;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, { resourceType: 'TestRes', a: 'x' });
+
+    assert.equal(output.b, 'x');
+    assert.equal(warnings.filter(w => /inline 'conceptmap' is not yet supported/.test(w)).length, 1);
+    assert.deepEqual(warnings.filter(w => /unexpected token/.test(w)), []);
+  });
+});
+
+
 describe('fml_base_conv: datatype-internal array wrapping', function () {
   it('wraps a datatype-internal array field via datatype re-rooting', function () {
     // Mirrors R4B->R5 Encounter.class: build a CodeableConcept and fill its

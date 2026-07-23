@@ -353,6 +353,28 @@ export function parseFml(fmlText, onWarning) {
         advance();
       }
       if (at(TK.SEMI)) advance();
+    } else if (atWord('let')) {
+      // `let name = <fhirpath> ;` -- FML constants are not yet supported.
+      // Emit one clear diagnostic and skip the whole declaration cleanly
+      // (to the terminating `;`) rather than warning token-by-token.
+      onWarning?.(`Parser: 'let' constants are not yet supported (line ${peek().line}); declaration ignored`);
+      while (!at(TK.SEMI) && !at(TK.EOF)) advance();
+      if (at(TK.SEMI)) advance();
+    } else if (atWord('conceptmap')) {
+      // `conceptmap "url" { ... }` -- inline ConceptMaps are not yet
+      // supported. Emit one clear diagnostic and skip the whole brace-
+      // balanced block cleanly.
+      onWarning?.(`Parser: inline 'conceptmap' is not yet supported (line ${peek().line}); block ignored`);
+      advance();
+      while (!at(TK.LBRACE) && !at(TK.EOF) && !at(TK.SEMI)) advance();
+      if (at(TK.LBRACE)) {
+        let depth = 0;
+        do {
+          if (at(TK.LBRACE)) depth++;
+          else if (at(TK.RBRACE)) depth--;
+          advance();
+        } while (depth > 0 && !at(TK.EOF));
+      }
     } else {
       onWarning?.(`Parser: unexpected token ${peek().kind} '${peek().value}' at line ${peek().line}, skipping`);
       advance();

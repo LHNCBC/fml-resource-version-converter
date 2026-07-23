@@ -116,6 +116,11 @@ resource. Please keep the following in mind:
   and more postprocessors may be added in future releases. You certainly can
   supply your own postprocessors as needed - and better yet, contribute
   them back to the project.
+- **A few FML language features are not yet implemented:** `let` constants,
+  inline `conceptmap` declarations, and the `share`/`collate` target list
+  modes. These are not used by the current HL7 cross-version mapping files, so
+  current conversions are unaffected; if a mapping does use one, the engine
+  emits a warning message. These features will be implemented in a future release.
 
 ## Understanding the result
 
