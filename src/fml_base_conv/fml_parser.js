@@ -598,6 +598,14 @@ export function parseFml(fmlText, onWarning) {
       // Complex expression: capture original source text byte-for-byte.
       return { fhirpath: captureBalancedParenText() };
     }
+    // Bare string literal as the whole expression (valid FHIRPath), e.g.
+    // `log 'message'` or `check 'note'`. Re-wrap it as a FHIRPath string
+    // literal so where/check/log evaluate it consistently instead of the
+    // parser throwing on the unexpected STRING token.
+    if (at(TK.STRING)) {
+      const s = advance().value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      return { fhirpath: `'${s}'` };
+    }
     let left = expect(TK.WORD).value;
     while (at(TK.DOT)) { advance(); left += '.' + expect(TK.WORD).value; }
     return { left, op: null, right: null };

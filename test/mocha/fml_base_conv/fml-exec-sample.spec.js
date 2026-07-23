@@ -446,6 +446,61 @@ describe('fml_base_conv: target list mode parsing', function () {
 });
 
 
+describe('fml_base_conv: datatype-internal array wrapping', function () {
+  it('wraps a datatype-internal array field via datatype re-rooting', function () {
+    // Mirrors R4B->R5 Encounter.class: build a CodeableConcept and fill its
+    // `coding`, which is 0..* on the CodeableConcept datatype. The engine
+    // composes the resource-rooted path `TestRes.field.coding`, which is not
+    // in arrayPaths; it must re-root at the datatype boundary
+    // (`TestRes.field` -> CodeableConcept) to find `CodeableConcept.coding`.
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      "  src.c as s -> tgt.field = create('CodeableConcept') as t, t.coding as tc then FillCoding(s, tc);",
+      '}',
+      'group FillCoding(source src, target tgt) {',
+      '  src.code -> tgt.code;',
+      '}',
+    ].join('\n');
+
+    const tgtDefs = {
+      arrayPaths: ['CodeableConcept.coding'],
+      elementTypes: { 'TestRes.field': 'CodeableConcept' },
+    };
+    const engine = compileFmlXver({ fmlText: fml, tgtDefs });
+    const output = engine.convert({ input: { resourceType: 'TestRes', c: { code: 'x' } } });
+
+    // `coding` is wrapped as an array; the scalar `code` inside stays scalar.
+    assert.ok(Array.isArray(output.field.coding), 'field.coding should be an array');
+    assert.equal(output.field.coding.length, 1);
+    assert.equal(output.field.coding[0].code, 'x');
+  });
+});
+
+
+describe('fml_base_conv: create() resourceType handling', function () {
+  const fml = [
+    'group TestRes(source src, target tgt) {',
+    "  src.a -> tgt.dt = create('CodeableConcept');",
+    "  src.b -> tgt.res = create('CareTeam');",
+    "  src.c -> tgt.prim = create('boolean');",
+    '}',
+  ].join('\n');
+
+  it('omits resourceType for datatypes and primitives, keeps it for resources', function () {
+    // Resource classification is read from the FHIR defs (resourceTypes);
+    // pass a minimal tgtDefs so CareTeam is recognised as a resource.
+    const engine = compileFmlXver({ fmlText: fml, tgtDefs: { resourceTypes: ['CareTeam'] } });
+    const output = engine.convert({ input: { resourceType: 'TestRes', a: 1, b: 1, c: 1 } });
+
+    // Datatype and primitive: bare object, no resourceType.
+    assert.deepEqual(output.dt, {});
+    assert.deepEqual(output.prim, {});
+    // Resource: carries resourceType.
+    assert.deepEqual(output.res, { resourceType: 'CareTeam' });
+  });
+});
+
+
 describe('fml_base_conv: log clause and backtick identifiers', function () {
   it('parses a source `log (...)` clause without disrupting the rule', function () {
     const fml = [
@@ -495,6 +550,28 @@ describe('fml_base_conv: log clause and backtick identifiers', function () {
 
     // The log clause value is surfaced as an info-level diagnostic.
     assert.ok(infos.some(m => /^log: v$/.test(m)), `infos: ${JSON.stringify(infos)}`);
+  });
+
+  it('accepts an unparenthesized string literal in log', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      "  src.a as s log 'processing item' -> tgt.b = s;",
+      '}',
+    ].join('\n');
+
+    const infos = [];
+    const warnings = [];
+    const engine = compileFmlXver({
+      fmlText: fml,
+      onInfo: m => infos.push(m),
+      onWarning: m => warnings.push(m),
+    });
+    const output = engine.convert({ input: { resourceType: 'TestRes', a: 'v' } });
+
+    // Parses (no throw), the rule runs, and the literal is logged.
+    assert.equal(output.b, 'v');
+    assert.ok(infos.some(m => /^log: processing item$/.test(m)), `infos: ${JSON.stringify(infos)}`);
+    assert.deepEqual(warnings, []);
   });
 });
 

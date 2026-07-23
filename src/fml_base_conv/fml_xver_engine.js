@@ -598,6 +598,21 @@ export function compileFmlXver({
   const tgtArrayPaths = new Set(tgtDefs?.arrayPaths || []);
 
   /**
+   * Set of FHIR resource type names (kind === 'resource') across the source
+   * and target versions, built from the defs' `resourceTypes` arrays. Used by
+   * the `create('X')` transform to decide whether an instance should carry
+   * `resourceType` (resources) or be a bare object (primitives / datatypes).
+   * The union is safe because resource-ness is version-stable; consulting
+   * both versions tolerates a type present in only one of the loaded defs.
+   * Empty when no defs are supplied (raw compile), in which case `create()`
+   * adds no `resourceType`.
+   */
+  const resourceTypeSet = new Set([
+    ...(srcDefs?.resourceTypes || []),
+    ...(tgtDefs?.resourceTypes || []),
+  ]);
+
+  /**
    * Maps of absolute FHIR dotted paths to their single concrete type
    * code (e.g. "canonical", "Reference", "Identifier") for non-poly
    * scalar elements in the source and target FHIR versions. These power
@@ -748,6 +763,38 @@ export function compileFmlXver({
    * target lift). Routing every write through this helper ensures
    * target-version array cardinality is always honored.
    */
+  /**
+   * Decide whether an absolute, resource-rooted target path is array-typed
+   * (`max > 1`) in the target FHIR version.
+   *
+   * The `arrayPaths` table keys datatype-internal array fields by the
+   * DATATYPE root (e.g. `CodeableConcept.coding`), because a resource's
+   * StructureDefinition snapshot does not expand complex-datatype internals.
+   * A path the engine composes from the resource root (e.g.
+   * `Encounter.class.coding`) therefore never matches directly. When the
+   * direct lookup misses, this re-roots the path at each datatype boundary
+   * (found via `elementTypes`, e.g. `Encounter.class -> CodeableConcept`) and
+   * retries, recursing to handle nested datatypes. Purely additive: it only
+   * recognizes fields that are genuinely arrays per the datatype's own
+   * definition; it never demotes an existing array path.
+   *
+   * @param {string} absPath  Absolute resource-rooted dotted path.
+   * @returns {boolean}
+   */
+  function isTgtArrayPath(absPath) {
+    if (tgtArrayPaths.has(absPath)) return true;
+    const segs = absPath.split('.');
+    for (let i = segs.length - 1; i >= 1; i--) {
+      const t = tgtElementTypes.get(segs.slice(0, i).join('.'));
+      // Only complex types (upper-camel) have sub-paths worth re-rooting;
+      // primitives never do.
+      if (t && t[0] === t[0].toUpperCase()) {
+        if (isTgtArrayPath(t + '.' + segs.slice(i).join('.'))) return true;
+      }
+    }
+    return false;
+  }
+
   function writeToSlot(parent, key, value, absolutePath) {
     if (absolutePath && isObject(value) && 'value' in value) {
       const tgtType = tgtElementTypes.get(absolutePath);
@@ -759,7 +806,7 @@ export function compileFmlXver({
       }
     }
 
-    if (absolutePath && tgtArrayPaths.has(absolutePath)) {
+    if (absolutePath && isTgtArrayPath(absolutePath)) {
       if (Array.isArray(value)) {
         // Bulk copy: `value` is already the array contents (typical of
         // `src.foo -> tgt.foo` where `foo` is array-typed in both
@@ -842,8 +889,16 @@ export function compileFmlXver({
         return deepClone(v);
       }
 
-      case 'create':
-        return args[0]?.value ? { resourceType: args[0].value } : {};
+      case 'create': {
+        // Only resources carry `resourceType` in FHIR JSON. Primitives and
+        // complex datatypes (e.g. CodeableConcept, Coding) get a bare object
+        // that subsequent rules populate. Resource-ness comes from the defs'
+        // `resourceTypes` (kind === 'resource'); see resourceTypeSet. Without
+        // defs the set is empty, so no `resourceType` is added.
+        const typeName = args[0]?.value;
+        if (!typeName) return {};
+        return resourceTypeSet.has(typeName) ? { resourceType: typeName } : {};
+      }
 
       case 'truncate': {
         const v = resolveArg(args[0], scope);

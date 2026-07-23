@@ -60,7 +60,8 @@
  *       "Patient.gender":                    "code",
  *       "Patient.identifier":                "Identifier",
  *       "Questionnaire.item.answerValueSet": "canonical"
- *     }
+ *     },
+ *     "resourceTypes": ["Account", "ActivityDefinition", "..."]
  *   }
  *
  * Detection rules:
@@ -143,6 +144,16 @@ const arrayPaths = new Set();
 /** path -> single concrete FHIR type code for non-polymorphic scalar elements */
 const elementTypes = new Map();
 
+/**
+ * Names of StructureDefinitions whose kind is "resource" (i.e. actual FHIR
+ * resources, as opposed to complex/primitive datatypes or logical models).
+ * Consumed by the FML engine so `create('X')` only tags resources with
+ * `resourceType`. DSTU2 spells datatypes as kind "datatype"; STU3+ split
+ * them into "complex-type"/"primitive-type"; only "resource" is collected
+ * here, so the distinction does not matter.
+ */
+const resourceTypes = new Set();
+
 let sdSeen = 0;
 let sdSkipped = 0;
 let elementsSeen = 0;
@@ -207,6 +218,14 @@ for (const entry of matchedEntries) {
     if (sd?.resourceType !== 'StructureDefinition') continue;
     sdSeen++;
 
+    // Record resource type names (kind === 'resource') for the FML engine's
+    // create() classification. The type name is `type` in STU3+ and falls
+    // back to id/name for DSTU2.
+    if (sd.kind === 'resource') {
+      const typeName = sd.type || sd.id || sd.name;
+      if (typeName) resourceTypes.add(typeName);
+    }
+
     const elements = sd.snapshot?.element || sd.differential?.element || [];
     if (elements.length === 0) {
       sdSkipped++;
@@ -262,6 +281,7 @@ writeJson(outFile, {
   polyPaths:    polyPathsObj,
   arrayPaths:   sortedArrayPaths,
   elementTypes: elementTypesObj,
+  resourceTypes: [...resourceTypes].sort(),
 });
 
 console.error(`Wrote ${outFile}`);
@@ -270,6 +290,7 @@ console.error(`  Elements scanned:     ${elementsSeen}`);
 console.error(`  Polymorphic paths:    ${sortedPolyPaths.length}`);
 console.error(`  Array paths:          ${sortedArrayPaths.length}`);
 console.error(`  Scalar-type paths:    ${sortedElementTypePaths.length}`);
+console.error(`  Resource types:       ${resourceTypes.size}`);
 if (missingTypeCodes > 0) {
   console.error(`  Elements with missing type.code: ${missingTypeCodes}`);
 }

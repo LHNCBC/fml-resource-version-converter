@@ -17,6 +17,11 @@ This project follows [Semantic Versioning](http://semver.org/).
     emitted instead - they have not been seen in the known mapping files.
 - "log" clause is now fully supported.
 - Backtick-delimited identifiers in bare paths are now supported.
+- `create('X')` no longer adds a spurious `resourceType` to primitives and
+  datatypes (e.g. `create('CodeableConcept')`); only resources carry it.
+- FML engine: datatype-internal array fields written through a type/`then`
+  conversion (e.g. `Encounter.class.coding`, `PractitionerRole.contact.telecom`)
+  are now correctly wrapped as arrays.
 
 ## [0.1.0] - 2026-07-20
 

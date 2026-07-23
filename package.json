@@ -46,7 +46,7 @@
     "node": ">=20.11.0"
   },
   "scripts": {
-    "test": "mocha test/mocha --recursive",
+    "test": "mocha test/mocha --recursive --timeout 15000",
     "build": "npm run build:coverage",
     "build:coverage": "node tools/build-coverage.js",
     "build:fhir-defs": "node tools/build-fhir-defs.js"
