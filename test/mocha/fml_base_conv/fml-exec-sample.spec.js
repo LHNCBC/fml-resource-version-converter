@@ -481,6 +481,68 @@ describe('fml_base_conv: log clause and backtick identifiers', function () {
     // No "unrecognised character" tokenizer warning.
     assert.deepEqual(warnings, []);
   });
+
+  it('emits a source `log (...)` value via onInfo', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.a as s log (s) -> tgt.b = s;',
+      '}',
+    ].join('\n');
+
+    const infos = [];
+    const engine = compileFmlXver({ fmlText: fml, onInfo: m => infos.push(m) });
+    engine.convert({ input: { resourceType: 'TestRes', a: 'v' } });
+
+    // The log clause value is surfaced as an info-level diagnostic.
+    assert.ok(infos.some(m => /^log: v$/.test(m)), `infos: ${JSON.stringify(infos)}`);
+  });
+});
+
+
+describe('fml_base_conv: target list mode single', function () {
+  it('collapses a multi-item source to one target element and warns', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.items as s -> tgt.out as t single then Fill(s, t);',
+      '}',
+      'group Fill(source src, target tgt) {',
+      '  src.text -> tgt.text;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      items: [{ text: 'A' }, { text: 'B' }],
+    });
+
+    // Only the first item becomes a target element.
+    assert.equal(output.out.length, 1);
+    assert.equal(output.out[0].text, 'A');
+    // The count violation is reported...
+    assert.ok(warnings.some(w => /"single"/.test(w) && /2/.test(w)));
+    // ...but not the generic "not yet applied" diagnostic (single is applied).
+    assert.deepEqual(warnings.filter(w => /not yet applied/.test(w)), []);
+  });
+
+  it('passes a single-item source through without warning', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.items as s -> tgt.out as t single then Fill(s, t);',
+      '}',
+      'group Fill(source src, target tgt) {',
+      '  src.text -> tgt.text;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      items: [{ text: 'A' }],
+    });
+
+    assert.equal(output.out.length, 1);
+    assert.equal(output.out[0].text, 'A');
+    assert.deepEqual(warnings, []);
+  });
 });
 
 

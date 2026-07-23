@@ -1533,6 +1533,34 @@ export function compileFmlXver({
   }
 
   /**
+   * Evaluate a source `log (...)` clause and emit its value as an info-level
+   * diagnostic. Per the FML spec `log` is purely diagnostic: it produces a
+   * message and has no effect on the transformation output. A no-op when no
+   * `onInfo` sink is wired, so it costs nothing in production paths.
+   *
+   * @param {GuardExpr} logExpr  Parsed `log` expression (fhirpath or dot-path).
+   * @param {Scope}     scope    Current rule/iteration scope.
+   */
+  function emitLog(logExpr, scope) {
+    if (!logExpr || !onInfo) return;
+    let val;
+    if (logExpr.fhirpath) {
+      val = evalFhirpath(logExpr.fhirpath, scope, 'log');
+    } else if (logExpr.left) {
+      const segs = logExpr.left.split('.');
+      const head = segs[0];
+      if (scope.has(head)) {
+        const base = scope.get(head);
+        val = segs.length > 1 ? getPath(base, segs.slice(1).join('.')) : base;
+      } else if (scope.has('$this')) {
+        val = getPath(scope.get('$this'), logExpr.left);
+      }
+    }
+    const text = (val !== null && typeof val === 'object') ? JSON.stringify(val) : String(val);
+    onInfo(`log: ${text}`);
+  }
+
+  /**
    * Apply a rule to a single (non-iterated) source value.
    *
    * Three sub-modes, in priority order:
@@ -1563,6 +1591,7 @@ export function compileFmlXver({
     if (primary.spec.check && !evalGuard(primary.spec.check, ruleScope)) {
       onWarning?.(`check failed (${primary.spec.alias || primary.spec.path})`);
     }
+    if (primary.spec.log) emitLog(primary.spec.log, ruleScope);
 
     if (thenGroup || thenRules) {
       // Category 3: source-level then without targets (e.g. `src.field as v then Group(v, tgt)`)
@@ -1623,7 +1652,9 @@ export function compileFmlXver({
       if (reuseSlot && writePath) {
         child = resolveListModeSlot(tctx, writePath, tgtSpec.listMode, composeChildPath(tctx, writePath));
       } else {
-        if (tgtSpec.listMode) warnUnhandledTargetListMode(tgtSpec);
+        // single is trivially satisfied in scalar context (one value); warn
+        // only for genuinely unhandled modes here.
+        if (tgtSpec.listMode && tgtSpec.listMode !== 'single') warnUnhandledTargetListMode(tgtSpec);
         child = {};
         // Record the child's absolute FHIR path so deeper writes (and the
         // final slot write below) can consult target-version cardinality.
@@ -1752,6 +1783,15 @@ export function compileFmlXver({
       return;
     }
 
+    // Target list mode `single`: the target must receive exactly one value.
+    // If the source produced more than one item, warn and keep the first
+    // (the target-side counterpart of the source `only_one` mode).
+    let iterItems = items;
+    if (tgtSpec.listMode === 'single' && items.length > 1) {
+      onWarning?.(`target list mode "single" expects a single item but source produced ${items.length}; using the first`);
+      iterItems = [items[0]];
+    }
+
     // Target list mode `first`/`last`: every iterated item merges into the
     // same existing element of the target list (resolved once), rather than
     // each producing its own appended element. Only meaningful for
@@ -1762,10 +1802,14 @@ export function compileFmlXver({
     const sharedSlot = reuseSlot
       ? resolveListModeSlot(tctx, sharedWritePath, tgtSpec.listMode, composeChildPath(tctx, sharedWritePath))
       : null;
-    if (!reuseSlot && tgtSpec.listMode) warnUnhandledTargetListMode(tgtSpec);
+    // first/last are applied via reuseSlot and single via the collapse above;
+    // warn only for the still-unimplemented modes (share/collate).
+    if (!reuseSlot && tgtSpec.listMode && tgtSpec.listMode !== 'single') {
+      warnUnhandledTargetListMode(tgtSpec);
+    }
 
     const results = [];
-    for (const item of items) {
+    for (const item of iterItems) {
       const iterScope = scope.child();
       iterScope.set('$this', item); // Bind iteration context for unqualified guard references
       if (primary.spec.alias) iterScope.set(primary.spec.alias, item);
@@ -1779,6 +1823,7 @@ export function compileFmlXver({
       if (primary.spec.check && !evalGuard(primary.spec.check, iterScope)) {
         onWarning?.(`check failed in iteration (${primary.spec.alias})`);
       }
+      if (primary.spec.log) emitLog(primary.spec.log, iterScope);
 
       if (thenGroup || thenRules) {
         if (!isObject(item)) {
@@ -1951,7 +1996,9 @@ export function compileFmlXver({
    * the target path (see writeTarget docs).
    */
   function applyTarget(tgt, primary, bindings, scope) {
-    warnUnhandledTargetListMode(tgt);
+    // A plain (non-then) target inherently produces a single value, so
+    // `single` is satisfied; warn only for the other unhandled modes here.
+    if (tgt.listMode && tgt.listMode !== 'single') warnUnhandledTargetListMode(tgt);
     // FML-spec auto-coercion: when source and target element types
     // differ and a <<types>> conversion group is available, run that
     // group instead of plain copying.
