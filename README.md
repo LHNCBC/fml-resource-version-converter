@@ -15,16 +15,17 @@ still handle most of the data elements (via FML mapping), and
 you can pass in a postprocessor as needed to make the conversion complete.
 
 This project is designed as a general, extensible framework to support all
-FHIR resource types that have FML mappings. Postprocessors can be added
-incrementally and cleanly in future releases as the mappings are reviewed.
+FHIR resource types and versions for which FML mapping files exist.
+Postprocessors can be added incrementally and cleanly in future releases
+as the FML mappings are reviewed.
 
 For non-adjacent version pairs such as R3 -> R5, the conversion can be
 completed through a hop via R4, that is, R3 -> R4 and then R4 -> R5.
-Direct support for such conversion chains is planned for a future release.
+Direct support for such chained conversions is planned for a future release.
 
 The community is encouraged to contribute by reviewing the conversions for
 other resource types and version pairs, and by providing postprocessors
-as needed to make the conversion complete. Detailed instructions
+as needed to make the conversions complete. Detailed instructions
 for contributing are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 As a historical note, this project evolved from the now-deprecated
@@ -72,7 +73,7 @@ console.log(result.coverage);  // 'not_reviewed', 'known_gaps', 'best_effort', o
 run, such as an unknown version token, the same source and target version, an
 unknown resource type, or a version pair with no direct FML mapping.
 
-The input object is deep-cloned before conversion. Your original resource object
+The input resource is deep-cloned before conversion. Your original resource object
 is not modified.
 
 ## Supported version pairs
@@ -81,7 +82,8 @@ Use the canonical version tokens **R2**, **R3**, **R4**, **R4B**, and **R5**.
 Other names such as **STU3**, **DSTU2**, or **4.0.1** are not accepted by the
 public API.
 
-Direct FML mappings are available for these adjacent pairs, in both directions:
+As of this release, direct FML mappings are available for the following
+adjacent pairs, in both directions:
 
 ```text
 R2  <-> R3
@@ -91,11 +93,13 @@ R4B <-> R5
 ```
 
 This release exposes a single-hop conversion API. If you need **R3 -> R5**, call
-the converter once for **R3 -> R4** and then again for **R4 -> R5**.
+the converter once for **R3 -> R4** and then again for **R4 -> R5**. Direct support
+for multi-hop conversions is planned for a future release.
 
-R4B has mappings only with R5. There is no **R4 <-> R4B** conversion, and there
-is no **{R2, R3} <-> R4B** conversion. In those cases, use **R4** instead of
-**R4B** when that is acceptable for your workflow.
+R4B only has FML mappings to and from R5, and specifically, there is no FML mapping
+between **R4 <-> R4B** (not needed).
+For conversions between **R3 <-> R4B**, use **R4** instead of
+**R4B** when that is acceptable.
 
 ## Limitations
 
@@ -118,9 +122,9 @@ resource. Please keep the following in mind:
   them back to the project.
 - **A few FML language features are not yet implemented:** `let` constants,
   inline `conceptmap` declarations, and the `share`/`collate` target list
-  modes. These are not used by the current HL7 cross-version mapping files, so
-  current conversions are unaffected; if a mapping does use one, the engine
-  emits a warning message. These features will be implemented in a future release.
+  modes. These are not used by the current HL7 cross-version mapping files,
+  and current conversions are not affected. The engine will emit a warning
+  message if it sees one. The features will be implemented in a future release.
 
 ## Understanding the result
 
@@ -149,7 +153,7 @@ completeness of the FML mapping and any related postprocessors.
 ### Coverage levels
 
 - **not_reviewed**: the FML mapping has not yet been reviewed for completeness for
-  that resource type and version pair.
+  that specific resource type and version pair combination.
 - **known_gaps**: the conversion has known gaps that could be improved with
   additional mapping or postprocessing.
 - **best_effort**: the conversion has been reviewed and implemented as far as
@@ -221,9 +225,9 @@ node bin/convert.js --verbose R3 R4 questionnaire-r3.json > questionnaire-r4.jso
 
 ## Coverage and contributions
 
-FHIR has many resource types and many version pairs. This package is meant to
+Due to the sheer number of resource type and version pair combinations, this package is meant to
 grow incrementally: review one resource type and version pair at a time, add a
-postprocessor if needed, add tests, and regenerate the coverage report.
+postprocessor if needed, test, and then regenerate the coverage report.
 
 In this initial release, reviewed postprocessors are supplied only for
 **Questionnaire**. Contributions for other resource types are welcome.

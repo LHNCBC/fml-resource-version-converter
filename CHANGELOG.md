@@ -7,18 +7,17 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 ### Fixed
 
-- FML engine: multi-target `then` rules now process intermediate targets
-  (e.g. `tgt.A as t, t.B as tc then Group(s, tc)`), binding their variables
-  before the `then`-clause runs. Previously these were ignored.
+- FML engine: multi-target `then` rules now process the intermediate
+  targets (e.g. `tgt.A as t, t.B as tc then Group(s, tc)`) correctly.
 - FML parser and engine: target list modes are now recognized:
-  - `first` and `last` are now handled correctly.
-  - `single` is now supported (applied as an assertion)
-  - List modes `share`/`collate` are not handled currently and a diagnostic is
-    emitted instead - they have not been seen in the known mapping files.
+  - `first`, `last`, and `single` are now handled correctly.
+  - `share` and `collate` are not handled currently and diagnostic
+    messages will be emitted if used - these modes have not been seen
+    in the known mapping files and have no negative impact at this point.
 - "log" clause is now fully supported.
 - Backtick-delimited identifiers in bare paths are now supported.
 - `create('X')` no longer adds a spurious `resourceType` to primitives and
-  datatypes (e.g. `create('CodeableConcept')`); only resources carry it.
+  datatypes (e.g. `create('CodeableConcept')`).
 - FML engine: datatype-internal array fields written through a type/`then`
   conversion (e.g. `Encounter.class.coding`, `PractitionerRole.contact.telecom`)
   are now correctly wrapped as arrays.
