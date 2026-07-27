@@ -194,8 +194,10 @@ const result = chainedConverter.convert(resource, 'R3', 'R5', {
 });
 ```
 
-`preproc` runs before the first hop for the primary resource. `postproc` runs
-after the last hop for the primary resource. The postprocessor `policy` controls
+`preproc` is applied to the first hop for the primary resource - the very first
+processor to run. `postproc` is applied to the last hop for the primary resource
+- the very last processor to run, so its output is the final result. The
+postprocessor `policy` controls
 how your postprocessors combine with the package's registered postprocessors
 for that hop:
 
@@ -237,6 +239,19 @@ contributors and advanced users.
   `preprocs` and `postprocs` are maps or lookup functions.
 - `postprocessPolicy` is now part of the postprocessor entry:
   `{ policy: 'append' | 'replace', psps: [...] }`.
+
+## Examples
+
+A runnable example script is included in the repository:
+
+```bash
+node examples/conversions.js
+```
+
+It demonstrates a single adjacent-hop conversion, a simple multi-hop chain with
+one boundary preprocessor and postprocessor, a non-trivial chain (**R3 -> R5**)
+with per-hop postprocessors, and - commented out - how contained resource types
+would be targeted once contained-resource support is available.
 
 ## Command line
 

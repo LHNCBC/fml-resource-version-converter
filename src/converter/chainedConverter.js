@@ -23,9 +23,12 @@
  * the shared runHop core, mutating the single working copy. Overall coverage and
  * status are rolled up from the per-hop results.
  *
- * Preprocessors are per hop: `preproc` (PRP) targets the first hop's primary
- * type and lands in `hops[0].preprocessors`; there is no separate top-level
- * preprocessors list. `postproc` (PSP) targets the last hop's primary type.
+ * Processors are per hop. The singular `preproc`/`postproc` are conveniences for
+ * the outer boundaries: `preproc` (PRP) is applied to the first hop for the
+ * primary type (and lands in `hops[0].preprocessors`), `postproc` (PSP) to the
+ * last hop. The keyed `preprocs`/`postprocs` can target ANY hop on the path -
+ * including intermediate hops - and any resource type, so preprocessors are not
+ * limited to the first hop.
  *
  * @module converter/chainedConverter
  */
@@ -43,9 +46,9 @@ import { rollupStatus } from './diagnostics.js';
  * @param {string} fromVer Canonical source version (R2|R3|R4|R4B|R5).
  * @param {string} toVer   Canonical target version (R2|R3|R4|R4B|R5).
  * @param {Object} [opts]
- * @param {*} [opts.preproc]   PRP: a PRPE run before the first hop (primary type).
+ * @param {*} [opts.preproc]   PRP: a PRPE applied to the first hop (primary type).
  * @param {*} [opts.preprocs]  PRPs: a keyed map/lookup for preprocessors.
- * @param {*} [opts.postproc]  PSP: a PSPE run after the last hop (primary type).
+ * @param {*} [opts.postproc]  PSP: a PSPE applied to the last hop (primary type).
  * @param {*} [opts.postprocs] PSPs: a keyed map/lookup for postprocessors.
  * @param {boolean} [opts.checkCoverage=true] Enforce non-decreasing coverage
  *   within each hop.

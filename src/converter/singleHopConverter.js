@@ -29,9 +29,9 @@ import { rollupChainCoverage } from './coverage.js';
  * @param {string} fromVer Canonical source version (R2|R3|R4|R4B|R5).
  * @param {string} toVer   Canonical target version (R2|R3|R4|R4B|R5).
  * @param {Object} [opts]
- * @param {*} [opts.preproc]   PRP: a PRPE (array) run before the FML step.
+ * @param {*} [opts.preproc]   PRP: a PRPE (array) applied before the FML step.
  * @param {*} [opts.preprocs]  PRPs: a keyed map/lookup for preprocessors.
- * @param {*} [opts.postproc]  PSP: a PSPE run after the FML step.
+ * @param {*} [opts.postproc]  PSP: a PSPE applied in postprocessing (combined with package postprocessors per policy).
  * @param {*} [opts.postprocs] PSPs: a keyed map/lookup for postprocessors.
  * @param {boolean} [opts.checkCoverage=true] Enforce non-decreasing coverage.
  * @returns {Object} Flat result object; see the module overview for the shape.

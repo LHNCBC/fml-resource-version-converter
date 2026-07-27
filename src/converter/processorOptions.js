@@ -9,8 +9,8 @@
  *
  * Option surface (per side, pre and post):
  *   - Singular (outer boundary):
- *       preproc  (PRP)  - a PRPE, applied before the first hop  (primary type).
- *       postproc (PSP)  - a PSPE, applied after the last hop     (primary type).
+ *       preproc  (PRP)  - a PRPE applied to the first hop (primary type).
+ *       postproc (PSP)  - a PSPE applied to the last hop (primary type).
  *   - Plural (keyed, map or lookup):
  *       preprocs  (PRPs) - keyed by canonical "resType:v1->v2".
  *       postprocs (PSPs) - same keying.
