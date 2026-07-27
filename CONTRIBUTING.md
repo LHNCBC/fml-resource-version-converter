@@ -3,11 +3,11 @@
 Thank you for helping improve the FML-based FHIR Resource Version Converter.
 
 Due to the number of FHIR resource types and versions, this project is meant to
-grow incrementally, and the help from the community is invaluable. 
-The FML mapping engine provides the base conversion, but some of the mapping
-files are often incomplete. Therefore, individual asessments are needed and
-postprocessors can be added to address the issues discoevered - this is an
-area where community contributions can make the most impact.
+grow incrementally, and community help is invaluable.
+The FML mapping engine provides the base conversion, but the mapping files are
+sometimes incomplete. Individual assessments are therefore needed, and
+postprocessors can be added to address the issues found - this is an area where
+community contributions make the most impact.
 
 For example, if you find yourself converting resources of type T from version V1 
 to V2 and this package's coverage status for this conversion is "not_reviewed" 
@@ -117,11 +117,10 @@ direction-specific registries. If a resource type and direction has no explicit
 entry but an FML mapping exists, lookup returns the default entry with FML 
 coverage set to **not_reviewed** and no package postprocessors.
 
-Let's look at a hypothetical example of handling ResourceTypeX before 
-explaining the details. Apparently, the FML mapping for ResourceTypeX
-from R4 to R5 drops the field someFieldFoo when the value
-is "foo", but it should really be mapped to "foobar".
-We are adding a postprocessor to address that and document it in the registry.
+Let's walk through a hypothetical example before explaining the details. Suppose
+the FML mapping for ResourceTypeX from R4 to R5 drops the field someFieldFoo when
+its value is "foo", but it should really be mapped to "foobar". We add a
+postprocessor to fix that and document it in the registry.
 
 ```js
 // src/postprocessors/R4_R5/ResourceTypeX.js, define and export post processors.

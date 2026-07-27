@@ -6,7 +6,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { COVERAGE } from '../../../src/converter/coverage.js';
 import { MESSAGE_TYPE, STATUS } from '../../../src/converter/diagnostics.js';
-import { convertSingleHop } from '../../../src/converter/singleHopConverter.js';
+import { singleHopConverter } from '../../../src/converter/singleHopConverter.js';
+
+const { convert } = singleHopConverter;
 
 const TEST_DATA = path.resolve(import.meta.dirname, '../../data');
 const r4Questionnaire = JSON.parse(
@@ -22,29 +24,29 @@ describe('converter/singleHopConverter', function () {
     // No FML mapping files ship for unsupported/non-adjacent version pairs,
     // so the mapping gate rejects them before any conversion is attempted.
     it('rejects R4 <-> R4B (no mapping ships)', function () {
-      assert.throws(() => convertSingleHop(r4Questionnaire, 'R4', 'R4B'), /no direct FML mapping/);
+      assert.throws(() => convert(r4Questionnaire, 'R4', 'R4B'), /no direct FML mapping/);
     });
 
     it('rejects a non-adjacent pair (multi-hop)', function () {
-      assert.throws(() => convertSingleHop(r4Questionnaire, 'R3', 'R5'), /no direct FML mapping/);
+      assert.throws(() => convert(r4Questionnaire, 'R3', 'R5'), /no direct FML mapping/);
     });
   });
 
   // -------- resource validation --------------------------------------------
   describe('resource validation', function () {
     it('rejects non-object resource', function () {
-      assert.throws(() => convertSingleHop(null, 'R4', 'R5'), /resourceType is required/);
-      assert.throws(() => convertSingleHop('string', 'R4', 'R5'), /resourceType is required/);
-      assert.throws(() => convertSingleHop([], 'R4', 'R5'), /resourceType is required/);
+      assert.throws(() => convert(null, 'R4', 'R5'), /resourceType is required/);
+      assert.throws(() => convert('string', 'R4', 'R5'), /resourceType is required/);
+      assert.throws(() => convert([], 'R4', 'R5'), /resourceType is required/);
     });
 
     it('rejects resource without resourceType', function () {
-      assert.throws(() => convertSingleHop({}, 'R4', 'R5'), /resourceType is required/);
+      assert.throws(() => convert({}, 'R4', 'R5'), /resourceType is required/);
     });
 
     it('throws when no FML mapping exists for the resource type', function () {
       assert.throws(
-        () => convertSingleHop({ resourceType: 'NoSuchResource' }, 'R4', 'R5'),
+        () => convert({ resourceType: 'NoSuchResource' }, 'R4', 'R5'),
         /no direct FML mapping for NoSuchResource/,
       );
     });
@@ -55,7 +57,7 @@ describe('converter/singleHopConverter', function () {
     let result;
 
     before(function () {
-      result = convertSingleHop(r4Questionnaire, 'R4', 'R5');
+      result = convert(r4Questionnaire, 'R4', 'R5');
     });
 
     it('returns the standard result object shape', function () {
@@ -104,7 +106,7 @@ describe('converter/singleHopConverter', function () {
         status: 'active',
         item: [{ linkId: 'q1', type: 'choice', answerOption: [{ valueCoding: { code: 'b' } }] }],
       };
-      const res = convertSingleHop(q, 'R4', 'R5');
+      const res = convert(q, 'R4', 'R5');
       assert.equal(res.status, STATUS.OK);
       const warnings = res.fml_base_conv.messages.filter(m => m.type === MESSAGE_TYPE.WARNING);
       assert.equal(
@@ -115,7 +117,7 @@ describe('converter/singleHopConverter', function () {
   });
 
   // -------- preprocessors --------------------------------------------------
-  describe('preprocessors', function () {
+  describe('preprocessors (preproc)', function () {
     it('runs a preprocessor before the FML engine and records it', function () {
       let seenCtx = null;
       let seenInput = null;
@@ -129,7 +131,7 @@ describe('converter/singleHopConverter', function () {
         },
       };
 
-      const result = convertSingleHop(r4Questionnaire, 'R4', 'R5', { preprocs: [preproc] });
+      const result = convert(r4Questionnaire, 'R4', 'R5', { preproc: [preproc] });
 
       assert.deepEqual(seenCtx, { fromVer: 'R4', toVer: 'R5' });
       // Preproc input is the cloned resource, not the caller's object.
@@ -139,8 +141,6 @@ describe('converter/singleHopConverter', function () {
       assert.equal(result.preprocessors.length, 1);
       assert.equal(result.preprocessors[0].name, 'tagInput');
       assert.equal(result.preprocessors[0].status, STATUS.OK);
-      // Top-level status may be warning (from FML engine); the preproc
-      // itself returned ok so its own report status is ok above.
       assert.ok([STATUS.OK, STATUS.WARNING].includes(result.status));
       // The preproc-injected field flows through the FML step.
       assert.equal(result.resource.language, 'en');
@@ -158,7 +158,7 @@ describe('converter/singleHopConverter', function () {
         },
       };
 
-      const result = convertSingleHop(r4Questionnaire, 'R4', 'R5', { preprocs: [preproc] });
+      const result = convert(r4Questionnaire, 'R4', 'R5', { preproc: [preproc] });
       assert.equal(result.status, STATUS.WARNING);
       assert.equal(result.preprocessors[0].status, STATUS.WARNING);
     });
@@ -171,14 +171,14 @@ describe('converter/singleHopConverter', function () {
         },
       };
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { preprocs: [bad] }),
+        () => convert(r4Questionnaire, 'R4', 'R5', { preproc: [bad] }),
         /liar.*no warning message/,
       );
     });
   });
 
   // -------- postprocessors -------------------------------------------------
-  describe('postprocessors', function () {
+  describe('postprocessors (postproc)', function () {
     it('runs postprocessors after the FML step with sourceResource in ctx', function () {
       let seenCtx = null;
       let seenTarget = null;
@@ -198,9 +198,9 @@ describe('converter/singleHopConverter', function () {
         },
       };
 
-      const result = convertSingleHop(r4Questionnaire, 'R4', 'R5', {
-        preprocs: [preproc],
-        postprocs: [post],
+      const result = convert(r4Questionnaire, 'R4', 'R5', {
+        preproc: [preproc],
+        postproc: [post],
       });
 
       // sourceResource for the postproc is the input to the FML step
@@ -229,9 +229,7 @@ describe('converter/singleHopConverter', function () {
           return { resource: target, status: STATUS.OK };
         },
       };
-      const result = convertSingleHop(r4Questionnaire, 'R4', 'R5', {
-        postprocs: [post],
-      });
+      const result = convert(r4Questionnaire, 'R4', 'R5', { postproc: [post] });
       assert.equal(result.postprocessors[0].coverage, COVERAGE.NEUTRAL);
     });
   });
@@ -245,27 +243,26 @@ describe('converter/singleHopConverter', function () {
 
     it('rejects decreasing coverage by default', function () {
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', {
-          postprocs: completeThenKnownGaps(),
-        }),
+        () => convert(r4Questionnaire, 'R4', 'R5', { postproc: completeThenKnownGaps() }),
         /Coverage decreases at second/,
       );
     });
 
     it('accepts decreasing coverage when checkCoverage is false', function () {
-      assert.doesNotThrow(() => convertSingleHop(r4Questionnaire, 'R4', 'R5', {
-        postprocs: completeThenKnownGaps(),
+      assert.doesNotThrow(() => convert(r4Questionnaire, 'R4', 'R5', {
+        postproc: completeThenKnownGaps(),
         checkCoverage: false,
       }));
     });
   });
 
-  // -------- postprocessPolicy ----------------------------------------------
-  describe('postprocessPolicy', function () {
-    it('rejects an invalid postprocessPolicy', function () {
+  // -------- PSPE policy ----------------------------------------------------
+  describe('postproc policy', function () {
+    it('rejects an invalid policy in a { policy, psps } entry', function () {
+      const post = { name: 'tag', execute: t => ({ resource: t, status: STATUS.OK }) };
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocessPolicy: 'bogus' }),
-        /Invalid postprocessPolicy/,
+        () => convert(r4Questionnaire, 'R4', 'R5', { postproc: { policy: 'bogus', psps: [post] } }),
+        /Invalid postproc.policy/,
       );
     });
 
@@ -274,13 +271,31 @@ describe('converter/singleHopConverter', function () {
         name: 'tag',
         execute: t => ({ resource: { ...t, language: 'de' }, status: STATUS.OK }),
       };
-      const result = convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: [post] });
+      const result = convert(r4Questionnaire, 'R4', 'R5', { postproc: [post] });
       assert.equal(result.postprocessors.length, 1);
       assert.equal(result.resource.language, 'de');
     });
   });
+
+  // -------- keyed postprocs (single-hop key convenience) -------------------
+  describe('keyed postprocs (type-only key convenience)', function () {
+    it('accepts a type-only postprocs map key', function () {
+      const post = {
+        name: 'tag',
+        execute: t => ({ resource: { ...t, language: 'de' }, status: STATUS.OK }),
+      };
+      const result = convert(r4Questionnaire, 'R4', 'R5', { postprocs: { Questionnaire: [post] } });
+      assert.equal(result.postprocessors.some(p => p.name === 'tag'), true);
+      assert.equal(result.resource.language, 'de');
+    });
+
+    it('also accepts a canonical postprocs map key', function () {
+      const post = { name: 'tag', execute: t => ({ resource: t, status: STATUS.OK }) };
+      const result = convert(r4Questionnaire, 'R4', 'R5', {
+        postprocs: { 'Questionnaire:R4->R5': [post] },
+      });
+      assert.equal(result.postprocessors.some(p => p.name === 'tag'), true);
+    });
+  });
 });
-
-
-
 

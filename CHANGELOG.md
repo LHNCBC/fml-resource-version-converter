@@ -5,6 +5,27 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `chainedConverter.convert(resource, fromVer, toVer, opts?)`: a multi-hop
+  conversion entry point that chains adjacent FML hops as needed (for example,
+  R3 -> R5 runs as R3 -> R4 -> R5) and returns a per-hop `hops[]` report.
+- Keyed pre-/postprocessor options (`preprocs` / `postprocs`) that target a
+  specific resource type and hop, alongside the outer-boundary `preproc` /
+  `postproc` options.
+- The command-line runner (`bin/convert.js`) now handles multi-hop conversions
+  and prints a per-hop diagnostics summary.
+
+### Changed
+
+- The single-hop entry point `convertSingleHop(...)` is now the object method
+  `singleHopConverter.convert(...)`; it returns the same flat result shape.
+- Caller processor options were renamed and restructured: outer-boundary
+  `preproc` / `postproc` and keyed `preprocs` / `postprocs`. The postprocessor
+  combination policy now lives inside a postprocessor's configuration entry as
+  `{ policy: 'append' | 'replace', psps: [...] }` (the standalone
+  `postprocessPolicy` option was removed).
+
 ### Fixed
 
 - FML engine: multi-target `then` rules now process the intermediate

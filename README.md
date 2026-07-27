@@ -21,7 +21,7 @@ as the FML mappings are reviewed.
 
 For non-adjacent version pairs such as R3 -> R5, the conversion can be
 completed through a hop via R4, that is, R3 -> R4 and then R4 -> R5.
-Direct support for such chained conversions is planned for a future release.
+The `chainedConverter` entry point performs this hop chaining for you.
 
 The community is encouraged to contribute by reviewing the conversions for
 other resource types and version pairs, and by providing postprocessors
@@ -45,7 +45,7 @@ The package is published as an ES module.
 ## Quick start
 
 ```js
-import { convertSingleHop } from '@lhncbc/fml-resource-version-converter';
+import { chainedConverter } from '@lhncbc/fml-resource-version-converter';
 
 const questionnaireR4 = {
   resourceType: 'Questionnaire',
@@ -62,16 +62,16 @@ const questionnaireR4 = {
   ],
 };
 
-const result = convertSingleHop(questionnaireR4, 'R4', 'R5');
+const result = chainedConverter.convert(questionnaireR4, 'R4', 'R5');
 
 console.log(result.resource);  // the converted R5 Questionnaire
 console.log(result.status);    // 'ok' or 'warning'
 console.log(result.coverage);  // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
 ```
 
-**convertSingleHop(resource, fromVer, toVer)** throws when the request cannot be
-run, such as an unknown version token, the same source and target version, an
-unknown resource type, or a version pair with no direct FML mapping.
+**chainedConverter.convert(resource, fromVer, toVer)** throws when the request
+cannot be run, such as an unknown version token, the same source and target
+version, an unknown resource type, or an unsupported version path.
 
 The input resource is deep-cloned before conversion. Your original resource object
 is not modified.
@@ -92,9 +92,10 @@ R4  <-> R5
 R4B <-> R5
 ```
 
-This release exposes a single-hop conversion API. If you need **R3 -> R5**, call
-the converter once for **R3 -> R4** and then again for **R4 -> R5**. Direct support
-for multi-hop conversions is planned for a future release.
+`chainedConverter.convert()` supports adjacent pairs and multi-hop paths along
+the supported lanes. For example, **R3 -> R5** runs as **R3 -> R4 -> R5**.
+Use `singleHopConverter.convert()` only when you specifically want the flat
+single-hop result shape for one adjacent pair.
 
 R4B only has FML mappings to and from R5, and specifically, there is no FML mapping
 between **R4 <-> R4B** (not needed).
@@ -103,18 +104,14 @@ For conversions between **R3 <-> R4B**, use **R4** instead of
 
 ## Limitations
 
-This initial release focuses on the single-hop conversion of a top-level
-resource. Please keep the following in mind:
+This initial release focuses on top-level resource conversion. Please keep the
+following in mind:
 
 - **Contained resources are not version-converted.** A resource's `contained[]`
   entries are carried through as-is and are not converted to the target version.
   If your resource holds contained resources that must match the target version,
   convert them separately for now. Automatic conversion of contained resources
   is planned for a future release.
-- **Non-adjacent versions require manual chaining.** Only direct (adjacent) FML
-  hops are supported by a single call. For a conversion such as **R3 -> R5**, call
-  the converter once for **R3 -> R4** and then again for **R4 -> R5**. Automatic
-  multi-hop chaining is planned for a future release.
 - **Reviewed postprocessors are supplied only for Questionnaire.** Other resource
   types are converted by the FML mapping alone (see [COVERAGE.md](COVERAGE.md)),
   and more postprocessors may be added in future releases. You certainly can
@@ -128,18 +125,28 @@ resource. Please keep the following in mind:
 
 ## Understanding the result
 
-A successful conversion returns a result object:
+`chainedConverter.convert()` returns a result object with one report entry per
+hop:
 
 ```text
 {
   resource,       // converted resource
   coverage,       // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
   status,         // 'ok' or 'warning'
-  fml_base_conv,  // report for the FML mapping step
-  postprocessors, // reports for postprocessors, omitted when none ran
-  preprocessors,  // reports for caller preprocessors, omitted when none ran
+  hops: [
+    {
+      fromVer,
+      toVer,
+      preprocessors,  // omitted when none ran for the hop
+      fml_base_conv,  // report for the FML mapping step
+      postprocessors, // omitted when none ran for the hop
+    },
+  ],
 }
 ```
+
+`singleHopConverter.convert()` returns the same per-hop report fields flattened
+onto the top-level result, without a `hops` array.
 
 The two most important fields are:
 
@@ -180,16 +187,17 @@ Most users do not need custom processors. If you do, pass them in the optional
 fourth argument:
 
 ```js
-const result = convertSingleHop(resource, 'R3', 'R4', {
-  preprocs: [myPreprocessor],
-  postprocs: [myPostprocessor],
-  postprocessPolicy: 'append',
+const result = chainedConverter.convert(resource, 'R3', 'R5', {
+  preproc: [myPreprocessor],
+  postproc: { policy: 'append', psps: [myPostprocessor] },
   checkCoverage: true,
 });
 ```
 
-**postprocessPolicy** controls how your postprocessors combine with the package's
-registered postprocessors (if any):
+`preproc` runs before the first hop for the primary resource. `postproc` runs
+after the last hop for the primary resource. The postprocessor `policy` controls
+how your postprocessors combine with the package's registered postprocessors
+for that hop:
 
 - **append** (default): run package postprocessors first, then yours.
 - **replace**: run only the postprocessors specified in the request -
@@ -198,8 +206,37 @@ registered postprocessors (if any):
   postprocessors may be obtained using the `getRegistryEntry()`
   function in the public API.
 
+For a specific hop, use keyed `preprocs` or `postprocs`:
+
+```js
+const result = chainedConverter.convert(resource, 'R3', 'R5', {
+  postprocs: {
+    'Questionnaire:R4->R5': { policy: 'replace', psps: [myPostprocessor] },
+  },
+});
+```
+
+For `singleHopConverter.convert()`, keyed maps may use either the full
+`'Questionnaire:R4->R5'` key or the type-only `'Questionnaire'` key.
+
 The processor contract is documented in [CONTRIBUTING.md](CONTRIBUTING.md) for
 contributors and advanced users.
+
+## Migration notes
+
+- `convertSingleHop(resource, fromVer, toVer)` is now
+  `singleHopConverter.convert(resource, fromVer, toVer)` for adjacent one-hop
+  conversions with the flat result shape.
+- For normal one-shot conversion, use
+  `chainedConverter.convert(resource, fromVer, toVer)`. It supports multi-hop
+  paths and always returns `hops[]`.
+- Manual chains such as **R3 -> R4** followed by **R4 -> R5** can usually become
+  one `chainedConverter.convert(resource, 'R3', 'R5')` call.
+- Old single-hop `preprocs: [...]` and `postprocs: [...]` array options are now
+  `preproc: [...]` and `postproc: [...]` for outer-boundary processors. Keyed
+  `preprocs` and `postprocs` are maps or lookup functions.
+- `postprocessPolicy` is now part of the postprocessor entry:
+  `{ policy: 'append' | 'replace', psps: [...] }`.
 
 ## Command line
 
@@ -210,14 +247,20 @@ pipelines:
 node bin/convert.js R4 R5 questionnaire-r4.json > questionnaire-r5.json
 ```
 
+The CLI also supports multi-hop conversion:
+
+```bash
+node bin/convert.js R3 R5 questionnaire-r3.json > questionnaire-r5.json
+```
+
 You can also read the input resource from stdin:
 
 ```bash
 cat questionnaire-r4.json | node bin/convert.js R4 R5 > questionnaire-r5.json
 ```
 
-The converted JSON is written to stdout. A short status summary and any warnings
-are written to stderr. Use `--verbose` to include info messages:
+The converted JSON is written to stdout. A short status summary and any per-hop
+warnings are written to stderr. Use `--verbose` to include info messages:
 
 ```bash
 node bin/convert.js --verbose R3 R4 questionnaire-r3.json > questionnaire-r4.json

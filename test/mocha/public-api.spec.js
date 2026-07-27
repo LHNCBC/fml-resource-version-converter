@@ -10,7 +10,6 @@ import * as api from '../../src/index.js';
 
 describe('public API (src/index.js)', function () {
   const FUNCTIONS = [
-    'convertSingleHop',
     'getRegistryEntry',
     'makeProcessor',
     'validateProcessorDescriptor',
@@ -20,11 +19,22 @@ describe('public API (src/index.js)', function () {
     'statusFromMessages',
   ];
 
+  // Converters are exported as objects exposing convert().
+  const CONVERTERS = ['singleHopConverter', 'chainedConverter'];
+
   const ENUMS = ['POSTPROCESS_POLICY', 'COVERAGE', 'STATUS', 'MESSAGE_TYPE'];
 
   for (const name of FUNCTIONS) {
     it(`exports ${name} as a function`, function () {
       assert.equal(typeof api[name], 'function');
+    });
+  }
+
+  for (const name of CONVERTERS) {
+    it(`exports ${name} as an object with convert()`, function () {
+      assert.equal(typeof api[name], 'object');
+      assert.notEqual(api[name], null);
+      assert.equal(typeof api[name].convert, 'function');
     });
   }
 
@@ -37,7 +47,7 @@ describe('public API (src/index.js)', function () {
   }
 
   it('exposes exactly the curated set of names (no accidental leakage)', function () {
-    const expected = [...FUNCTIONS, ...ENUMS].sort();
+    const expected = [...FUNCTIONS, ...CONVERTERS, ...ENUMS].sort();
     const actual = Object.keys(api).sort();
     assert.deepEqual(actual, expected);
   });

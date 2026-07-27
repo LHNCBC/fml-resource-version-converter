@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { COVERAGE } from '../../../../src/converter/coverage.js';
 import { MESSAGE_TYPE, STATUS } from '../../../../src/converter/diagnostics.js';
-import { convertSingleHop } from '../../../../src/converter/singleHopConverter.js';
+import { singleHopConverter } from '../../../../src/converter/singleHopConverter.js';
 
 const TEST_DATA = path.resolve(import.meta.dirname, '../../../data');
 const r5Questionnaire = JSON.parse(
@@ -37,7 +37,7 @@ describe('postprocessors/R4B_R5 Questionnaire R5 -> R4B', function () {
   let result;
 
   before(function () {
-    result = convertSingleHop(r5Questionnaire, 'R5', 'R4B');
+    result = singleHopConverter.convert(r5Questionnaire, 'R5', 'R4B');
   });
 
   it('registers the postprocessor and reports FML known gaps + best-effort hop', function () {
@@ -78,7 +78,7 @@ describe('postprocessors/R4B_R5 Questionnaire R4B -> R5 (FML-only)', function ()
   let result;
 
   before(function () {
-    result = convertSingleHop(r4bQuestionnaire, 'R4B', 'R5');
+    result = singleHopConverter.convert(r4bQuestionnaire, 'R4B', 'R5');
   });
 
   it('is registered complete with no postprocessor', function () {

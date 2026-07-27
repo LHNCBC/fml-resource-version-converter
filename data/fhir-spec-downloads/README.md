@@ -1,9 +1,12 @@
 # fhir-spec-downloads
+
 Raw FHIR specification zip archives, used as inputs to
 `tools/build-fhir-defs.js` and `tools/build_fhir_tables.js`.
 This directory's **contents are gitignored** (see `.gitignore`); only this
 `README.md` is checked in so the directory's purpose is discoverable.
+
 ## Layout
+
 ```
 data/fhir-spec-downloads/
   DSTU2/fhir-spec.zip            # 100MB (no definitions.json.zip published)
@@ -12,8 +15,10 @@ data/fhir-spec-downloads/
   R4B/definitions.json.zip
   R5/definitions.json.zip
 ```
+
 No extraction is needed; the build script reads the bundles straight out
 of the zips. Disk usage: about 125MB once populated.
+
 ## How to populate
 
 Recommended:

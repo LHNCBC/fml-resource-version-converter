@@ -5,7 +5,7 @@
  *
  * Two outputs per run:
  *   - FML: raw FML engine only (no postprocessors)
- *   - Full: convertSingleHop() (FML + package postprocessors)
+ *   - Full: singleHopConverter.convert() (FML + package postprocessors)
  *
  * Usage:
  *   node tools/comp-fml-vs-full.js <from-version> <to-version> <resource.json> [output-dir]
@@ -29,7 +29,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createFmlEngineFactory } from '../src/fml_base_conv/create_converter.js';
-import { convertSingleHop } from '../src/index.js';
+import { singleHopConverter } from '../src/index.js';
 
 /**
  * Normalize version name for public/FML APIs.
@@ -210,7 +210,7 @@ function writeSortedJson(file, value) {
 /**
  * Report full-pipeline postprocessor details.
  *
- * @param {Object} result convertSingleHop result object.
+ * @param {Object} result singleHopConverter.convert result object.
  * @param {string} resourceType FHIR resource type.
  * @param {string} fromVer Source version.
  * @param {string} toVer Target version.
@@ -283,7 +283,7 @@ catch (e) {
 let fullOutput = null;
 let fullResult = null;
 try {
-  fullResult = convertSingleHop(input, fromVer, toVer);
+  fullResult = singleHopConverter.convert(input, fromVer, toVer);
   fullOutput = fullResult.resource;
   console.log(
     `Full pipeline: OK (coverage=${fullResult.coverage}, status=${fullResult.status}, `
@@ -343,4 +343,3 @@ else {
 
 
 process.exit(exitCode);
-

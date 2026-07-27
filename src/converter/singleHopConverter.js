@@ -1,209 +1,78 @@
 /**
- * @fileoverview Single-hop FHIR resource version conversion.
+ * @fileoverview Single-hop FHIR resource version conversion (public primitive).
  *
- * Public entry point for converting a resource between adjacent FHIR versions
- * that have direct FML mapping file available.
- * Non-adjacent conversions (multi-hop chaining) use convert() (added later);
- * this function throws if the pair is not a single direct FML hop.
+ * `singleHopConverter.convert` converts a resource between adjacent FHIR
+ * versions that have a direct FML mapping. It is the mainstream one-hop call and
+ * the building block for custom multi-hop chains (compose it over planHops()).
  *
- * Result shape:
- *   { resource, coverage, status, fml_base_conv, postprocessors?, preprocessors? }
- * The multi-hop convert() nests the same per-hop report fields under `hops[]`;
- * the common fields (resource, coverage, status) are identical across both.
+ * Flat result shape:
+ *   { resource, coverage, status, preprocessors?, fml_base_conv, postprocessors? }
+ * The multi-hop chainedConverter nests per-hop reports under hops[]; the two
+ * entry points intentionally have different result shapes.
  *
- * Pipeline:
- *   1. Validate resource shape and the FML mapping (gates version/adjacency).
- *   2. Deep-clone the caller input (caller's object is never touched).
- *   3. Run caller preprocessors once, in order.
- *   4. Resolve postprocessors (registry + caller, per postprocessPolicy) and
- *      optionally enforce non-decreasing coverage.
- *   5. Run the FML engine, capturing warnings/info into the _FML_ report.
- *   6. Run postprocessors in order.
- *   7. Assemble the flat result object.
+ * Pipeline: clone the caller input once, then delegate the single hop to the
+ * shared runHop core (pre -> FML -> post). Processor options
+ * (preproc/preprocs/postproc/postprocs) are normalized once into the canonical
+ * (type, v1, v2) lookups; for a single hop the versions are fixed to that hop.
  *
  * @module converter/singleHopConverter
  */
-import { converterContext } from './converterContext.js';
-import {
-  POSTPROCESS_POLICY,
-  assertPostprocessPolicy,
-  resolvePostprocessors,
-} from './postprocessPolicy.js';
-import {
-  assertNonDecreasingCoverage,
-  COVERAGE,
-  rollupChainCoverage,
-  rollupHopCoverage,
-} from './coverage.js';
-import {
-  assertWarningInvariant,
-  makeMessage,
-  MESSAGE_TYPE,
-  rollupStatus,
-  statusFromMessages,
-} from './diagnostics.js';
+import { normalizeProcessorOptions, resolveSingleHopOptionKeys } from './processorOptions.js';
+import { runHop } from './runHop.js';
+import { rollupChainCoverage } from './coverage.js';
 
 /**
  * Convert a FHIR resource across one adjacent FHIR version hop.
  *
- * @param {Object} resource FHIR resource to convert; `resource.resourceType`
- *   must be a non-empty string.
+ * @param {Object} resource FHIR resource; `resource.resourceType` must be a
+ *   non-empty string.
  * @param {string} fromVer Canonical source version (R2|R3|R4|R4B|R5).
  * @param {string} toVer   Canonical target version (R2|R3|R4|R4B|R5).
  * @param {Object} [opts]
- * @param {Array<Object>} [opts.preprocs=[]] Preprocessor descriptors run once
- *   before the FML step. See processorDescriptor.js.
- * @param {Array<Object>} [opts.postprocs] Caller postprocessor descriptors for
- *   this hop, combined with the package registry's per postprocessPolicy. When
- *   omitted (undefined), the registry's postprocessors are used and the policy
- *   is moot; an explicit empty array with policy 'replace' runs none.
- * @param {string} [opts.postprocessPolicy='append'] How opts.postprocs combine
- *   with the registry's postprocessors: 'append' (registry then caller) or
- *   'replace' (caller only). See postprocessPolicy.js.
- * @param {boolean} [opts.checkCoverage=true] Enforce non-decreasing coverage
- *   along the postprocessor list.
+ * @param {*} [opts.preproc]   PRP: a PRPE (array) run before the FML step.
+ * @param {*} [opts.preprocs]  PRPs: a keyed map/lookup for preprocessors.
+ * @param {*} [opts.postproc]  PSP: a PSPE run after the FML step.
+ * @param {*} [opts.postprocs] PSPs: a keyed map/lookup for postprocessors.
+ * @param {boolean} [opts.checkCoverage=true] Enforce non-decreasing coverage.
  * @returns {Object} Flat result object; see the module overview for the shape.
- * @throws {Error} On unknown resource type, missing/non-adjacent FML mapping,
- *   invalid postprocessPolicy, decreasing coverage, warning-invariant
- *   violation, or any hard error thrown by a processor or the engine.
+ * @throws {Error} On unknown resource type / missing (non-adjacent) FML mapping,
+ *   invalid processor options, decreasing coverage, a warning-invariant
+ *   violation, or any hard error from a processor or the engine.
  */
-export function convertSingleHop(resource, fromVer, toVer, opts = {}) {
-  const {
-    preprocs = [],
-    postprocs,
-    postprocessPolicy = POSTPROCESS_POLICY.APPEND,
-    checkCoverage = true,
-  } = opts;
-  assertPostprocessPolicy(postprocessPolicy);
+function convert(resource, fromVer, toVer, opts = {}) {
+  const { checkCoverage = true } = opts;
 
-  // ---- 1. Validation ----------------------------------------------------
-  const resType = resource?.resourceType;
-  if (typeof resType !== 'string' || resType.length === 0) {
-    throw new Error('convertSingleHop: resource.resourceType is required');
-  }
-
-  // ---- 2. Build engine (checks mapping) ---------------------------------
-  // FML mapping files exist only for valid, distinct, adjacent version pairs,
-  // so a present mapping is the single gate for this one-hop path: no file
-  // means the conversion cannot be performed. Wiring comes from the shared,
-  // package-owned converter context (bundled mappings root).
-  const { engineFactory, registry } = converterContext;
-  if (!engineFactory.hasMapping(resType, fromVer, toVer)) {
-    throw new Error(
-      `convertSingleHop: no direct FML mapping for ${resType} ${fromVer}->${toVer}`,
-    );
-  }
-
-  // ---- 3. Deep-clone caller input (private working copy) ----------------
-  let working = structuredClone(resource);
-
-  // ---- 4. Run caller preprocessors --------------------------------------
-  const preReports = [];
-  for (const pre of preprocs) {
-    working = runProcessor(pre, working, { fromVer, toVer }, 'preprocessor', preReports);
-  }
-
-  // ---- 5. Resolve postprocessors + coverage check -----------------------
-  // sourceResource for the hop is the input to the FML step (post-preproc).
-  const sourceResource = working;
-  // The registry supplies the FML coverage and the package default
-  // postprocessor list; caller postprocs combine per postprocessPolicy.
-  const registryEntry = registry.lookup(resType, fromVer, toVer);
-  const fmlCoverage = registryEntry.fml.coverage;
-  const postprocessors = resolvePostprocessors(
-    registryEntry.processors,
-    postprocs,
-    postprocessPolicy,
-  );
-  if (checkCoverage) {
-    assertNonDecreasingCoverage(fmlCoverage, postprocessors);
-  }
-
-  // ---- 6. Run FML engine, capturing diagnostics -------------------------
-  const fmlMessages = [];
-  const engine = engineFactory.createEngine(resType, fromVer, toVer, {
-    onWarning: text => fmlMessages.push(makeMessage(MESSAGE_TYPE.WARNING, text)),
-    onInfo:    text => fmlMessages.push(makeMessage(MESSAGE_TYPE.INFO, text)),
+  // A single hop is a one-element plan; the boundary hop is this hop.
+  const hops = [[fromVer, toVer]];
+  // Single-hop convenience: accept type-only keyed map options by canonicalizing
+  // them to "type:v1->v2" before the (single-/multi-hop-agnostic) normalizer.
+  const resolvedOpts = resolveSingleHopOptionKeys(opts, hops[0]);
+  const { preLookup, postLookup } = normalizeProcessorOptions(resolvedOpts, {
+    hops,
+    primaryType: resource?.resourceType,
   });
-  working = engine.convert({ input: working });
-  const fmlStatus = statusFromMessages(fmlMessages);
 
-  // ---- 7. Run postprocessors --------------------------------------------
-  const postReports = [];
-  const postCtx = { sourceResource, fromVer, toVer };
-  for (const post of postprocessors) {
-    working = runProcessor(post, working, postCtx, 'postprocessor', postReports, {
-      includeCoverage: true,
-    });
-  }
-
-  // ---- 8. Assemble the flat result object -------------------------------
-  const fmlReport = {
-    name: '_FML_',
-    coverage: fmlCoverage,
-    status: fmlStatus,
-    messages: fmlMessages,
-  };
-
-  const hopCoverage = rollupHopCoverage(
-    fmlCoverage,
-    postprocessors.map(p => p.coverage),
-  );
-  const overallCoverage = rollupChainCoverage([hopCoverage]);
-
-  const overallStatus = rollupStatus([
-    ...preReports.map(p => p.status),
-    fmlStatus,
-    ...postReports.map(p => p.status),
-  ]);
+  // Clone once so the caller's object is never touched; runHop mutates freely.
+  const working = structuredClone(resource);
+  const hop = runHop(working, fromVer, toVer, { preLookup, postLookup, checkCoverage });
 
   const result = {
-    resource: working,
-    coverage: overallCoverage,
-    status: overallStatus,
-    fml_base_conv: fmlReport,
+    resource: hop.resource,
+    coverage: rollupChainCoverage([hop.hopCoverage]),
+    status: hop.status,
   };
-  if (postReports.length > 0) result.postprocessors = postReports;
-  if (preReports.length > 0) result.preprocessors = preReports;
-
+  if (hop.fragment.preprocessors) result.preprocessors = hop.fragment.preprocessors;
+  result.fml_base_conv = hop.fragment.fml_base_conv;
+  if (hop.fragment.postprocessors) result.postprocessors = hop.fragment.postprocessors;
   return result;
 }
 
 /**
- * Invoke a pre-/post-processor and append a report entry.
+ * The single-hop converter: an object exposing `convert`.
  *
- * Validates the returned result shape and the warning-message invariant, then
- * returns the next working resource. Kept here (rather than in
- * processorDescriptor.js) because it depends on the runtime pipeline shape;
- * Phase 4 will lift this into a shared internal if the multi-hop path needs it.
+ * Exposed as an object (not a bare function) for consistency with
+ * chainedConverter and a future createConverter(opts) -> { convert }.
  *
- * @param {Object} processor Processor descriptor with { name, execute, coverage? }.
- * @param {Object} inputResource Resource passed to processor.execute.
- * @param {Object} ctx Context object for the processor.
- * @param {string} kind 'preprocessor' | 'postprocessor' (used in error labels).
- * @param {Array<Object>} reports Array to append this processor's report to.
- * @param {Object} [reportOpts]
- * @param {boolean} [reportOpts.includeCoverage=false] Include coverage in the report.
- * @returns {Object} The next working resource.
- * @throws {Error} If the result shape or warning invariant is violated.
+ * @type {{convert: typeof convert}}
  */
-function runProcessor(processor, inputResource, ctx, kind, reports, reportOpts = {}) {
-  const label = `${kind} "${processor.name}" result`;
-  const result = processor.execute(inputResource, ctx);
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    throw new Error(`${label} must be an object`);
-  }
-  const { resource: outResource, status, messages } = result;
-  if (!outResource || typeof outResource !== 'object' || Array.isArray(outResource)) {
-    throw new Error(`${label}.resource must be an object`);
-  }
-  assertWarningInvariant(status, messages, label);
-
-  const report = { name: processor.name, status, messages: messages || [] };
-  if (reportOpts.includeCoverage) {
-    report.coverage = processor.coverage ?? COVERAGE.NEUTRAL;
-  }
-  reports.push(report);
-  return outResource;
-}
-
+export const singleHopConverter = { convert };
