@@ -1,7 +1,8 @@
 # fhir-spec-downloads
 
-Raw FHIR specification zip archives, used as inputs to
-`tools/build-fhir-defs.js` and `tools/build_fhir_tables.js`.
+Raw FHIR specification zip archives downloaded from the official HL7 FHIR website.
+These files are used to build the per-version runtime tables in `data/fhir-defs/`.
+
 This directory's **contents are gitignored** (see `.gitignore`); only this
 `README.md` is checked in so the directory's purpose is discoverable.
 
@@ -21,14 +22,15 @@ of the zips. Disk usage: about 125MB once populated.
 
 ## How to populate
 
-Recommended:
+The build script can download the files automatically, e.g.,
 
 ```bash
 npm run build:fhir-defs -- --download-missing
 ```
 
-This downloads any missing archives and regenerates `data/fhir-defs/`. Or
-download the files manually:
+See ../fhir-defs/SOURCE.md for details.
+
+To manually download the files, if needed:
 
 ```sh
 cd data/fhir-spec-downloads
@@ -41,17 +43,3 @@ done
 mkdir -p DSTU2
 curl -sSfL -o DSTU2/fhir-spec.zip https://hl7.org/fhir/DSTU2/fhir-spec.zip
 ```
-
-After this, regenerate the derived tables:
-
-```bash
-npm run build:fhir-defs
-```
-
-You can also download any missing archives and regenerate in one step:
-
-```bash
-npm run build:fhir-defs -- --download-missing
-```
-
-See `data/fhir-defs/SOURCE.md` for more details.
