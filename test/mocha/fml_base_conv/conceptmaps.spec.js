@@ -45,11 +45,19 @@ describe('fml_base_conv/conceptmaps: scanConceptMaps', function () {
     assert.ok(!scan.missingConceptMaps.some(id => id.startsWith('#')));
   });
 
-  it('returns empty facts for a directory that does not exist', function () {
+  it('throws for a pair directory that does not exist (no false clean bill)', function () {
     // R2->R3 has no fixture directory under this throwaway root.
-    const scan = scanConceptMaps('R2', 'R3', root);
-    assert.deepEqual(scan.missingConceptMaps, []);
-    assert.deepEqual(scan.parseErrors, []);
+    assert.throws(
+      () => scanConceptMaps('R2', 'R3', root),
+      /Cannot read ConceptMap directory/,
+    );
+  });
+
+  it('throws for a data root that does not exist (mistyped / incomplete install)', function () {
+    assert.throws(
+      () => scanConceptMaps('R4', 'R5', path.join(root, 'nope')),
+      /Cannot read ConceptMap directory/,
+    );
   });
 });
 

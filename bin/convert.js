@@ -5,7 +5,8 @@
  * A minimal, dependency-free harness for trying out convertSingleHop from the
  * shell. Reads a FHIR resource from a JSON file (or stdin), converts it across
  * one adjacent version hop, prints the converted resource to stdout, and prints
- * a short diagnostics summary to stderr.
+ * a short diagnostics summary (aggregated across all conversion stages) to
+ * stderr.
  *
  * Usage:
  *   node bin/convert.js <fromVer> <toVer> [inputFile] [--verbose]
@@ -90,7 +91,18 @@ async function main() {
   process.stdout.write(`${JSON.stringify(result.resource, null, 2)}\n`);
 
   // Diagnostics summary goes to stderr so it never pollutes the JSON output.
-  const messages = result.fml_base_conv?.messages ?? [];
+  // Aggregate messages across every executed stage (preprocessors, the FML
+  // engine, and postprocessors); the result rolls status up over all of them,
+  // so reading only the FML stage would hide pre/postprocessor diagnostics and
+  // undercount warnings. Each message keeps its stage name for context.
+  const stages = [
+    ...(result.preprocessors ?? []),
+    result.fml_base_conv,
+    ...(result.postprocessors ?? []),
+  ].filter(Boolean);
+  const messages = stages.flatMap(
+    stage => (stage.messages ?? []).map(m => ({ ...m, stage: stage.name })),
+  );
   const warnings = messages.filter(m => m.type === 'warning');
   const infos = messages.filter(m => m.type === 'info');
   process.stderr.write(
@@ -100,7 +112,7 @@ async function main() {
   // Always show warnings; show info only when --verbose is given.
   const shown = verbose ? messages : warnings;
   for (const m of shown) {
-    process.stderr.write(`  - ${m.type}: ${m.text}\n`);
+    process.stderr.write(`  - ${m.stage} ${m.type}: ${m.text}\n`);
   }
   if (!verbose && infos.length > 0) {
     process.stderr.write(`  (${infos.length} info messages hidden; pass --verbose to show)\n`);

@@ -92,6 +92,30 @@ function dropUnrepresentableEnableWhen(tItem, sItem, messages) {
 }
 
 /**
+ * Ensure an R4 item with multiple enableWhen carries an enableBehavior.
+ *
+ * STU3 has no enableBehavior element and combines multiple enableWhen with
+ * implicit OR. R4 constraint que-12 requires enableBehavior once an item has
+ * more than one enableWhen. Since the STU3 source cannot supply one, synthesize
+ * "any" - which matches STU3's implicit OR, so no display behavior is changed -
+ * and record it as info (not a warning, because nothing is lost). An existing
+ * enableBehavior (should one ever be present) is left untouched.
+ *
+ * @param {Object} tItem Target R4 item, mutated in place.
+ * @param {Array<Object>} messages Diagnostic messages to append to.
+ */
+function ensureEnableBehavior(tItem, messages) {
+  if (!Array.isArray(tItem.enableWhen) || tItem.enableWhen.length < 2) return;
+  if (tItem.enableBehavior != null) return;
+
+  tItem.enableBehavior = 'any';
+  messages.push(infoMessage(
+    `item "${tItem.linkId}": added enableBehavior "any" for ${tItem.enableWhen.length} `
+    + 'enableWhen conditions (STU3 combines multiple conditions with OR)',
+  ));
+}
+
+/**
  * Walk target items recursively, applying the R3 -> R4 corrections.
  *
  * @param {Array<Object>|undefined} targetItems Target items to correct.
@@ -111,6 +135,10 @@ function convertItemsUpgrade(targetItems, sourceByLinkId, messages) {
       dropUnrepresentableEnableWhen(tItem, sItem, messages);
     }
 
+    // Independent of a source match: R4 validity (que-12) depends on the
+    // target item's final enableWhen count.
+    ensureEnableBehavior(tItem, messages);
+
     convertItemsUpgrade(tItem.item, sourceByLinkId, messages);
   }
 }
@@ -121,6 +149,8 @@ function convertItemsUpgrade(targetItems, sourceByLinkId, messages) {
  *   emitting an invalid R4 answerUri. Dropped here.
  * - enableWhen answerAttachment: valid in STU3, removed in R4; the FML leaves a
  *   malformed entry with only `question` (no operator/answer). Dropped here.
+ * - enableBehavior: absent in STU3; R4 (que-12) requires it once an item has
+ *   multiple enableWhen. Synthesized as "any" to match STU3's implicit OR.
  */
 
 /**
@@ -136,8 +166,9 @@ export const conv_R3_to_R4 = {
   coverage: COVERAGE.BEST_EFFORT,
   description:
     'Drops Questionnaire enableWhen entries whose STU3 answer type (uri or '
-    + 'Attachment) has no R4 equivalent. Does not handle inter-version '
-    + 'extensions.',
+    + 'Attachment) has no R4 equivalent, and sets enableBehavior "any" on items '
+    + 'with multiple enableWhen (R4 que-12; matches STU3 implicit OR). Does not '
+    + 'handle inter-version extensions.',
 
   /**
    * @param {Object} target FML-converted R4 Questionnaire (mutated in place).
@@ -154,11 +185,57 @@ export const conv_R3_to_R4 = {
 
 
 /**
+ * Move a FHIR primitive value and its `_`-companion (id/extension) to a new key.
+ *
+ * FHIR stores a primitive's id/extension in a sibling `_<name>` object, so
+ * renaming a primitive must carry that companion too, or the metadata is
+ * stranded on a field that no longer exists. Absent keys are ignored.
+ *
+ * @param {Object} obj Object to mutate in place.
+ * @param {string} fromKey Current primitive key.
+ * @param {string} toKey New primitive key.
+ */
+function renamePrimitive(obj, fromKey, toKey) {
+  if (fromKey in obj) {
+    obj[toKey] = obj[fromKey];
+    delete obj[fromKey];
+  }
+  if (`_${fromKey}` in obj) {
+    obj[`_${toKey}`] = obj[`_${fromKey}`];
+    delete obj[`_${fromKey}`];
+  }
+}
+
+/**
+ * Delete a FHIR primitive value and its `_`-companion (id/extension). Warns when
+ * a companion had to be discarded because the field has no STU3 equivalent (a
+ * bare value alone drops silently; only lost id/extension metadata is flagged).
+ *
+ * @param {Object} obj Object to mutate in place.
+ * @param {string} key Primitive key to remove.
+ * @param {string} linkId Owning item's linkId (for the message).
+ * @param {Array<Object>} messages Diagnostic messages to append to.
+ */
+function dropPrimitive(obj, key, linkId, messages) {
+  delete obj[key];
+  const meta = `_${key}`;
+  if (meta in obj) {
+    delete obj[meta];
+    messages.push(warningMessage(
+      `item "${linkId}": enableWhen ${meta} (primitive id/extension) has no STU3 equivalent; discarded`,
+    ));
+  }
+}
+
+/**
  * Convert one R4 enableWhen entry to its STU3 form, or drop it.
  *
- * Rule: operator `exists` becomes `hasAnswer`; operator `=` keeps its
+ * Rule: operator `exists` becomes `hasAnswer` (carrying answerBoolean's
+ * `_answerBoolean` id/extension to `_hasAnswer`); operator `=` keeps its
  * `answer[x]` (operator removed); any other operator cannot be represented in
- * STU3, so the entry is dropped with a warning.
+ * STU3, so the entry is dropped with a warning. The removed `operator` primitive
+ * has no STU3 field, so its `_operator` metadata (if present) is discarded with
+ * a warning.
  *
  * @param {Object} sEw R4 source enableWhen entry (read-only).
  * @param {string} linkId Owning item's linkId (for messages).
@@ -168,15 +245,14 @@ export const conv_R3_to_R4 = {
 function r4EnableWhenToR3(sEw, linkId, messages) {
   if (sEw.operator === 'exists') {
     const out = { ...sEw };
-    delete out.operator;
-    out.hasAnswer = out.answerBoolean;
-    delete out.answerBoolean;
+    dropPrimitive(out, 'operator', linkId, messages);
+    renamePrimitive(out, 'answerBoolean', 'hasAnswer');
     return out;
   }
 
   if (sEw.operator === '=') {
     const out = { ...sEw };
-    delete out.operator;
+    dropPrimitive(out, 'operator', linkId, messages);
     return out;
   }
 
@@ -207,6 +283,23 @@ function fixEnableWhen(tItem, sItem, messages) {
     tItem.enableWhen = converted;
   } else {
     delete tItem.enableWhen;
+  }
+
+  // STU3 has no enableBehavior and combines multiple enableWhen with implicit
+  // OR. Only relevant when 2+ conditions actually remain (with a single
+  // condition, "all" and "any" are equivalent).
+  if (converted.length >= 2 && sItem.enableBehavior != null) {
+    if (sItem.enableBehavior === 'all') {
+      messages.push(warningMessage(
+        `item "${sItem.linkId}": R4 enableBehavior "all" has no STU3 equivalent; `
+        + 'STU3 combines enableWhen with OR, so conditional-display behavior may change',
+      ));
+    } else {
+      messages.push(infoMessage(
+        `item "${sItem.linkId}": R4 enableBehavior "${sItem.enableBehavior}" dropped; `
+        + 'matches STU3 implicit OR',
+      ));
+    }
   }
 }
 
@@ -386,6 +479,9 @@ function convertItems(targetItems, sourceByLinkId, messages) {
  *   (operator `exists`) and `answer[x]` equality (operator `=`); any other
  *   operator has no STU3 equivalent and the FML leaves an invalid `{ question }`
  *   entry. Rebuilt from the R4 source, dropping un-representable entries.
+ * - enableWhen primitive `_`-companions: FHIR primitives keep id/extension in a
+ *   sibling `_<name>`. Rewriting enableWhen carries `_answerBoolean` to
+ *   `_hasAnswer` and drops the orphaned `_operator` (warning if it held data).
  * - answerOption.initialSelected -> initial[x]: R4 marks a default via
  *   `answerOption.initialSelected`; STU3 carries it on `item.initial[x]`. The
  *   FML drops both; re-derived here from the R4 source.
@@ -393,6 +489,8 @@ function convertItems(targetItems, sourceByLinkId, messages) {
  *   FML leaves an empty `option` entry (STU3 requires a value). Dropped here.
  * - initial cardinality: R4 `initial` is 0..* but STU3 `initial[x]` is 0..1;
  *   the FML lets the last value win. The first is kept here (rest dropped).
+ * - enableBehavior: R4-only; STU3 combines multiple enableWhen with implicit OR.
+ *   Dropping "any" is lossless (info); dropping "all" changes behavior (warning).
  */
 
 /**
@@ -409,7 +507,8 @@ export const conv_R4_to_R3 = {
     'Corrects Questionnaire R4->R3 item fields from the R4 source: rebuilds '
     + 'enableWhen (dropping operators with no STU3 equivalent), fixes options to '
     + 'the STU3 Reference shape, and re-derives initial[x] from '
-    + 'answerOption.initialSelected. Does not handle inter-version extensions.',
+    + 'answerOption.initialSelected. Warns when enableBehavior "all" cannot be '
+    + 'represented in STU3. Does not handle inter-version extensions.',
 
   /**
    * @param {Object} target FML-converted STU3 Questionnaire (mutated in place).

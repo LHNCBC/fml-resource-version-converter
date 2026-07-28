@@ -79,6 +79,40 @@ describe('public API: getRegistryEntry', function () {
     assert.equal(second.processors.length, originalLen);
     assert.notEqual(second.fml.coverage, 'tampered');
   });
+
+  it('returns a safe copy: mutating a returned descriptor does not affect later reads', function () {
+    const first = api.getRegistryEntry('Questionnaire', 'R5', 'R4');
+    assert.ok(first.processors.length > 0, 'tuple should have a package postprocessor');
+
+    const originalName = first.processors[0].name;
+    const originalCoverage = first.processors[0].coverage;
+    const originalExecute = first.processors[0].execute;
+
+    // Tamper with the nested descriptor object's own fields.
+    first.processors[0].name = 'tampered-name';
+    first.processors[0].coverage = 'tampered';
+    first.processors[0].execute = () => { throw new Error('tampered'); };
+
+    const second = api.getRegistryEntry('Questionnaire', 'R5', 'R4');
+    assert.equal(second.processors[0].name, originalName);
+    assert.equal(second.processors[0].coverage, originalCoverage);
+    assert.equal(second.processors[0].execute, originalExecute);
+  });
+
+  it('tampering a returned descriptor does not affect a later conversion', function () {
+    const r5Questionnaire = {
+      resourceType: 'Questionnaire',
+      status: 'active',
+      item: [{ linkId: 'a', type: 'string' }],
+    };
+
+    const entry = api.getRegistryEntry('Questionnaire', 'R5', 'R4');
+    entry.processors[0].execute = () => { throw new Error('tampered execute must not run'); };
+
+    // The conversion pulls its own (pristine) descriptors from the shared table,
+    // so the tampered copy above must not leak in.
+    assert.doesNotThrow(() => api.convertSingleHop(r5Questionnaire, 'R5', 'R4'));
+  });
 });
 
 describe('public API: ./fml-engine subpath barrel', function () {

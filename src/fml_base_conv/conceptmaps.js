@@ -131,26 +131,38 @@ export function resolveConceptMaps(cmUrls, xverRoot) {
  * sibling maps, the referenced set is a property of the pair's directory, not
  * any single resource type.
  *
+ * Throws rather than swallowing filesystem errors: a missing pair directory or
+ * an unreadable FML file under the given root is a real data-integrity problem
+ * (a mistyped root, an incomplete install, bad permissions), not "no
+ * references". Surfacing it loudly stops the maintainer scan from returning a
+ * false clean bill of health.
+ *
  * @param {string} fromVer  Canonical source version.
  * @param {string} toVer    Canonical target version.
  * @param {string} xverRoot Absolute path to the FML input root.
- * @returns {Set<string>} Referenced ConceptMap URLs (empty if the dir is absent).
+ * @returns {Set<string>} Referenced ConceptMap URLs across the pair's FML files.
+ * @throws {Error} If the pair directory is missing/unreadable, or an FML file in
+ *   it cannot be read.
  */
 function collectPairConceptMapUrls(fromVer, toVer, xverRoot) {
   const dir = path.join(xverRoot, `${fromVer}to${toVer}`);
   const urls = new Set();
+
   let entries;
   try {
     entries = fs.readdirSync(dir);
-  } catch {
-    return urls; // no such directory (e.g. a non-adjacent pair): nothing to scan.
+  } catch (e) {
+    throw new Error(
+      `Cannot read ConceptMap directory ${dir} for ${fromVer}->${toVer}: ${e.message}`,
+    );
   }
+
   for (const entry of entries) {
     if (!entry.endsWith('.fml')) continue;
-    try {
-      const text = fs.readFileSync(path.join(dir, entry), 'utf-8');
-      for (const url of extractConceptMapUrls(text)) urls.add(url);
-    } catch { /* unreadable file: skip; not a ConceptMap fact. */ }
+    // Let an unreadable FML file throw (Node includes the path) rather than
+    // silently skipping it, which would hide the ConceptMaps it references.
+    const text = fs.readFileSync(path.join(dir, entry), 'utf-8');
+    for (const url of extractConceptMapUrls(text)) urls.add(url);
   }
   return urls;
 }
@@ -169,6 +181,8 @@ function collectPairConceptMapUrls(fromVer, toVer, xverRoot) {
  * @param {string} [xverRoot=DEFAULT_XVER_ROOT] Data root to check; override to
  *        evaluate a candidate data drop before committing to it.
  * @returns {{missingConceptMaps: string[], parseErrors: Array<{id: string, error: string}>}}
+ * @throws {Error} If the pair directory or an FML file cannot be read (a missing
+ *   or unreadable data root surfaces here rather than as a false clean result).
  */
 export function scanConceptMaps(fromVer, toVer, xverRoot = DEFAULT_XVER_ROOT) {
   const urls = collectPairConceptMapUrls(fromVer, toVer, xverRoot);
