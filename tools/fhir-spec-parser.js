@@ -78,7 +78,7 @@
  *   not end in "[x]") AND that entry has a non-empty `code` string.
  *
  * Usage:
- *   node tools/build_fhir_tables.js <VERSION> <archive.zip> <out-dir>
+ *   node tools/fhir-spec-parser.js <VERSION> <archive.zip> <out-dir>
  *
  * Arguments:
  *   <VERSION>       Label written verbatim into the output JSON's
@@ -97,7 +97,7 @@
  *                   files are overwritten without prompting.
  *
  * Example:
- *   node tools/build_fhir_tables.js R4 \
+ *   node tools/fhir-spec-parser.js R4 \
  *        data/fhir-spec-downloads/R4/definitions.json.zip \
  *        data/fhir-defs
  *
@@ -118,18 +118,18 @@
  *     missing or empty (older spec versions occasionally encode the type
  *     via an extension instead of a code).
  *
- * @module tools/build_fhir_tables
+ * @module tools/fhir-spec-parser
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
-import { BUNDLE_ENTRY_RE, processElements } from './fhir_tables_lib.js';
+import { BUNDLE_ENTRY_RE, processElements } from './fhir-tables-lib.js';
 
 const args = process.argv.slice(2);
 
 if (args.length !== 3) {
-  console.error('Usage: node tools/build_fhir_tables.js <VERSION> <archive.zip> <out-dir>');
+  console.error('Usage: node tools/fhir-spec-parser.js <VERSION> <archive.zip> <out-dir>');
   process.exit(2);
 }
 
