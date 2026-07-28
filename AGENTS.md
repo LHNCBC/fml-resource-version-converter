@@ -11,6 +11,8 @@
 - Check my instructions before execution to see if they make sense.
 - If, at any point, you feel that my instructions are off, please
   pause and confirm with me first.
+- When you completed your response, please so indicate, e.g.,
+  "Completed" with a green checkmark or similar.
 
 ## Workflow
 - Questions: Answer, but do NOT make changes until instructed.
