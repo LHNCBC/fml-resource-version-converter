@@ -5,7 +5,7 @@ import { strict as assert } from 'node:assert';
 import { COVERAGE } from '../../../src/converter/coverage.js';
 import { getAdjacentPairs } from '../../../src/fml_base_conv/create_converter.js';
 import { converterContext } from '../../../src/converter/converterContext.js';
-import { registeredDirections } from '../../../src/postprocessors/registry.js';
+import { registeredDirections, cloneDescriptor } from '../../../src/postprocessors/registry.js';
 
 // The package-wired registry, bound to the bundled mappings via the context.
 const { registry } = converterContext;
@@ -54,6 +54,37 @@ describe('postprocessors/registry', function () {
       const expected = getAdjacentPairs().map(([from, to]) => `${from}->${to}`).sort();
       const actual = registeredDirections().slice().sort();
       assert.deepEqual(actual, expected);
+    });
+  });
+
+  // Guards the safe-hand-out guarantee against descriptors that (duck-typed)
+  // may carry nested structure - a shallow copy would leak such nested refs.
+  describe('cloneDescriptor (safe hand-out)', function () {
+    it('deep-copies nested data so mutating the copy never touches the source', function () {
+      const src = { name: 'p', execute() {}, meta: { tags: ['x'], count: 1 } };
+      const copy = cloneDescriptor(src);
+
+      assert.notEqual(copy.meta, src.meta);
+      assert.notEqual(copy.meta.tags, src.meta.tags);
+
+      copy.meta.tags.push('y');
+      copy.meta.count = 99;
+      assert.deepEqual(src.meta.tags, ['x']);
+      assert.equal(src.meta.count, 1);
+    });
+
+    it('shares the stateless execute function by reference', function () {
+      const fn = () => {};
+      const copy = cloneDescriptor({ name: 'p', execute: fn });
+      assert.equal(copy.execute, fn);
+    });
+
+    it('copies standard data types faithfully (structuredClone, e.g. Date)', function () {
+      const when = new Date('2020-01-01T00:00:00Z');
+      const copy = cloneDescriptor({ name: 'p', execute() {}, when });
+      assert.ok(copy.when instanceof Date);
+      assert.equal(copy.when.getTime(), when.getTime());
+      assert.notEqual(copy.when, when);
     });
   });
 });

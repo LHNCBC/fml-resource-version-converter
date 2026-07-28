@@ -158,15 +158,43 @@ for (const [key, subRegistry] of Object.entries(DIRECTION_REGISTRIES)) {
 }
 
 /**
- * Return a fresh copy of a normalized entry with copied fml and processors,
- * so callers can mutate the result without corrupting the shared table.
- * The processor descriptors themselves are shared (they are stateless).
+ * Return a mutation-safe deep copy of a processor descriptor.
+ *
+ * Descriptors are duck-typed (validateProcessorDescriptor ignores unknown/extra
+ * fields), so a descriptor may carry nested objects/arrays. The data fields are
+ * deep-copied with structuredClone - robust for nested structures and standard
+ * data types (Date, Map, typed arrays, ...) - so a caller can mutate any level
+ * without touching the shared table. The `execute` function is detached before
+ * cloning and re-attached to the copy: functions cannot be structured-cloned,
+ * and a descriptor's execute is stateless, so sharing the reference is both
+ * necessary and safe. By the descriptor contract, execute is the only function
+ * field. Exported for direct unit testing of the isolation guarantee.
+ *
+ * @param {Object} descriptor Source descriptor.
+ * @returns {Object} An isolated copy that shares only the execute reference.
+ */
+export function cloneDescriptor(descriptor) {
+  const { execute, ...data } = descriptor;
+  const copy = structuredClone(data);
+  if (execute !== undefined) copy.execute = execute;
+  return copy;
+}
+
+/**
+ * Return a fresh, deeply-isolated copy of a normalized entry so callers can
+ * freely mutate the result - at any depth - without corrupting the shared
+ * table. The `fml` object is structured-cloned; each descriptor is copied via
+ * cloneDescriptor (data deep-copied, stateless `execute` shared).
  *
  * @param {{fml: {coverage: string}, processors: Array<Object>}} entry Source entry.
  * @returns {{fml: {coverage: string}, processors: Array<Object>}} A safe copy.
  */
 function cloneEntry(entry) {
-  return { ...entry, fml: { ...entry.fml }, processors: [...entry.processors] };
+  return {
+    ...entry,
+    fml: structuredClone(entry.fml),
+    processors: entry.processors.map(cloneDescriptor),
+  };
 }
 
 /**
