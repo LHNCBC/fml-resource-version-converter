@@ -42,14 +42,14 @@ This report uses **not_reviewed**, **known_gaps**, **best_effort**, and **comple
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
-| Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML maps enableWhen answerUri straight through (invalid in R4) and leaves a malformed entry for answerAttachment; corrected by the Questionnaire_R3_to_R4 postprocessor.<br>**Questionnaire_R3_to_R4:** Drops Questionnaire enableWhen entries whose STU3 answer type (uri or Attachment) has no R4 equivalent. Does not handle inter-version extensions. |
+| Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML maps enableWhen answerUri straight through (invalid in R4) and leaves a malformed entry for answerAttachment; corrected by the Questionnaire_R3_to_R4 postprocessor.<br>**Questionnaire_R3_to_R4:** Drops Questionnaire enableWhen entries whose STU3 answer type (uri or Attachment) has no R4 equivalent, and sets enableBehavior "any" on items with multiple enableWhen (R4 que-12; matches STU3 implicit OR). Does not handle inter-version extensions. |
 | _All other resource types_ | not_reviewed | - | not_reviewed | _Default: FML mapping not yet reviewed; no postprocessors._ |
 
 ## R4 -> R3
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
-| Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML emits a malformed options string, leaves invalid enableWhen for non-representable operators, drops answerOption.initialSelected, leaves an empty option entry for answerOption.valueReference, and keeps the last (not first) of multiple initial values; corrected by the Questionnaire_R4_to_R3 postprocessor. Some R4-only data elements (e.g. derivedFrom, enableBehavior) have no R3 mapping and are dropped.<br>**Questionnaire_R4_to_R3:** Corrects Questionnaire R4->R3 item fields from the R4 source: rebuilds enableWhen (dropping operators with no STU3 equivalent), fixes options to the STU3 Reference shape, and re-derives initial[x] from answerOption.initialSelected. Does not handle inter-version extensions. |
+| Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML emits a malformed options string, leaves invalid enableWhen for non-representable operators, drops answerOption.initialSelected, leaves an empty option entry for answerOption.valueReference, and keeps the last (not first) of multiple initial values; corrected by the Questionnaire_R4_to_R3 postprocessor. Some R4-only data elements (e.g. derivedFrom, enableBehavior) have no R3 mapping and are dropped.<br>**Questionnaire_R4_to_R3:** Corrects Questionnaire R4->R3 item fields from the R4 source: rebuilds enableWhen (dropping operators with no STU3 equivalent), fixes options to the STU3 Reference shape, and re-derives initial[x] from answerOption.initialSelected. Warns when enableBehavior "all" cannot be represented in STU3. Does not handle inter-version extensions. |
 | _All other resource types_ | not_reviewed | - | not_reviewed | _Default: FML mapping not yet reviewed; no postprocessors._ |
 
 ## R4 -> R5

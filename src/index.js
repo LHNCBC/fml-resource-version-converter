@@ -23,10 +23,11 @@ export { chainedConverter } from './converter/chainedConverter.js';
  *
  * Returns the FML coverage and the package's postprocessor descriptors so a
  * caller can reorder / subset / extend them and feed them back to a converter
- * via postproc/postprocs (e.g. a { policy: 'replace', psps } entry). The entry is
- * a safe copy - a fresh `fml` object and a fresh `processors` array (the
- * descriptors are shared but stateless) - so mutating it never affects the
- * package tables. Each descriptor includes its `execute` function.
+ * via postproc/postprocs (e.g. a { policy: 'replace', psps } entry). The entry
+ * is a safe copy - a fresh `fml` object, a fresh `processors` array, and a fresh
+ * copy of each descriptor - so mutating any of it (including a descriptor's
+ * `coverage` or `execute`) never affects the package tables or a later
+ * lookup/conversion. Each descriptor includes its `execute` function.
  *
  * Read-only and tolerant: returns null for a tuple with no direct FML mapping
  * (unknown resource type, or invalid / non-adjacent version pair), so callers

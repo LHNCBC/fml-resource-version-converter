@@ -187,6 +187,76 @@ describe('postprocessors/R3_R4 Questionnaire R3 -> R4', function () {
       const res = run(target, source);
       assert.equal('enableWhen' in res.resource.item[0].item[0], false);
     });
+
+    it('adds enableBehavior "any" for multiple enableWhen (info, no data loss)', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string',
+          enableWhen: [
+            { question: 'q1', answerString: 's1' },
+            { question: 'q2', answerString: 's2' },
+          ],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string',
+          enableWhen: [
+            { question: 'q1', operator: '=', answerString: 's1' },
+            { question: 'q2', operator: '=', answerString: 's2' },
+          ],
+        }],
+      };
+      const res = run(target, source);
+      assert.equal(res.resource.item[0].enableBehavior, 'any');
+      assert.equal(res.status, STATUS.OK);
+      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.INFO && /enableBehavior "any"/.test(m.text)));
+    });
+
+    it('does not add enableBehavior for a single enableWhen', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'string', enableWhen: [{ question: 'q', answerString: 's' }] }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'string', enableWhen: [{ question: 'q', operator: '=', answerString: 's' }] }],
+      };
+      const res = run(target, source);
+      assert.equal('enableBehavior' in res.resource.item[0], false);
+      assert.equal(res.status, STATUS.OK);
+      assert.equal(res.messages.length, 0);
+    });
+
+    it('does not add enableBehavior when filtering leaves a single condition', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string',
+          enableWhen: [
+            { question: 'q1', answerUri: 'http://x' },
+            { question: 'q2', answerString: 'keep' },
+          ],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string',
+          enableWhen: [
+            { question: 'q1', operator: '=', answerUri: 'http://x' },
+            { question: 'q2', operator: '=', answerString: 'keep' },
+          ],
+        }],
+      };
+      const res = run(target, source);
+      assert.deepEqual(res.resource.item[0].enableWhen, [
+        { question: 'q2', operator: '=', answerString: 'keep' },
+      ]);
+      assert.equal('enableBehavior' in res.resource.item[0], false);
+    });
   });
 });
 
@@ -298,6 +368,79 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /operator/.test(m.text)));
     });
 
+    it('moves _answerBoolean to _hasAnswer and discards _operator (warning)', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'boolean',
+          enableWhen: [{
+            question: 'q', operator: 'exists', answerBoolean: true,
+            _operator: { extension: [{ url: 'http://x', valueString: 'why' }] },
+            _answerBoolean: { id: 'ab1' },
+          }],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'boolean', enableWhen: [{ question: 'q' }] }],
+      };
+      const res = run(target, source);
+      const ew = res.resource.item[0].enableWhen[0];
+
+      assert.equal(ew.hasAnswer, true);
+      assert.deepEqual(ew._hasAnswer, { id: 'ab1' });   // metadata relocated
+      assert.equal('_answerBoolean' in ew, false);
+      assert.equal('answerBoolean' in ew, false);
+      assert.equal('operator' in ew, false);
+      assert.equal('_operator' in ew, false);           // orphan removed
+
+      assert.equal(res.status, STATUS.WARNING);
+      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /_operator/.test(m.text)));
+    });
+
+    it('discards _operator on "=" but keeps the answer primitive metadata', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string',
+          enableWhen: [{
+            question: 'q', operator: '=', answerString: 'x',
+            _operator: { id: 'op1' },
+            _answerString: { id: 'as1' },
+          }],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'string', enableWhen: [{ question: 'q' }] }],
+      };
+      const res = run(target, source);
+      const ew = res.resource.item[0].enableWhen[0];
+
+      assert.equal(ew.answerString, 'x');
+      assert.deepEqual(ew._answerString, { id: 'as1' }); // answer metadata kept
+      assert.equal('operator' in ew, false);
+      assert.equal('_operator' in ew, false);            // orphan removed
+
+      assert.equal(res.status, STATUS.WARNING);
+      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /_operator/.test(m.text)));
+    });
+
+    it('does not warn when a removed operator has no _operator companion', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'string', enableWhen: [{ question: 'q', operator: '=', answerString: 'x' }] }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'string', enableWhen: [{ question: 'q' }] }],
+      };
+      const res = run(target, source);
+      assert.equal(res.resource.item[0].enableWhen[0].answerString, 'x');
+      assert.equal(res.status, STATUS.OK);
+      assert.ok(!res.messages.some(m => /_operator/.test(m.text)));
+    });
+
     it('keeps the first initialSelected and warns about additional ones', function () {
       const source = {
         resourceType: 'Questionnaire',
@@ -385,6 +528,71 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       };
       const res = run(target, source);
       assert.deepEqual(res.resource.item[0].item[0].options, { reference: 'vs' });
+    });
+
+    it('warns when R4 enableBehavior "all" cannot be represented in STU3', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string', enableBehavior: 'all',
+          enableWhen: [
+            { question: 'q1', operator: '=', answerString: 's1' },
+            { question: 'q2', operator: '=', answerString: 's2' },
+          ],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'string', enableWhen: [{ question: 'q1' }, { question: 'q2' }] }],
+      };
+      const res = run(target, source);
+      assert.equal('enableBehavior' in res.resource.item[0], false);
+      assert.equal(res.status, STATUS.WARNING);
+      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /enableBehavior "all"/.test(m.text)));
+    });
+
+    it('drops R4 enableBehavior "any" losslessly (info, status ok)', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string', enableBehavior: 'any',
+          enableWhen: [
+            { question: 'q1', operator: '=', answerString: 's1' },
+            { question: 'q2', operator: '=', answerString: 's2' },
+          ],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'string', enableWhen: [{ question: 'q1' }, { question: 'q2' }] }],
+      };
+      const res = run(target, source);
+      assert.equal('enableBehavior' in res.resource.item[0], false);
+      assert.equal(res.status, STATUS.OK);
+      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.INFO && /enableBehavior "any" dropped/.test(m.text)));
+    });
+
+    it('does not flag enableBehavior when only one condition remains after filtering', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string', enableBehavior: 'all',
+          enableWhen: [
+            { question: 'q1', operator: '=', answerString: 's1' },
+            { question: 'q2', operator: '>', answerDecimal: 3 },
+          ],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'string', enableWhen: [{ question: 'q1' }, { question: 'q2' }] }],
+      };
+      const res = run(target, source);
+      // The '>' condition has no STU3 equivalent and is dropped, leaving one, so
+      // enableBehavior is moot and must not be flagged.
+      assert.deepEqual(res.resource.item[0].enableWhen, [{ question: 'q1', answerString: 's1' }]);
+      assert.ok(!res.messages.some(m => /enableBehavior/.test(m.text)));
+      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /operator/.test(m.text)));
     });
   });
 });
