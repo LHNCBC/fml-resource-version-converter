@@ -18,27 +18,13 @@ import {
   statusFromMessages,
   warningMessage,
 } from '../../converter/diagnostics.js';
-
-/**
- * Recursively index R4 source items by their linkId.
- *
- * linkId is unique within a Questionnaire, so this gives a robust mapping from
- * a converted (target) item back to its source item regardless of ordering.
- *
- * @param {Array<Object>|undefined} items Source items to index.
- * @param {Map<string, Object>} map Accumulator map (linkId -> source item).
- * @returns {Map<string, Object>} The populated map.
- */
-function indexSourceItemsByLinkId(items, map) {
-  if (!Array.isArray(items)) return map;
-  for (const item of items) {
-    if (item && typeof item === 'object') {
-      if (typeof item.linkId === 'string') map.set(item.linkId, item);
-      indexSourceItemsByLinkId(item.item, map);
-    }
-  }
-  return map;
-}
+import {
+  copyPrimitive,
+  deletePrimitive,
+  findValueKey,
+  renamePrimitive,
+} from '../util/elements.js';
+import { indexSourceItemsByLinkId } from '../util/questionnaire.js';
 
 /**
  * Test whether an R4 (source) enableWhen entry carries an answer type that has
@@ -185,31 +171,11 @@ export const conv_R3_to_R4 = {
 
 
 /**
- * Move a FHIR primitive value and its `_`-companion (id/extension) to a new key.
- *
- * FHIR stores a primitive's id/extension in a sibling `_<name>` object, so
- * renaming a primitive must carry that companion too, or the metadata is
- * stranded on a field that no longer exists. Absent keys are ignored.
- *
- * @param {Object} obj Object to mutate in place.
- * @param {string} fromKey Current primitive key.
- * @param {string} toKey New primitive key.
- */
-function renamePrimitive(obj, fromKey, toKey) {
-  if (fromKey in obj) {
-    obj[toKey] = obj[fromKey];
-    delete obj[fromKey];
-  }
-  if (`_${fromKey}` in obj) {
-    obj[`_${toKey}`] = obj[`_${fromKey}`];
-    delete obj[`_${fromKey}`];
-  }
-}
-
-/**
- * Delete a FHIR primitive value and its `_`-companion (id/extension). Warns when
- * a companion had to be discarded because the field has no STU3 equivalent (a
- * bare value alone drops silently; only lost id/extension metadata is flagged).
+ * Drop an enableWhen primitive value and its `_`-companion, warning when a
+ * companion (primitive id/extension) had to be discarded because the field has
+ * no STU3 equivalent. A bare value alone drops silently; only lost id/extension
+ * metadata is flagged. Questionnaire-specific diagnostic wrapper over the
+ * generic deletePrimitive.
  *
  * @param {Object} obj Object to mutate in place.
  * @param {string} key Primitive key to remove.
@@ -217,12 +183,10 @@ function renamePrimitive(obj, fromKey, toKey) {
  * @param {Array<Object>} messages Diagnostic messages to append to.
  */
 function dropPrimitive(obj, key, linkId, messages) {
-  delete obj[key];
-  const meta = `_${key}`;
-  if (meta in obj) {
-    delete obj[meta];
+  const { hadCompanion } = deletePrimitive(obj, key);
+  if (hadCompanion) {
     messages.push(warningMessage(
-      `item "${linkId}": enableWhen ${meta} (primitive id/extension) has no STU3 equivalent; discarded`,
+      `item "${linkId}": enableWhen _${key} (primitive id/extension) has no STU3 equivalent; discarded`,
     ));
   }
 }
@@ -323,15 +287,6 @@ function fixOptions(tItem, sItem, messages) {
   ));
 }
 
-/**
- * Derive the value[x] field name carried on an answerOption entry.
- *
- * @param {Object} opt An answerOption entry.
- * @returns {string|undefined} The `value*` key, or undefined if none.
- */
-function findValueKey(opt) {
-  return Object.keys(opt).find(k => k.startsWith('value'));
-}
 
 /**
  * Re-derive `item.initial[x]` from an R4 source item's answerOption.initialSelected.
@@ -351,8 +306,8 @@ function fixInitialSelected(tItem, sItem, messages) {
   for (const opt of sItem.answerOption) {
     if (!opt || typeof opt !== 'object' || !opt.initialSelected) continue;
 
-    const valueKey = findValueKey(opt);
-    if (!valueKey) continue;
+    const suffix = findValueKey(opt, { companionAware: true, suffixOnly: true });
+    if (!suffix) continue;
 
     if (initialSet) {
       messages.push(warningMessage(
@@ -361,8 +316,10 @@ function fixInitialSelected(tItem, sItem, messages) {
       continue;
     }
 
-    const initialKey = 'initial' + valueKey.slice('value'.length);
-    tItem[initialKey] = opt[valueKey];
+    const initialKey = 'initial' + suffix;
+    // Carry the primitive's id/extension companion (_value<Suffix>) too, so no
+    // primitive metadata is lost when the value moves to initial[x].
+    copyPrimitive(opt, 'value' + suffix, tItem, initialKey);
     initialSet = true;
     messages.push(infoMessage(
       `item "${sItem.linkId}": answerOption.initialSelected mapped to STU3 ${initialKey}`,
@@ -421,18 +378,24 @@ function fixAnswerOption(tItem, sItem, messages) {
 function fixInitial(tItem, sItem, messages) {
   if (!Array.isArray(sItem.initial) || sItem.initial.length === 0) return;
 
-  // Remove any initial[x] the FML derived from the source array (any type), so
-  // a single, deterministic value remains.
+  // Remove any initial[x] the FML derived from the source array (any type),
+  // including its `_`-companion, so a single, deterministic value remains.
   for (const entry of sItem.initial) {
     if (!entry || typeof entry !== 'object') continue;
-    const vk = findValueKey(entry);
-    if (vk) delete tItem['initial' + vk.slice('value'.length)];
+    const suffix = findValueKey(entry, { companionAware: true, suffixOnly: true });
+    if (suffix) {
+      delete tItem['initial' + suffix];
+      delete tItem['_initial' + suffix];
+    }
   }
 
   const first = sItem.initial[0];
-  const firstKey = first && typeof first === 'object' ? findValueKey(first) : undefined;
-  if (firstKey) {
-    tItem['initial' + firstKey.slice('value'.length)] = first[firstKey];
+  const firstSuffix = first && typeof first === 'object'
+    ? findValueKey(first, { companionAware: true, suffixOnly: true })
+    : undefined;
+  if (firstSuffix) {
+    // Carry the primitive's id/extension companion along with the value.
+    copyPrimitive(first, 'value' + firstSuffix, tItem, 'initial' + firstSuffix);
   }
 
   if (sItem.initial.length > 1) {

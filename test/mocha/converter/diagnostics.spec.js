@@ -52,11 +52,14 @@ describe('converter/diagnostics', function () {
     assert.throws(() => assertStatus('error'), /Invalid status/);
   });
 
-  it('enforces warning status requires a warning message', function () {
+  it('enforces the bidirectional status/warning-message invariant', function () {
     assert.doesNotThrow(() => assertWarningInvariant(STATUS.OK, undefined));
-    assert.doesNotThrow(() => assertWarningInvariant(STATUS.OK, [warningMessage('note')]));
+    assert.doesNotThrow(() => assertWarningInvariant(STATUS.OK, [infoMessage('note')]));
     assert.doesNotThrow(() => assertWarningInvariant(STATUS.WARNING, [warningMessage('problem')]));
+    // warning status without a warning message is invalid
     assert.throws(() => assertWarningInvariant(STATUS.WARNING, [infoMessage('only info')]), /no warning message/);
+    // a warning message with a non-warning status is invalid too
+    assert.throws(() => assertWarningInvariant(STATUS.OK, [warningMessage('note')]), /warning message was provided/);
   });
 
   it('rolls up status to the highest severity', function () {
