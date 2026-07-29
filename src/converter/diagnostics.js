@@ -108,10 +108,13 @@ export function hasWarningMessage(messages) {
 }
 
 /**
- * Validate the processor result status/message invariant.
+ * Validate the processor result status/message invariant (bidirectional).
  *
- * If status is warning, there must be at least one warning message. Warning
- * messages may also appear with status ok. Message shape itself is not
+ * Status must faithfully reflect message severity, in both directions:
+ *   - status warning requires at least one warning message, and
+ *   - any warning message requires status warning.
+ * A warning-level message is a concern, so it must raise status; if no status
+ * impact is intended, use an info message instead. Message shape itself is not
  * validated here (messages are advisory diagnostics, not a critical component).
  *
  * @param {string} status Runtime status.
@@ -121,8 +124,12 @@ export function hasWarningMessage(messages) {
  */
 export function assertWarningInvariant(status, messages, label = 'result') {
   assertStatus(status, `${label}.status`);
-  if (status === STATUS.WARNING && !hasWarningMessage(messages)) {
+  const hasWarning = hasWarningMessage(messages);
+  if (status === STATUS.WARNING && !hasWarning) {
     throw new Error(`${label}.status is warning but no warning message was provided`);
+  }
+  if (status !== STATUS.WARNING && hasWarning) {
+    throw new Error(`${label}.status is ${status} but a warning message was provided`);
   }
 }
 

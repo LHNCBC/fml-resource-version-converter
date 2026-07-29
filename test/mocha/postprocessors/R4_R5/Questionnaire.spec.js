@@ -101,7 +101,7 @@ describe('postprocessors/R4_R5 Questionnaire R5 -> R4', function () {
       assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.INFO && /\ba\b/.test(m.text)));
     });
 
-    it('maps coding + optionsOrType to open-choice (info message)', function () {
+    it('maps coding + optionsOrType to open-choice (warning message)', function () {
       const source = {
         resourceType: 'Questionnaire',
         item: [{ linkId: 'a', type: 'coding', answerConstraint: 'optionsOrType', answerOption: [{ valueCoding: { code: 'x' } }] }],
@@ -110,7 +110,8 @@ describe('postprocessors/R4_R5 Questionnaire R5 -> R4', function () {
       const res = run(target, source);
       assert.equal(res.resource.item[0].type, 'open-choice');
       assert.equal('answerConstraint' in res.resource.item[0], false);
-      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.INFO && /optionsOrType/.test(m.text)));
+      assert.equal(res.status, STATUS.WARNING);
+      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /optionsOrType/.test(m.text)));
     });
 
     it('recurses into nested items', function () {

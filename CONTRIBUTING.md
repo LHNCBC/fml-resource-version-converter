@@ -198,7 +198,11 @@ Processor rules:
 - Use a clear, stable `name`; it appears in conversion reports.
 - Include a human-readable `description`, including important limitations.
 - Return `{ resource, status, messages }`.
-- If `status` is `warning`, include at least one warning message.
+- `status` must match message severity in both directions: `status` is `warning`
+  if and only if at least one warning message is present. Deriving it with
+  `statusFromMessages(messages)` satisfies this automatically. (A warning-level
+  message must raise the status; if no status impact is intended, use an info
+  message instead.)
 - Use `infoMessage()` for non-lossy notes and `warningMessage()` for lossy or
   potentially surprising behavior.
 - Add JSDoc to functions.

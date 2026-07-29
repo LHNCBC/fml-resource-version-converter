@@ -66,4 +66,3 @@ describe('bin/convert.js CLI diagnostics', function () {
     assert.doesNotMatch(res.stderr, /info messages hidden/);
   });
 });
-
