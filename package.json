@@ -53,7 +53,7 @@
   },
   "devDependencies": {
     "jszip": "^3.10.1",
-    "mocha": "^11.1.0"
+    "mocha": "^11.7.6"
   },
   "dependencies": {
     "fhirpath": "^4.11.0"

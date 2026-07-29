@@ -21,6 +21,7 @@ import {
   statusFromMessages,
   warningMessage,
 } from '../../converter/diagnostics.js';
+import { indexSourceItemsByLinkId } from '../util/questionnaire.js';
 
 /**
  * Return whether an R5 item carries answer options (answerOption/answerValueSet).
@@ -53,8 +54,13 @@ function deriveR4ItemType(sItem, messages) {
   if (hasAnswerOptions(sItem)) {
     if (sType === 'coding') {
       if (ac === 'optionsOrType') {
-        messages.push(infoMessage(
-          `item "${linkId}": optionsOrType with type coding converted as open-choice`,
+        // Lossy narrowing: R5 optionsOrType on a coding item permits any coding
+        // of the item's type, whereas R4 open-choice permits only a listed
+        // coding or free-text string. The permitted answer space shrinks, so
+        // this is a warning (unlike optionsOrString, which maps exactly).
+        messages.push(warningMessage(
+          `item "${linkId}": optionsOrType with type coding narrowed to open-choice; `
+          + 'R5 allows any coding but R4 open-choice allows only listed codings or free text',
         ));
         return 'open-choice';
       }
@@ -89,26 +95,6 @@ function deriveR4ItemType(sItem, messages) {
   return sType;
 }
 
-/**
- * Recursively index R5 source items by their linkId.
- *
- * linkId is unique within a Questionnaire, so this gives a robust mapping from
- * a converted (target) item back to its source item regardless of ordering.
- *
- * @param {Array<Object>|undefined} items Source items to index.
- * @param {Map<string, Object>} map Accumulator map (linkId -> source item).
- * @returns {Map<string, Object>} The populated map.
- */
-function indexSourceItemsByLinkId(items, map) {
-  if (!Array.isArray(items)) return map;
-  for (const item of items) {
-    if (item && typeof item === 'object') {
-      if (typeof item.linkId === 'string') map.set(item.linkId, item);
-      indexSourceItemsByLinkId(item.item, map);
-    }
-  }
-  return map;
-}
 
 /**
  * Correct one target item's R4 type and strip any stray answerConstraint.

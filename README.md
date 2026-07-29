@@ -110,7 +110,8 @@ resource. Please keep the following in mind:
   entries are carried through as-is and are not converted to the target version.
   If your resource holds contained resources that must match the target version,
   convert them separately for now. Automatic conversion of contained resources
-  is planned for a future release.
+  is planned for a future release, at which point the conversion report will
+  include a per-contained-resource status you can check.
 - **Non-adjacent versions require manual chaining.** Only direct (adjacent) FML
   hops are supported by a single call. For a conversion such as **R3 -> R5**, call
   the converter once for **R3 -> R4** and then again for **R4 -> R5**. Automatic

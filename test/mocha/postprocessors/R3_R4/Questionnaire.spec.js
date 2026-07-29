@@ -462,6 +462,96 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /additional answerOption\.initialSelected/.test(m.text)));
     });
 
+    it('carries a primitive answerOption.initialSelected id/extension companion to initial[x]', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string',
+          answerOption: [{
+            valueString: 'Mint',
+            _valueString: { id: 'vs1', extension: [{ url: 'http://x', valueCode: 'y' }] },
+            initialSelected: true,
+          }],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'string', option: [{ valueString: 'Mint' }] }],
+      };
+      const res = run(target, source);
+      assert.equal(res.resource.item[0].initialString, 'Mint');
+      assert.deepEqual(
+        res.resource.item[0]._initialString,
+        { id: 'vs1', extension: [{ url: 'http://x', valueCode: 'y' }] },
+      ); // primitive companion carried
+    });
+
+    it('copies a complex answerOption.initialSelected value (inline id/extension) whole to initial[x]', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'choice',
+          answerOption: [{
+            // Coding is complex: id/extension live INLINE, there is no _valueCoding.
+            valueCoding: { id: 'c1', extension: [{ url: 'http://x', valueString: 'z' }], code: 'c', display: 'Green' },
+            initialSelected: true,
+          }],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'choice', option: [{ valueCoding: { code: 'c', display: 'Green' } }] }],
+      };
+      const res = run(target, source);
+      // A plain copy preserves the inline id/extension; no _initialCoding companion exists.
+      assert.deepEqual(res.resource.item[0].initialCoding, {
+        id: 'c1', extension: [{ url: 'http://x', valueString: 'z' }], code: 'c', display: 'Green',
+      });
+      assert.equal('_initialCoding' in res.resource.item[0], false);
+    });
+
+    it('maps an extension-only answerOption.initialSelected value to the initial[x] companion', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string',
+          answerOption: [{
+            _valueString: { extension: [{ url: 'http://x', valueCode: 'masked' }] },
+            initialSelected: true,
+          }],
+        }],
+      };
+      const target = { resourceType: 'Questionnaire', item: [{ linkId: 'a', type: 'string' }] };
+      const res = run(target, source);
+      assert.equal('initialString' in res.resource.item[0], false); // no bare value existed
+      assert.deepEqual(
+        res.resource.item[0]._initialString,
+        { extension: [{ url: 'http://x', valueCode: 'masked' }] },
+      );
+      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.INFO && /initialString/.test(m.text)));
+    });
+
+    it('carries initial[x] primitive id/extension when reducing to the first value', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string',
+          initial: [
+            { valueString: 'first', _valueString: { id: 'is1' } },
+            { valueString: 'second' },
+          ],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'string', initialString: 'second' }],
+      };
+      const res = run(target, source);
+      assert.equal(res.resource.item[0].initialString, 'first');
+      assert.deepEqual(res.resource.item[0]._initialString, { id: 'is1' }); // companion carried
+      assert.equal(res.status, STATUS.WARNING);
+    });
+
     it('drops the empty option entry left for answerOption.valueReference (warning)', function () {
       const source = {
         resourceType: 'Questionnaire',

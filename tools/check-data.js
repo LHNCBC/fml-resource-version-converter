@@ -30,7 +30,10 @@ import { scanConceptMaps, DEFAULT_XVER_ROOT } from '../src/fml_base_conv/concept
 
 /**
  * Run the data-integrity check across all adjacent version pairs and print a
- * per-pair report. Exits the process non-zero if any problem is found.
+ * per-pair report. A pair whose scan throws (e.g. a missing/unreadable data
+ * root) is reported as a per-pair ERROR and the run continues, so every problem
+ * pair is enumerated in one pass. Exits the process non-zero if any problem is
+ * found.
  *
  * @returns {void}
  */
@@ -41,9 +44,23 @@ function main() {
   const pairs = getAdjacentPairs();
   let missingTotal = 0;
   let parseErrorTotal = 0;
+  let scanErrorTotal = 0;
 
   for (const [from, to] of pairs) {
-    const { missingConceptMaps, parseErrors } = scanConceptMaps(from, to, dataRoot);
+    let result;
+    try {
+      result = scanConceptMaps(from, to, dataRoot);
+    } catch (e) {
+      // A scan that throws (e.g. a missing/unreadable pair directory under the
+      // given root) is a per-pair failure, not a reason to abort the whole run.
+      // Report it cleanly and continue so every problem pair is enumerated in a
+      // single pass and the summary below is always printed.
+      scanErrorTotal += 1;
+      console.error(`ERROR ${from} -> ${to}: ${e.message}`);
+      continue;
+    }
+
+    const { missingConceptMaps, parseErrors } = result;
     missingTotal += missingConceptMaps.length;
     parseErrorTotal += parseErrors.length;
 
@@ -65,10 +82,10 @@ function main() {
 
   console.log(
     `\nSummary: ${pairs.length} pair(s) checked; ` +
-    `${missingTotal} missing, ${parseErrorTotal} unparseable.`,
+    `${missingTotal} missing, ${parseErrorTotal} unparseable, ${scanErrorTotal} scan error(s).`,
   );
 
-  if (missingTotal > 0 || parseErrorTotal > 0) {
+  if (missingTotal > 0 || parseErrorTotal > 0 || scanErrorTotal > 0) {
     console.error('Data integrity check FAILED.');
     process.exit(1);
   }

@@ -9,10 +9,22 @@
  * Coverage levels for a converter component (the FML step or a postprocessor).
  *
  * Completeness is judged against the conversions that are NECESSARY to map
- * standard, valid input from the source version to the target version.
+ * standard, valid input from the source version to the target version - that is,
+ * the top-level resource's own elements.
  *
- * In particular, inter-version-extension (IVE) round-trip preservation is not a
- * factor. A component may therefore be COMPLETE without implementing IVE handling.
+ * Two cross-cutting concerns are NOT factors in a component's coverage level:
+ *   - inter-version-extension (IVE) round-trip preservation, and
+ *   - version conversion of contained[] resources (currently carried through
+ *     as-is; see the README "Limitations").
+ *
+ * Contained-resource conversion is intentionally excluded because contained[]
+ * may hold ANY resource type, so converting it completely would require the
+ * entire package to be COMPLETE for every resource type. Automatic contained
+ * conversion is planned for a future release, at which point the conversion
+ * report will surface a per-contained-resource status the caller can check.
+ *
+ * A component may therefore be COMPLETE without converting contained resources
+ * or handling IVE.
  *
  * - NOT_REVIEWED: completeness has not been assessed (functional default).
  * - KNOWN_GAPS: known conversion gaps remain.
