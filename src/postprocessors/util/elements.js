@@ -110,4 +110,3 @@ export function findValueKey(obj, { companionAware = false, suffixOnly = false }
   if (!key) return undefined;
   return suffixOnly ? key.slice('value'.length) : key;
 }
-

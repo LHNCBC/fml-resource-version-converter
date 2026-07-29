@@ -27,4 +27,3 @@ export function indexSourceItemsByLinkId(items, map) {
   }
   return map;
 }
-

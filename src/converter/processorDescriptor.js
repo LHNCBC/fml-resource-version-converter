@@ -104,7 +104,11 @@ export function makeProcessor(execute, opts = {}) {
   }
   const descriptor = {
     name,
-    coverage: opts.coverage || COVERAGE.NEUTRAL,
+    // Treat only an absent coverage (null/undefined) as "use the default".
+    // Any value that was actually provided - including an empty string - is
+    // kept and validated below, so an invalid coverage is rejected rather than
+    // silently falling back to neutral.
+    coverage: opts.coverage == null ? COVERAGE.NEUTRAL : opts.coverage,
     description: opts.description || 'Caller-provided processor.',
     execute,
   };

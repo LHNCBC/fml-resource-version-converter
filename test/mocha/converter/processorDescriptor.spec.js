@@ -57,6 +57,12 @@ describe('converter/processorDescriptor', function () {
     assert.equal(descriptor.description, 'Adds a tag.');
   });
 
+  it('makeProcessor rejects a provided-but-invalid coverage (empty string is not "absent")', function () {
+    const fn = resource => ({ resource, status: 'ok' });
+    assert.throws(() => makeProcessor(fn, { name: 'x', coverage: '' }), /Invalid processor.coverage/);
+    assert.throws(() => makeProcessor(fn, { name: 'x', coverage: 'bogus' }), /Invalid processor.coverage/);
+  });
+
   it('makeProcessor requires a name (rejects anonymous with no opts.name)', function () {
     // Pass inline so no variable-name inference happens (execute.name is '').
     assert.throws(

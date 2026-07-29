@@ -152,4 +152,3 @@ describe('postprocessors/util/elements findValueKey', function () {
     assert.equal(findValueKey({ _value: { id: 'i' } }, { companionAware: true }), undefined);
   });
 });
-
