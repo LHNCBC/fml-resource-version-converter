@@ -59,6 +59,12 @@ A single-hop conversion (between adjacent versions) runs in this order:
 5. Run package and/or caller postprocessors.
 6. Return the converted resource plus coverage, status, and diagnostics.
 
+Conversions are defined only between adjacent versions and per direction (for
+example, R3->R4 and R4->R3 are separate). A non-adjacent conversion such as
+R3->R5 runs as a chain of single hops (R3->R4->R5), and the chain's coverage
+rolls up to the lowest hop. Each hop is therefore reviewed and labeled
+independently.
+
 The FML engine code under `src/fml_base_conv/` should faithfully execute the
 FML mappings. When an FML mapping is found to be incomplete or erroneous:
 - postprocessors should be used to address the issues, as opposed to making 
@@ -80,6 +86,71 @@ when a particular conversion is reviewed and/or when postprocessors have been ad
 The `COVERAGE.md` report is generated from the postprocessor registries 
 described above. Please do not manually edit `COVERAGE.md`.
 
+When you assign a coverage level:
+
+- Judge completeness against the resource's own top-level elements for valid
+  input. Inter-version extensions (IVE) and `contained[]` conversion are out of
+  scope and do not lower a coverage claim.
+- "Lossy but unavoidable" (source content with no target representation) is
+  conventionally best_effort, not complete.
+- A postprocessor must never lower the running coverage level.
+
+
+## Onboarding a resource type
+
+The FML engine already maps every resource type, so onboarding is not about
+adding a mapping. It means reviewing a resource's conversion for a version pair,
+assigning an honest coverage level, and - where the FML falls short - adding a
+postprocessor. The review is the real work; any code follows from it.
+
+### Step 1 - Review the FML output
+
+Goal: find the concrete gaps between the FML-converted result and a correct
+target-version resource.
+
+1. Compare the FHIR specification for the source and target versions to see
+   the differences. A good place to start is the target version's specification
+   page, where you can find a "Diff" tab that lists the field changes from the 
+   previous version. For example, if you are looking at converting Questionnaire
+   from R3 to R4, the [R4 spec page](https://hl7.org/fhir/R4/questionnaire.html)
+   has a "R3 Diff" tab that shows the changes from R3.
+2. Review the FML mapping to identify the gaps. If you are comfortable with FML,
+   you can review the mapping file directly and see whether/where it falls short.
+   Otherwise, you can create one or more representative source resources under 
+   `test/data/` to cover the fields you expect to be risky, run the conversion,
+   and inspect the output. Such tests are recommended even if you've reviewed
+   the FML mappings, and the sample resources are handy for writing mocha tests.
+   A quick harness:
+
+   ```js
+   import { singleHopConverter } from './src/index.js';
+   const result = singleHopConverter.convert(sourceResource, 'R3', 'R4');
+   console.log(JSON.stringify(result, null, 2));
+   ```
+3. Write down the gaps if any.
+
+Typical gap categories to look for:
+
+- Elements valid in the source with no target equivalent (dropped -> lossy).
+- Elements renamed or restructured across versions (FML leaves the old shape).
+- Cardinality changes, e.g. target 0..1 vs source 0..*, or vice versa.
+- Choice type `[x]` mismatches and value-set/enum changes.
+- Invalid output: the FML emitted a field the target schema does not allow.
+
+### Step 2 - Decide whether a postprocessor is needed
+
+- If the FML output is already valid and complete, no code is needed: add a
+  registry entry with `fml.coverage: complete` and an empty `processors: []`.
+- If content is lost but the loss is unavoidable (no target representation),
+  label as best_effort. A tiny postprocessor is often still worth it purely to emit
+  the warning that the FML drops silently.
+- If there is still room to improve, a postprocessor may be used to achieve that.
+  Set the FML coverage to "known_gaps" and let the postprocessor raise the effective
+  coverage.
+
+From here, follow the sections below to implement (if needed), register, and test
+your findings. A quick checklist is at the end of this guide.
+
 
 ## Adding or updating a postprocessor
 
@@ -92,6 +163,14 @@ directions for that pair. Each direction has a registry file named
 `registry_<FROM>_to_<TO>.js`. Postprocessors are usually grouped by
 resource types, e.g., R4_R5/Questionnaire.js contains postprocessors for
 converting the Questionnaire resources from R4 to R5 and from R5 to R4.
+
+Default to one file per resource per pair, holding both directions. When a
+direction's logic clearly stands on its own or the file grows large, split into
+per-direction files that match the registry naming (e.g. `Patient_R3_to_R4.js`
+and `Patient_R4_to_R3.js`) and hoist shared logic into `util/`. This is the same
+convention flexing, not a different one - the registry and file names keep
+"who is who" clear. Put resource-agnostic element helpers in `util/elements.js`
+and resource-specific reusable logic in a `util/<resource>.js`.
 
 For example:
 
@@ -260,6 +339,13 @@ npm run build:coverage
 
 Add tests for the behavior change you made.
 
+Cover, at minimum:
+
+- Each corrected field, before and after.
+- The status/message contract: a warning message is present if and only if the
+  status is `warning`.
+- No-op safety on inputs that have none of the risky fields.
+
 Useful test locations include:
 
 - `test/mocha/postprocessors/` for resource-specific postprocessors and registry
@@ -331,6 +417,15 @@ If the archives are already present, you can simply run:
 ```bash
 npm run build:fhir-defs
 ```
+
+## Quick checklist
+
+- [ ] Gap review written down for the pair and direction(s).
+- [ ] Decided: no code / warn-only / corrective postprocessor.
+- [ ] Postprocessor added (correct file and naming), JSDoc, ASCII, source-driven.
+- [ ] Registry entry (both directions if reviewed) with accurate coverage.
+- [ ] Tests and fixtures added, including the status/message contract.
+- [ ] `npm run build` and `npm test` both green; `COVERAGE.md` row correct.
 
 ## Code style
 - Keep changes focused and easy to review.
