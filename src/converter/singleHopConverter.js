@@ -42,6 +42,7 @@ import {
   rollupStatus,
   statusFromMessages,
 } from './diagnostics.js';
+import { validateProcessorDescriptor } from './processorDescriptor.js';
 
 /**
  * Convert a FHIR resource across one adjacent FHIR version hop.
@@ -52,11 +53,12 @@ import {
  * @param {string} toVer   Canonical target version (R2|R3|R4|R4B|R5).
  * @param {Object} [opts]
  * @param {Array<Object>} [opts.preprocs=[]] Preprocessor descriptors run once
- *   before the FML step. See processorDescriptor.js.
+ *   before the FML step. See processorDescriptor.js. Null is treated as omitted
+ *   (an empty list).
  * @param {Array<Object>} [opts.postprocs] Caller postprocessor descriptors for
  *   this hop, combined with the package registry's per postprocessPolicy. When
- *   omitted (undefined), the registry's postprocessors are used and the policy
- *   is moot; an explicit empty array with policy 'replace' runs none.
+ *   omitted (undefined or null), the registry's postprocessors are used and the
+ *   policy is moot; an explicit empty array with policy 'replace' runs none.
  * @param {string} [opts.postprocessPolicy='append'] How opts.postprocs combine
  *   with the registry's postprocessors: 'append' (registry then caller) or
  *   'replace' (caller only). See postprocessPolicy.js.
@@ -69,12 +71,29 @@ import {
  */
 export function convertSingleHop(resource, fromVer, toVer, opts = {}) {
   const {
-    preprocs = [],
     postprocs,
     postprocessPolicy = POSTPROCESS_POLICY.APPEND,
     checkCoverage = true,
   } = opts;
   assertPostprocessPolicy(postprocessPolicy);
+
+  // Preprocessors: null and undefined both mean "none". Normalize to an array
+  // so the run loop can iterate; any other non-array value is a caller mistake
+  // and fails fast here rather than as an opaque TypeError deeper in.
+  const preprocs = opts.preprocs ?? [];
+  if (!Array.isArray(preprocs)) {
+    throw new Error('convertSingleHop: opts.preprocs must be an array');
+  }
+
+  // Postprocessors: null and undefined are equivalent - "not provided" - so the
+  // registry's list is used and postprocessPolicy is moot. resolvePostprocessors
+  // already treats `== null` that way, so pass the value through untouched. A
+  // supplied array is honored literally, so `[]` with policy 'replace' runs none
+  // (an empty list is meaningful, unlike a missing one). Validate only a
+  // supplied (non-null) value.
+  if (postprocs != null && !Array.isArray(postprocs)) {
+    throw new Error('convertSingleHop: opts.postprocs must be an array');
+  }
 
   // ---- 1. Validation ----------------------------------------------------
   const resType = resource?.resourceType;
@@ -132,9 +151,7 @@ export function convertSingleHop(resource, fromVer, toVer, opts = {}) {
   const postReports = [];
   const postCtx = { sourceResource, fromVer, toVer };
   for (const post of postprocessors) {
-    working = runProcessor(post, working, postCtx, 'postprocessor', postReports, {
-      includeCoverage: true,
-    });
+    working = runProcessor(post, working, postCtx, 'postprocessor', postReports);
   }
 
   // ---- 8. Assemble the flat result object -------------------------------
@@ -180,14 +197,26 @@ export function convertSingleHop(resource, fromVer, toVer, opts = {}) {
  * @param {Object} processor Processor descriptor with { name, execute, coverage? }.
  * @param {Object} inputResource Resource passed to processor.execute.
  * @param {Object} ctx Context object for the processor.
- * @param {string} kind 'preprocessor' | 'postprocessor' (used in error labels).
+ * @param {string} kind 'preprocessor' | 'postprocessor'. Used in error labels
+ *   and to decide coverage handling: only postprocessors carry a coverage claim
+ *   (validated and reported); for preprocessors coverage is not applicable.
  * @param {Array<Object>} reports Array to append this processor's report to.
- * @param {Object} [reportOpts]
- * @param {boolean} [reportOpts.includeCoverage=false] Include coverage in the report.
  * @returns {Object} The next working resource.
- * @throws {Error} If the result shape or warning invariant is violated.
+ * @throws {Error} If the descriptor, result shape, or warning invariant is violated.
  */
-function runProcessor(processor, inputResource, ctx, kind, reports, reportOpts = {}) {
+function runProcessor(processor, inputResource, ctx, kind, reports) {
+  // Only postprocessors carry a coverage claim: validate it (it feeds rollups)
+  // and include it in the report. Preprocessors run before the FML step and
+  // make no completeness claim, so a stray coverage on one is ignored.
+  const includeCoverage = kind === 'postprocessor';
+
+  // Enforce the descriptor contract (name, execute, and coverage when allowed)
+  // before running.
+  validateProcessorDescriptor(processor, {
+    allowCoverage: includeCoverage,
+    label: kind,
+  });
+
   const label = `${kind} "${processor.name}" result`;
   const result = processor.execute(inputResource, ctx);
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
@@ -197,10 +226,15 @@ function runProcessor(processor, inputResource, ctx, kind, reports, reportOpts =
   if (!outResource || typeof outResource !== 'object' || Array.isArray(outResource)) {
     throw new Error(`${label}.resource must be an object`);
   }
+  // Messages are optional, but when present must be an array so reports never
+  // carry a bogus scalar and the warning invariant is checked against real data.
+  if (messages != null && !Array.isArray(messages)) {
+    throw new Error(`${label}.messages must be an array`);
+  }
   assertWarningInvariant(status, messages, label);
 
   const report = { name: processor.name, status, messages: messages || [] };
-  if (reportOpts.includeCoverage) {
+  if (includeCoverage) {
     report.coverage = processor.coverage ?? COVERAGE.NEUTRAL;
   }
   reports.push(report);

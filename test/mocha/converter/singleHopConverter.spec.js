@@ -12,6 +12,9 @@ const TEST_DATA = path.resolve(import.meta.dirname, '../../data');
 const r4Questionnaire = JSON.parse(
   fs.readFileSync(path.join(TEST_DATA, 'qn-ver-conv-test-r4base.json'), 'utf-8'),
 );
+const r5Questionnaire = JSON.parse(
+  fs.readFileSync(path.join(TEST_DATA, 'qn-ver-conv-test-r5base.json'), 'utf-8'),
+);
 
 
 describe('converter/singleHopConverter', function () {
@@ -277,6 +280,103 @@ describe('converter/singleHopConverter', function () {
       const result = convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: [post] });
       assert.equal(result.postprocessors.length, 1);
       assert.equal(result.resource.language, 'de');
+    });
+  });
+
+  // -------- processor contract enforcement ---------------------------------
+  describe('processor contract enforcement', function () {
+    it('rejects a non-array preprocs option', function () {
+      assert.throws(
+        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { preprocs: {} }),
+        /opts\.preprocs must be an array/,
+      );
+    });
+
+    it('rejects a non-array postprocs option', function () {
+      assert.throws(
+        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: 'nope' }),
+        /opts\.postprocs must be an array/,
+      );
+    });
+
+    it('rejects a caller postprocessor with an empty name', function () {
+      const bad = { name: '', execute: t => ({ resource: t, status: STATUS.OK }) };
+      assert.throws(
+        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: [bad] }),
+        /postprocessor\.name must be a non-empty string/,
+      );
+    });
+
+    it('rejects a caller processor whose execute is not a function', function () {
+      const bad = { name: 'noExec', execute: 'not-a-function' };
+      assert.throws(
+        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: [bad] }),
+        /postprocessor\.execute must be a function/,
+      );
+    });
+
+    it('rejects a caller postprocessor with an invalid coverage', function () {
+      const bad = {
+        name: 'badCoverage',
+        coverage: 'super-complete',
+        execute: t => ({ resource: t, status: STATUS.OK }),
+      };
+      assert.throws(
+        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: [bad] }),
+        /coverage/,
+      );
+    });
+
+    it('rejects a processor result whose messages is not an array', function () {
+      const bad = {
+        name: 'badMessages',
+        execute: t => ({ resource: t, status: STATUS.OK, messages: 'not-an-array' }),
+      };
+      assert.throws(
+        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: [bad] }),
+        /messages must be an array/,
+      );
+    });
+
+    it('treats null preprocs/postprocs as "not provided" (no throw)', function () {
+      assert.doesNotThrow(
+        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', {
+          preprocs: null,
+          postprocs: null,
+        }),
+      );
+    });
+
+    it('null postprocs falls back to the registry list (like omitted)', function () {
+      const omitted = convertSingleHop(r4Questionnaire, 'R4', 'R5');
+      const withNull = convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: null });
+      // Questionnaire R4->R5 has no registry postprocessors, so neither reports any.
+      assert.equal('postprocessors' in omitted, 'postprocessors' in withNull);
+      assert.equal(withNull.coverage, omitted.coverage);
+    });
+
+    // R5->R4 has a registry postprocessor (Questionnaire_R5_to_R4), so it
+    // distinguishes "not provided" (null/undefined -> use registry) from an
+    // explicit empty list under policy 'replace' (-> run none).
+    describe('null/undefined vs empty-list (R5->R4 has a registry postprocessor)', function () {
+      it('omitted postprocs runs the registry postprocessor', function () {
+        const r = convertSingleHop(r5Questionnaire, 'R5', 'R4');
+        assert.ok(Array.isArray(r.postprocessors));
+        assert.ok(r.postprocessors.some(p => p.name === 'Questionnaire_R5_to_R4'));
+      });
+
+      it('null postprocs behaves exactly like undefined (uses the registry)', function () {
+        const r = convertSingleHop(r5Questionnaire, 'R5', 'R4', { postprocs: null });
+        assert.ok(r.postprocessors?.some(p => p.name === 'Questionnaire_R5_to_R4'));
+      });
+
+      it('empty postprocs with policy replace runs none (empty list is meaningful)', function () {
+        const r = convertSingleHop(r5Questionnaire, 'R5', 'R4', {
+          postprocs: [],
+          postprocessPolicy: 'replace',
+        });
+        assert.equal('postprocessors' in r, false);
+      });
     });
   });
 });
