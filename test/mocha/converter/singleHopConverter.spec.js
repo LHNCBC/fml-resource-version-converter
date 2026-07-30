@@ -115,6 +115,53 @@ describe('converter/singleHopConverter', function () {
         'absent contained ConceptMaps must not surface as conversion warnings',
       );
     });
+
+    it('reports complete only while preserving valid primitive metadata', function () {
+      /**
+       * Build distinctive primitive metadata for one test field.
+       *
+       * @param {string} label Field label.
+       * @returns {Object} Primitive companion.
+       */
+      const extension = label => ({
+        id: `${label}-id`,
+        extension: [{
+          url: `http://example.org/fhir/StructureDefinition/${label}`,
+          valueString: 'kept',
+        }],
+      });
+      const q = {
+        resourceType: 'Questionnaire',
+        language: 'en',
+        _language: extension('language'),
+        _implicitRules: extension('implicit-rules-only'),
+        status: 'active',
+        _status: extension('status'),
+        item: [{
+          linkId: 'q1',
+          _linkId: extension('link-id'),
+          type: 'choice',
+          _type: extension('type'),
+        }, {
+          _linkId: extension('link-id-only'),
+          type: 'string',
+        }],
+      };
+
+      const result = convertSingleHop(q, 'R4', 'R5');
+
+      assert.equal(result.status, STATUS.OK);
+      assert.equal(result.coverage, COVERAGE.COMPLETE);
+      assert.equal(result.resource.language, q.language);
+      assert.deepEqual(result.resource._language, q._language);
+      assert.equal('implicitRules' in result.resource, false);
+      assert.deepEqual(result.resource._implicitRules, q._implicitRules);
+      assert.deepEqual(result.resource._status, q._status);
+      assert.deepEqual(result.resource.item[0]._linkId, q.item[0]._linkId);
+      assert.deepEqual(result.resource.item[0]._type, q.item[0]._type);
+      assert.equal('linkId' in result.resource.item[1], false);
+      assert.deepEqual(result.resource.item[1]._linkId, q.item[1]._linkId);
+    });
   });
 
   // -------- preprocessors --------------------------------------------------
@@ -380,7 +427,3 @@ describe('converter/singleHopConverter', function () {
     });
   });
 });
-
-
-
-

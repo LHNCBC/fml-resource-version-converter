@@ -170,6 +170,80 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
     assert.ok(output.meta.tag);
     assert.equal(output.meta.tag[0].code, 'born-r4');
   });
+
+  it('preserves primitive companions on copied, translated, and polymorphic fields', function () {
+    /**
+     * Build distinctive primitive metadata for one test field.
+     *
+     * @param {string} label Field label.
+     * @returns {Object} Primitive companion.
+     */
+    const primitiveMetadata = label => ({
+      id: `${label}-id`,
+      extension: [{
+        url: `http://example.org/fhir/StructureDefinition/${label}`,
+        valueString: label,
+      }],
+    });
+    const input = {
+      resourceType: 'Questionnaire',
+      language: 'en',
+      _language: primitiveMetadata('language'),
+      _implicitRules: primitiveMetadata('implicit-rules-only'),
+      status: 'active',
+      _status: primitiveMetadata('status'),
+      subjectType: ['Patient', null, 'Encounter'],
+      _subjectType: [
+        null,
+        primitiveMetadata('subject-type-only'),
+        primitiveMetadata('subject-type'),
+      ],
+      item: [{
+        linkId: 'q1',
+        _linkId: primitiveMetadata('link-id'),
+        type: 'choice',
+        _type: primitiveMetadata('type'),
+        answerOption: [{
+          valueString: 'option',
+          _valueString: primitiveMetadata('value-string'),
+        }, {
+          _valueString: primitiveMetadata('value-string-only'),
+        }],
+      }, {
+        _linkId: primitiveMetadata('link-id-only'),
+        type: 'string',
+      }, {
+        linkId: 'q3',
+        _type: primitiveMetadata('type-only'),
+      }],
+    };
+
+    const converted = engine.convert({ input });
+
+    assert.equal(converted.language, input.language);
+    assert.deepEqual(converted._language, input._language);
+    assert.equal('implicitRules' in converted, false);
+    assert.deepEqual(converted._implicitRules, input._implicitRules);
+    assert.deepEqual(converted._status, input._status);
+    assert.deepEqual(converted.subjectType, input.subjectType);
+    assert.deepEqual(converted._subjectType, input._subjectType);
+    assert.deepEqual(converted.item[0]._linkId, input.item[0]._linkId);
+    assert.deepEqual(converted.item[0]._type, input.item[0]._type);
+    assert.deepEqual(
+      converted.item[0].answerOption[0]._valueString,
+      input.item[0].answerOption[0]._valueString,
+    );
+    assert.equal('valueString' in converted.item[0].answerOption[1], false);
+    assert.deepEqual(
+      converted.item[0].answerOption[1]._valueString,
+      input.item[0].answerOption[1]._valueString,
+    );
+    assert.equal('linkId' in converted.item[1], false);
+    assert.deepEqual(converted.item[1]._linkId, input.item[1]._linkId);
+    assert.equal('type' in converted.item[2], false);
+    assert.deepEqual(converted.item[2]._type, input.item[2]._type);
+    assert.equal('_answerConstraint' in converted.item[0], false);
+  });
 });
 
 // ---------- meta.profile update --------------------------------------------
@@ -309,7 +383,164 @@ group Item(source src, target tgt) extends BackboneElement {
     assert.equal(out.item[0].valueBoolean, true);
     assert.equal(out.item[1].valueString, 'hello');
   });
+
+  it('round-trips primitive companions through an explicit primitive group', function () {
+    const fml = `
+/// url = "http://test/Map4"
+/// name = "Test4"
+
+group Test(source src, target tgt) {
+  src.value : string as vs -> tgt.value = create('string') as vt then string(vs, vt) "valueString";
+}
+`;
+    const primitives = `
+uses "http://test/StructureDefinition/string-source" alias stringSource as source
+uses "http://test/StructureDefinition/string-target" alias stringTarget as target
+
+group string(source src : stringSource, target tgt : stringTarget) extends Element <<type+>> {
+  src.value -> tgt.value;
+}
+`;
+    const defs = {
+      polyPaths: { 'Test.value': ['string'] },
+      elementTypes: {},
+      arrayPaths: [],
+    };
+    const companion = {
+      id: 'value-id',
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/value-metadata',
+        valueString: 'kept',
+      }],
+    };
+    const engine = compileFmlXver({
+      fmlText: fml,
+      importedFmlTexts: [primitives],
+      srcDefs: defs,
+      tgtDefs: defs,
+    });
+    const out = engine.convert({
+      input: {
+        resourceType: 'Test',
+        valueString: 'hello',
+        _valueString: companion,
+      },
+    });
+
+    assert.equal(out.valueString, 'hello');
+    assert.deepEqual(out._valueString, companion);
+
+    const companionOnly = engine.convert({
+      input: {
+        resourceType: 'Test',
+        _valueString: companion,
+      },
+    });
+
+    assert.equal('valueString' in companionOnly, false);
+    assert.deepEqual(companionOnly._valueString, companion);
+  });
+
+  it('preserves primitive companions through type coercion groups', function () {
+    const fml = `
+/// url = "http://test/Map5"
+/// name = "Test5"
+
+group Test(source src, target tgt) {
+  src.value -> tgt.value;
+}
+`;
+    const coercion = `
+uses "http://test/StructureDefinition/string" alias stringSource as source
+uses "http://test/StructureDefinition/code" alias codeTarget as target
+
+group string2code(source src : stringSource, target tgt : codeTarget) extends Element <<types>> {
+  src.value -> tgt.value;
+}
+`;
+    const companion = {
+      id: 'coerced-id',
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/coercion-metadata',
+        valueString: 'kept',
+      }],
+    };
+    const engine = compileFmlXver({
+      fmlText: fml,
+      importedFmlTexts: [coercion],
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'string' },
+        arrayPaths: [],
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'code' },
+        arrayPaths: [],
+      },
+    });
+    const out = engine.convert({
+      input: {
+        resourceType: 'Test',
+        value: 'active',
+        _value: companion,
+      },
+    });
+
+    assert.equal(out.value, 'active');
+    assert.deepEqual(out._value, companion);
+
+    const companionOnly = engine.convert({
+      input: {
+        resourceType: 'Test',
+        _value: companion,
+      },
+    });
+
+    assert.equal('value' in companionOnly, false);
+    assert.deepEqual(companionOnly._value, companion);
+  });
+
+  it('keeps repeating primitive companions aligned through list modes', function () {
+    const fml = `
+/// url = "http://test/Map6"
+/// name = "Test6"
+
+group Test(source src, target tgt) {
+  src.code first as value -> tgt.code = value;
+}
+`;
+    const firstCompanion = {
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/first',
+        valueString: 'first',
+      }],
+    };
+    const secondCompanion = {
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/second',
+        valueString: 'second',
+      }],
+    };
+    const defs = {
+      polyPaths: {},
+      elementTypes: { 'Test.code': 'code' },
+      arrayPaths: ['Test.code'],
+    };
+    const engine = compileFmlXver({
+      fmlText: fml,
+      srcDefs: defs,
+      tgtDefs: defs,
+    });
+    const out = engine.convert({
+      input: {
+        resourceType: 'Test',
+        code: ['a', 'b'],
+        _code: [firstCompanion, secondCompanion],
+      },
+    });
+
+    assert.deepEqual(out.code, ['a']);
+    assert.deepEqual(out._code, [firstCompanion]);
+  });
 });
-
-
-

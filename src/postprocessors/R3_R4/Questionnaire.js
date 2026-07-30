@@ -35,12 +35,17 @@ import { indexSourceItemsByLinkId } from '../util/questionnaire.js';
  * answerUri) and leaves the Attachment case as a malformed `{ question }` entry
  * (no operator/answer). Either way the source entry has no R4 representation.
  *
+ * An extension-only primitive (a `_answerUri` companion with no bare
+ * `answerUri`) is valid STU3 JSON and equally unrepresentable in R4, so the
+ * `_`-companion forms are detected too.
+ *
  * @param {Object} sEw STU3 source enableWhen entry (read-only).
  * @returns {boolean} True if the entry's answer is uri or Attachment.
  */
 function isUnrepresentableInR4(sEw) {
   return !!sEw && typeof sEw === 'object'
-    && ('answerUri' in sEw || 'answerAttachment' in sEw);
+    && ('answerUri' in sEw || '_answerUri' in sEw
+      || 'answerAttachment' in sEw || '_answerAttachment' in sEw);
 }
 
 /**
@@ -61,7 +66,9 @@ function dropUnrepresentableEnableWhen(tItem, sItem, messages) {
   const kept = tItem.enableWhen.filter((tEw, i) => {
     const sEw = sItem.enableWhen[i];
     if (isUnrepresentableInR4(sEw)) {
-      const badKey = 'answerUri' in sEw ? 'answerUri' : 'answerAttachment';
+      const badKey = ('answerUri' in sEw || '_answerUri' in sEw)
+        ? 'answerUri'
+        : 'answerAttachment';
       messages.push(warningMessage(
         `item "${sItem.linkId}": enableWhen ${badKey} has no R4 equivalent; entry dropped`,
       ));
@@ -271,17 +278,26 @@ function fixEnableWhen(tItem, sItem, messages) {
  * Fix a target item's `options` to the STU3 Reference shape.
  *
  * STU3 `item.options` is a Reference(ValueSet); the FML step emits a malformed
- * bare string. Re-derive it from the R4 source's `answerValueSet`.
+ * bare string. Re-derive it from the R4 source's `answerValueSet`, carrying the
+ * canonical's `_answerValueSet` id/extension companion onto the STU3 Reference's
+ * `reference` primitive (`_reference`) so no primitive metadata is lost. An
+ * extension-only `answerValueSet` (companion with no bare value) is handled too.
  *
  * @param {Object} tItem Target item, mutated in place.
  * @param {Object} sItem Aligned R4 source item (read-only).
  * @param {Array<Object>} messages Diagnostic messages to append to.
  */
 function fixOptions(tItem, sItem, messages) {
-  if (sItem.answerValueSet == null) return;
+  if (!('answerValueSet' in sItem) && !('_answerValueSet' in sItem)) return;
 
-  tItem.options = { reference: sItem.answerValueSet };
-  if ('answerValueSet' in tItem) delete tItem.answerValueSet;
+  const options = {};
+  copyPrimitive(sItem, 'answerValueSet', options, 'reference');
+  tItem.options = options;
+
+  // Remove the FML-emitted primitive answerValueSet and any companion the
+  // engine carried, so no stray R4 field remains on the STU3 target.
+  deletePrimitive(tItem, 'answerValueSet');
+
   messages.push(infoMessage(
     `item "${sItem.linkId}": answerValueSet mapped to STU3 options.reference`,
   ));
