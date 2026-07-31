@@ -64,6 +64,11 @@ import { validateProcessorDescriptor } from './processorDescriptor.js';
  *   'replace' (caller only). See postprocessPolicy.js.
  * @param {boolean} [opts.checkCoverage=true] Enforce non-decreasing coverage
  *   along the postprocessor list.
+ * @param {string} [opts.targetResourceType] The intended target FHIR resource
+ *   type. Required only when the source resource maps to more than one target on
+ *   the hop (e.g. ServiceRequest R4->R3 maps to ProcedureRequest or
+ *   ReferralRequest); optional for a one-to-one mapping. When supplied, it is
+ *   checked against the target declared by the FML StructureMap.
  * @returns {Object} Flat result object; see the module overview for the shape.
  * @throws {Error} On unknown resource type, missing/non-adjacent FML mapping,
  *   invalid postprocessPolicy, decreasing coverage, warning-invariant
@@ -74,6 +79,7 @@ export function convertSingleHop(resource, fromVer, toVer, opts = {}) {
     postprocs,
     postprocessPolicy = POSTPROCESS_POLICY.APPEND,
     checkCoverage = true,
+    targetResourceType,
   } = opts;
   assertPostprocessPolicy(postprocessPolicy);
 
@@ -94,6 +100,12 @@ export function convertSingleHop(resource, fromVer, toVer, opts = {}) {
   if (postprocs != null && !Array.isArray(postprocs)) {
     throw new Error('convertSingleHop: opts.postprocs must be an array');
   }
+  if (targetResourceType != null &&
+      (typeof targetResourceType !== 'string' || targetResourceType.length === 0)) {
+    throw new Error(
+      'convertSingleHop: opts.targetResourceType must be a non-empty string',
+    );
+  }
 
   // ---- 1. Validation ----------------------------------------------------
   const resType = resource?.resourceType;
@@ -112,6 +124,9 @@ export function convertSingleHop(resource, fromVer, toVer, opts = {}) {
       `convertSingleHop: no direct FML mapping for ${resType} ${fromVer}->${toVer}`,
     );
   }
+  const mapping = engineFactory.resolveMapping(resType, fromVer, toVer, {
+    targetResourceType,
+  });
 
   // ---- 3. Deep-clone caller input (private working copy) ----------------
   let working = structuredClone(resource);
@@ -141,6 +156,7 @@ export function convertSingleHop(resource, fromVer, toVer, opts = {}) {
   // ---- 6. Run FML engine, capturing diagnostics -------------------------
   const fmlMessages = [];
   const engine = engineFactory.createEngine(resType, fromVer, toVer, {
+    targetResourceType: mapping.targetResourceType,
     onWarning: text => fmlMessages.push(makeMessage(MESSAGE_TYPE.WARNING, text)),
     onInfo:    text => fmlMessages.push(makeMessage(MESSAGE_TYPE.INFO, text)),
   });
@@ -240,4 +256,3 @@ function runProcessor(processor, inputResource, ctx, kind, reports) {
   reports.push(report);
   return outResource;
 }
-

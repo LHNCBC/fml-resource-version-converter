@@ -34,15 +34,112 @@ describe('fml_base_conv/createEngine', function () {
   it('reports mapping availability via hasMapping', function () {
     const factory = createFmlEngineFactory();
     assert.equal(factory.hasMapping('Questionnaire', 'R4', 'R5'), true);
+    assert.equal(factory.hasMapping('Sequence', 'R3', 'R4'), true);
     assert.equal(factory.hasMapping('NoSuchResource', 'R4', 'R5'), false);
   });
 
   it('throws for unknown resource type', function () {
-    assert.throws(() => createEngine('NoSuchResource', 'R4', 'R5'), /FML file not found/);
+    assert.throws(() => createEngine('NoSuchResource', 'R4', 'R5'), /FML mapping not found/);
   });
 
   it('throws for unknown FHIR version', function () {
     assert.throws(() => createEngine('Questionnaire', 'R4', 'R99'), /not found|Unknown/);
+  });
+});
+
+// ---------- resource mapping discovery and selection ------------------------
+
+describe('fml_base_conv: resource mapping discovery and selection', function () {
+  it('discovers a renamed resource by its FML source declaration', function () {
+    const factory = createFmlEngineFactory();
+    const mapping = factory.resolveMapping('Sequence', 'R3', 'R4');
+
+    assert.equal(mapping.structureMapName, 'Sequence3to4');
+    assert.equal(mapping.entryGroup, 'Sequence');
+    assert.equal(mapping.sourceResourceType, 'Sequence');
+    assert.equal(mapping.targetResourceType, 'MolecularSequence');
+  });
+
+  it('uses the declared entry group and target type in both rename directions', function () {
+    const toR4 = createEngine('Sequence', 'R3', 'R4');
+    const r4 = toR4.convert({
+      input: {
+        resourceType: 'Sequence',
+        id: 'sequence-r3',
+        type: 'dna',
+        coordinateSystem: 0,
+      },
+    });
+
+    assert.equal(r4.resourceType, 'MolecularSequence');
+    assert.equal(r4.id, 'sequence-r3');
+    assert.deepEqual(
+      r4.meta.profile,
+      ['http://hl7.org/fhir/4.0/StructureDefinition/MolecularSequence'],
+    );
+
+    const toR3 = createEngine('MolecularSequence', 'R4', 'R3');
+    const r3 = toR3.convert({
+      input: {
+        resourceType: 'MolecularSequence',
+        id: 'sequence-r4',
+        type: 'dna',
+        coordinateSystem: 0,
+      },
+    });
+
+    assert.equal(r3.resourceType, 'Sequence');
+    assert.equal(r3.id, 'sequence-r4');
+    assert.deepEqual(
+      r3.meta.profile,
+      ['http://hl7.org/fhir/3.0/StructureDefinition/Sequence'],
+    );
+  });
+
+  it('requires targetResourceType for a one-to-many source mapping', function () {
+    const factory = createFmlEngineFactory();
+
+    assert.throws(
+      () => factory.resolveMapping('ServiceRequest', 'R4', 'R3'),
+      /targetResourceType is required.*ProcedureRequest, ReferralRequest/,
+    );
+  });
+
+  it('selects each ServiceRequest target by targetResourceType', function () {
+    const factory = createFmlEngineFactory();
+    const procedure = factory.resolveMapping('ServiceRequest', 'R4', 'R3', {
+      targetResourceType: 'ProcedureRequest',
+    });
+    const referral = factory.resolveMapping('ServiceRequest', 'R4', 'R3', {
+      targetResourceType: 'ReferralRequest',
+    });
+
+    assert.equal(procedure.entryGroup, 'ServiceRequestPR');
+    assert.equal(procedure.targetResourceType, 'ProcedureRequest');
+    assert.equal(referral.entryGroup, 'ServiceRequestR');
+    assert.equal(referral.targetResourceType, 'ReferralRequest');
+  });
+
+  it('rejects a target type that no candidate declares', function () {
+    const factory = createFmlEngineFactory();
+
+    assert.throws(
+      () => factory.resolveMapping('Questionnaire', 'R4', 'R5', {
+        targetResourceType: 'Patient',
+      }),
+      /targeting Patient.*Available targets: Questionnaire/,
+    );
+  });
+
+  it('fails closed when targetResourceType still leaves duplicate maps', function () {
+    const factory = createFmlEngineFactory();
+
+    assert.throws(
+      () => factory.resolveMapping('ProcedureRequest', 'R3', 'R2', {
+        targetResourceType: 'DiagnosticOrder',
+      }),
+      /Multiple FML StructureMaps.*DiagnosticOrder3to2, ProcedureRequestDO3to2/,
+    );
   });
 });
 
@@ -279,6 +376,24 @@ describe('fml_base_conv: meta.profile handling', function () {
     assert.ok(out.meta.profile.includes('http://myorg.com/fhir/StructureDefinition/CustomQuestionnaire'));
     assert.ok(out.meta.profile.includes('http://hl7.org/fhir/5.0/StructureDefinition/Questionnaire'));
     assert.ok(!out.meta.profile.includes('http://hl7.org/fhir/4.0/StructureDefinition/Questionnaire'));
+  });
+
+  it('replaces a renamed source profile with the declared target profile', function () {
+    const input = {
+      resourceType: 'Sequence',
+      type: 'dna',
+      coordinateSystem: 0,
+      meta: {
+        profile: ['http://hl7.org/fhir/3.0/StructureDefinition/Sequence'],
+      },
+    };
+    const engine = createEngine('Sequence', 'R3', 'R4');
+    const out = engine.convert({ input });
+
+    assert.deepEqual(
+      out.meta.profile,
+      ['http://hl7.org/fhir/4.0/StructureDefinition/MolecularSequence'],
+    );
   });
 });
 

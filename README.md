@@ -68,12 +68,30 @@ console.log(result.status);    // 'ok' or 'warning'
 console.log(result.coverage);  // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
 ```
 
-**convertSingleHop(resource, fromVer, toVer)** throws when the request cannot be
+**convertSingleHop(resource, fromVer, toVer, opts?)** throws when the request cannot be
 run, such as an unknown version token, the same source and target version, an
 unknown resource type, or a version pair with no direct FML mapping.
 
 The input object is deep-cloned before conversion. Your original resource object
 is not modified.
+
+Because resources are sometimes renamed or split between FHIR versions, a
+source resource type can map to more than one target type on a single hop. Use
+`opts.targetResourceType` to assert the intended target:
+
+```js
+// R4 -> R3: a ServiceRequest may become a ProcedureRequest or a ReferralRequest,
+// so the target type must be stated explicitly.
+const result = convertSingleHop(serviceRequestR4, 'R4', 'R3', {
+  targetResourceType: 'ProcedureRequest',
+});
+```
+
+`targetResourceType` names the **intended target type**. It is **required**
+only when the source resource maps to more than one target on the hop (as with
+`ServiceRequest` R4->R3 above); for a one-to-one mapping it is optional. When
+supplied, it is checked against the target type declared by the FML
+StructureMap, so a mismatched value is rejected rather than silently ignored.
 
 ## Supported version pairs
 

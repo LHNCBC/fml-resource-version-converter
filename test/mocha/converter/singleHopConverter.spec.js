@@ -51,6 +51,90 @@ describe('converter/singleHopConverter', function () {
         /no direct FML mapping for NoSuchResource/,
       );
     });
+
+    it('rejects an invalid targetResourceType option', function () {
+      assert.throws(
+        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', {
+          targetResourceType: '',
+        }),
+        /targetResourceType must be a non-empty string/,
+      );
+      assert.throws(
+        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', {
+          targetResourceType: 42,
+        }),
+        /targetResourceType must be a non-empty string/,
+      );
+    });
+  });
+
+  // -------- renamed and ambiguous resource mappings -------------------------
+  describe('renamed and ambiguous resource mappings', function () {
+    it('converts Sequence R3 to MolecularSequence R4', function () {
+      const result = convertSingleHop({
+        resourceType: 'Sequence',
+        id: 'sequence-r3',
+        type: 'dna',
+        coordinateSystem: 0,
+      }, 'R3', 'R4');
+
+      assert.equal(result.resource.resourceType, 'MolecularSequence');
+      assert.equal(result.resource.id, 'sequence-r3');
+    });
+
+    it('converts MolecularSequence R4 to Sequence R3', function () {
+      const result = convertSingleHop({
+        resourceType: 'MolecularSequence',
+        id: 'sequence-r4',
+        type: 'dna',
+        coordinateSystem: 0,
+      }, 'R4', 'R3');
+
+      assert.equal(result.resource.resourceType, 'Sequence');
+      assert.equal(result.resource.id, 'sequence-r4');
+    });
+
+    it('rejects an ambiguous source before running preprocessors', function () {
+      let preprocessorRan = false;
+      const preprocessor = {
+        name: 'must-not-run',
+        execute(resource) {
+          preprocessorRan = true;
+          return { resource, status: STATUS.OK };
+        },
+      };
+
+      assert.throws(
+        () => convertSingleHop(
+          { resourceType: 'ServiceRequest', status: 'active', intent: 'order' },
+          'R4',
+          'R3',
+          { preprocs: [preprocessor] },
+        ),
+        /targetResourceType is required.*ProcedureRequest, ReferralRequest/,
+      );
+      assert.equal(preprocessorRan, false);
+    });
+
+    it('uses targetResourceType to select the ServiceRequest target mapping', function () {
+      const input = {
+        resourceType: 'ServiceRequest',
+        id: 'service-request-r4',
+        status: 'active',
+        intent: 'order',
+        subject: { reference: 'Patient/example' },
+      };
+
+      const procedure = convertSingleHop(input, 'R4', 'R3', {
+        targetResourceType: 'ProcedureRequest',
+      });
+      const referral = convertSingleHop(input, 'R4', 'R3', {
+        targetResourceType: 'ReferralRequest',
+      });
+
+      assert.equal(procedure.resource.resourceType, 'ProcedureRequest');
+      assert.equal(referral.resource.resourceType, 'ReferralRequest');
+    });
   });
 
   // -------- happy path -----------------------------------------------------

@@ -475,6 +475,10 @@ class Scope {
  *                                               Used to update meta.profile after
  *                                               conversion.
  * @param {string}   [opts.toVer]                Target FHIR version (e.g. 'R5').
+ * @param {Object}   [opts.mapping]              Selected resource mapping
+ *                                               descriptor. Factory-created
+ *                                               engines always provide this;
+ *                                               raw compiler callers may omit it.
  * @param {Function} [opts.onWarning]            (msg: string) => void
  * @param {Function} [opts.onInfo]               (msg: string) => void
  * @param {Function} [opts.onRuleExec]           ({rule, srcVal}) => void
@@ -491,6 +495,7 @@ export function compileFmlXver({
   strict          = false,
   fromVer         = null,
   toVer           = null,
+  mapping         = null,
   srcDefs         = null,
   tgtDefs         = null,
   onWarning       = null,
@@ -2386,32 +2391,45 @@ export function compileFmlXver({
 
   function convert({ input, entryGroup } = {}) {
     if (!isObject(input)) throw new Error('Input must be a JSON object');
-    const group = entryGroup || input.resourceType;
+    const group = entryGroup || mapping?.entryGroup || input.resourceType;
     if (!group) throw new Error('entryGroup is required when input has no resourceType');
 
+    const sourceResourceType =
+      mapping?.sourceResourceType || input.resourceType || group;
+    const targetResourceType =
+      mapping?.targetResourceType || input.resourceType || group;
+    if (mapping && input.resourceType !== sourceResourceType) {
+      throw new Error(
+        `Input resourceType "${input.resourceType}" does not match FML source ` +
+        `resource type "${sourceResourceType}"`,
+      );
+    }
+
     const out = {};
-    if (input.resourceType) out.resourceType = input.resourceType;
+    if (targetResourceType) out.resourceType = targetResourceType;
 
     // Seed the absolute FHIR path of the root target object so that
     // every subsequent child write can build its path by descent.
-    // The entry group name is the resource type (e.g. "Questionnaire").
-    setObjectPath(out, group);
+    setObjectPath(out, targetResourceType);
 
     // Seed the source root path too, so write-time type coercion can
     // look up source element types via composeChildPath(srcCtx, path).
-    setObjectPath(input, group);
+    setObjectPath(input, sourceResourceType);
 
     execGroup(group, [input, out]);
 
     // Update meta.profile: replace standard FHIR base profile URLs matching
     // the source version with the target version. Non-standard profiles are
     // left untouched. If no profile existed, add the target version's base profile.
-    if (fromVer && toVer && tgtVerNum && input.resourceType) {
+    if (fromVer && toVer && tgtVerNum && targetResourceType) {
+      const declaredTargetProfile = mapping?.targetProfile || null;
       if (Array.isArray(out.meta?.profile)) {
         const updated = [];
         for (const url of out.meta.profile) {
           if (isSourceVersionProfile(url)) {
-            updated.push(toTargetVersionProfile(url));
+            const targetProfile =
+              declaredTargetProfile || toTargetVersionProfile(url);
+            if (!updated.includes(targetProfile)) updated.push(targetProfile);
           } else if (!FHIR_BASE_PROFILE_RE.test(url)) {
             // Non-standard profile -- keep as-is.
             updated.push(url);
@@ -2425,7 +2443,10 @@ export function compileFmlXver({
       } else {
         // No profile on source -- add the target version's base profile.
         if (!out.meta) out.meta = {};
-        out.meta.profile = [`http://hl7.org/fhir/${tgtVerNum}/StructureDefinition/${input.resourceType}`];
+        out.meta.profile = [
+          declaredTargetProfile ||
+          `http://hl7.org/fhir/${tgtVerNum}/StructureDefinition/${targetResourceType}`,
+        ];
       }
     }
 
