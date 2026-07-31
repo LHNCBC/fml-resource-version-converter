@@ -777,6 +777,15 @@ export function compileFmlXver({
   const typesIndex = buildTypesIndex([ast, ...importedAsts]);
 
   /**
+   * Type-mismatch diagnostics already emitted during the current conversion.
+   * Array iteration can inspect the same source/target path once per item, but
+   * the report should describe that mapping gap only once per resource.
+   *
+   * @type {Set<string>}
+   */
+  const reportedTypeMismatches = new Set();
+
+  /**
    * Maps each target object created by the engine to its absolute FHIR
    * path from the resource root (e.g. {} -> "Questionnaire.item").
    *
@@ -2066,19 +2075,26 @@ export function compileFmlXver({
         results.push(child);
         resultCompanions.push(null);
       } else {
-        // No then-clause: each iteration produces one scalar value.
-        const value = computeTargetValue(
-          tgtSpec,
-          iterationPrimary,
-          iterationBindings,
-          iterScope,
-          item,
-        );
-        const provenance = targetSourceBinding(
-          tgtSpec,
-          iterationPrimary,
-          iterationBindings,
-        );
+        // No then-clause: each iteration produces one value. Apply automatic
+        // type coercion to the individual item just as applyTarget() does for
+        // a scalar rule; an alias should affect scope, not coercion semantics.
+        const coerced = tryTypeCoercion(tgtSpec, iterationPrimary, iterScope);
+        const value = coerced !== undefined
+          ? coerced
+          : computeTargetValue(
+            tgtSpec,
+            iterationPrimary,
+            iterationBindings,
+            iterScope,
+            item,
+          );
+        const provenance = coerced === undefined
+          ? targetSourceBinding(
+            tgtSpec,
+            iterationPrimary,
+            iterationBindings,
+          )
+          : null;
         const resultCompanion = provenance?.companion;
         if (value !== undefined || resultCompanion != null) {
           results.push(value);
@@ -2124,9 +2140,10 @@ export function compileFmlXver({
    *   - those scalar types differ, AND
    *   - a `<<types>>` group exists for `(srcType, tgtType)`.
    *
-   * The source value and companion are expanded as
+   * Each source value and companion are expanded as
    * `{value: <srcVal>, id?, extension?}` when primitive. Object sources are
-   * passed through unchanged.
+   * passed through unchanged. Repeating sources are coerced element by element
+   * so a conversion group never receives the array itself as one scalar value.
    *
    * Emits `onInfo` once per unresolvable type mismatch (types differ but
    * no conversion group available) so that gaps can be diagnosed.
@@ -2159,21 +2176,44 @@ export function compileFmlXver({
 
     const groupName = typesIndex.get(`${srcType}::${tgtType}`);
     if (!groupName) {
-      onInfo?.(`type mismatch ${srcType}->${tgtType} at ${srcAbsPath} -> ${tgtAbsPath}; no <<types>> group, plain copy`);
+      const mismatchKey =
+        `${srcType}->${tgtType}:${srcAbsPath}->${tgtAbsPath}`;
+      if (!reportedTypeMismatches.has(mismatchKey)) {
+        reportedTypeMismatches.add(mismatchKey);
+        onInfo?.(`type mismatch ${srcType}->${tgtType} at ${srcAbsPath} -> ${tgtAbsPath}; no <<types>> group, plain copy`);
+      }
       return undefined;
     }
 
-    const wrapped = isObject(primary.value)
-      ? primary.value
-      : expandPrimitive(primary.value, primary.companion);
-    const child   = {};
-    setObjectPath(child, tgtAbsPath);
-    execGroup(groupName, [wrapped, child], scope);
+    /**
+     * Coerce one source value with its aligned primitive companion.
+     *
+     * @param {*} value One source field value.
+     * @param {*} companion Primitive metadata aligned with the value.
+     * @returns {Object} Expanded target value produced by the coercion group.
+     */
+    function coerceValue(value, companion) {
+      const wrapped = isObject(value)
+        ? value
+        : expandPrimitive(value, companion);
+      const child = {};
+      setObjectPath(child, tgtAbsPath);
+      execGroup(groupName, [wrapped, child], scope);
+      return child;
+    }
+
+    if (Array.isArray(primary.value)) {
+      const companions = Array.isArray(primary.companion)
+        ? primary.companion
+        : [];
+      return primary.value.map((value, index) =>
+        coerceValue(value, companions[index]));
+    }
 
     // Keep primitive results expanded. writeToSlot() is the single
     // serialization boundary that splits {value, id, extension} into the
     // target field and `_field` companion.
-    return child;
+    return coerceValue(primary.value, primary.companion);
   }
 
   /**
@@ -2390,6 +2430,7 @@ export function compileFmlXver({
   }
 
   function convert({ input, entryGroup } = {}) {
+    reportedTypeMismatches.clear();
     if (!isObject(input)) throw new Error('Input must be a JSON object');
     const group = entryGroup || mapping?.entryGroup || input.resourceType;
     if (!group) throw new Error('entryGroup is required when input has no resourceType');

@@ -362,10 +362,12 @@ function fixAnswerOption(tItem, sItem, messages) {
 
   const sOpts = Array.isArray(sItem.answerOption) ? sItem.answerOption : [];
   const kept = tItem.option.filter((tOpt, i) => {
-    if (tOpt && typeof tOpt === 'object' && findValueKey(tOpt)) return true;
+    if (tOpt && typeof tOpt === 'object' &&
+        findValueKey(tOpt, { companionAware: true })) return true;
 
     const sOpt = sOpts[i];
-    const badKey = (sOpt && typeof sOpt === 'object' && findValueKey(sOpt)) || 'entry';
+    const badKey = (sOpt && typeof sOpt === 'object' &&
+      findValueKey(sOpt, { companionAware: true })) || 'entry';
     messages.push(warningMessage(
       `item "${sItem.linkId}": answerOption ${badKey} has no STU3 equivalent; entry dropped`,
     ));
@@ -501,4 +503,3 @@ export const conv_R4_to_R3 = {
     return { resource: target, status: statusFromMessages(messages), messages };
   },
 };
-

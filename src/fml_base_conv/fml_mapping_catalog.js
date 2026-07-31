@@ -137,15 +137,20 @@ export function createFmlMappingCatalog(xverRoot) {
     if (directionCache.has(cacheKey)) return directionCache.get(cacheKey);
 
     const bySource = new Map();
-    directionCache.set(cacheKey, bySource);
-    if (!KNOWN_VERSIONS.has(fromVer) || !KNOWN_VERSIONS.has(toVer)) return bySource;
+    if (!KNOWN_VERSIONS.has(fromVer) || !KNOWN_VERSIONS.has(toVer)) {
+      directionCache.set(cacheKey, bySource);
+      return bySource;
+    }
 
     const directionDir = path.join(xverRoot, `${fromVer}to${toVer}`);
     let entries;
     try {
       entries = fs.readdirSync(directionDir, { withFileTypes: true });
     } catch (error) {
-      if (error?.code === 'ENOENT') return bySource;
+      if (error?.code === 'ENOENT') {
+        directionCache.set(cacheKey, bySource);
+        return bySource;
+      }
       throw error;
     }
 
@@ -176,6 +181,10 @@ export function createFmlMappingCatalog(xverRoot) {
       bySource.set(sourceType, Object.freeze(candidates));
     }
 
+    // Publish only a fully inspected direction. If any file above fails,
+    // callers must retry the scan and see the same integrity error rather than
+    // receiving a partial map left behind by the failed attempt.
+    directionCache.set(cacheKey, bySource);
     return bySource;
   }
 

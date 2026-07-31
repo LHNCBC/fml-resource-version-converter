@@ -126,6 +126,9 @@ resource. Please keep the following in mind:
   convert them separately for now. Automatic conversion of contained resources
   is planned for a future release, at which point the conversion report will
   include a per-contained-resource status you can check.
+- **Bundle entry resources are not version-converted.** Bundle structure is
+  mapped, but each `entry.resource` is carried through as-is. Recursive
+  conversion of Bundle entries is planned for a future release.
 - **Non-adjacent versions require manual chaining.** Only direct (adjacent) FML
   hops are supported by a single call. For a conversion such as **R3 -> R5**, call
   the converter once for **R3 -> R4** and then again for **R4 -> R5**. Automatic
@@ -231,6 +234,14 @@ are written to stderr. Use `--verbose` to include info messages:
 
 ```bash
 node bin/convert.js --verbose R3 R4 questionnaire-r3.json > questionnaire-r4.json
+```
+
+For a source type with multiple possible targets, select the intended mapping
+with `--target-resource-type`:
+
+```bash
+node bin/convert.js R4 R3 service-request-r4.json \
+  --target-resource-type ProcedureRequest > procedure-request-r3.json
 ```
 
 ## Coverage and contributions

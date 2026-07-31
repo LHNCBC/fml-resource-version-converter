@@ -353,6 +353,33 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       const outputTags = (result.resource.meta?.tag ?? []).length;
       assert.equal(outputTags, inputTags);
     });
+
+    it('preserves an extension-only primitive answerOption', function () {
+      const companion = {
+        extension: [{
+          url: 'http://example.org/fhir/StructureDefinition/option-metadata',
+          valueString: 'kept',
+        }],
+      };
+      const input = {
+        resourceType: 'Questionnaire',
+        status: 'draft',
+        item: [{
+          linkId: 'extension-only-option',
+          type: 'string',
+          answerOption: [{ _valueString: companion }],
+        }],
+      };
+      const converted = convertSingleHop(input, 'R4', 'R3');
+
+      assert.deepEqual(
+        converted.resource.item[0].option,
+        [{ _valueString: companion }],
+      );
+      assert.ok(!converted.postprocessors[0].messages.some(
+        message => /no STU3 equivalent/.test(message.text),
+      ));
+    });
   });
 
   // -------- direct unit coverage of the branch cases -----------------------
@@ -749,5 +776,4 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
     });
   });
 });
-
 

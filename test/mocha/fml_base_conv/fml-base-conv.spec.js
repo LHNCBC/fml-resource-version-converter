@@ -4,6 +4,7 @@
  */
 import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createFmlEngineFactory, planHops } from '../../../src/fml_base_conv/create_converter.js';
 import { compileFmlXver } from '../../../src/fml_base_conv/fml_xver_engine.js';
@@ -50,6 +51,40 @@ describe('fml_base_conv/createEngine', function () {
 // ---------- resource mapping discovery and selection ------------------------
 
 describe('fml_base_conv: resource mapping discovery and selection', function () {
+  it('does not cache a partially scanned direction after an FML parse error', function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fml-catalog-'));
+    try {
+      const direction = path.join(root, 'R4toR5');
+      fs.mkdirSync(direction);
+
+      const validFml = `
+/// url = "http://example.org/StructureMap/Patient4to5"
+/// name = "Patient4to5"
+
+uses "http://hl7.org/fhir/4.0/StructureDefinition/Patient" alias PatientR4 as source
+uses "http://hl7.org/fhir/5.0/StructureDefinition/Patient" alias PatientR5 as target
+
+group Patient(source src : PatientR4, target tgt : PatientR5) extends DomainResource <<type+>> {
+  src.id -> tgt.id;
+}
+`;
+      fs.writeFileSync(path.join(direction, 'AValid.fml'), validFml, 'utf-8');
+      fs.writeFileSync(path.join(direction, 'ZInvalid.fml'), 'group Broken(', 'utf-8');
+
+      const factory = createFmlEngineFactory({ xverInputRoot: root });
+      const inspect = () => factory.hasMapping('Patient', 'R4', 'R5');
+
+      assert.throws(inspect, /failed to inspect.*ZInvalid\.fml/);
+      assert.throws(
+        inspect,
+        /failed to inspect.*ZInvalid\.fml/,
+        'a second lookup must retry the failed scan rather than use a partial cache',
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('discovers a renamed resource by its FML source declaration', function () {
     const factory = createFmlEngineFactory();
     const mapping = factory.resolveMapping('Sequence', 'R3', 'R4');
@@ -164,6 +199,112 @@ describe('fml_base_conv: ConceptMap path resolution', function () {
       w => /not found/.test(w) && /ConceptMap-(types|resources)-/.test(w),
     );
     assert.equal(typeMapNotFound.length, 0, 'types-/resources- ConceptMaps should resolve');
+  });
+});
+
+// ---------- repeating type coercion -----------------------------------------
+
+describe('fml_base_conv: repeating type coercion', function () {
+  it('coerces each ActivityDefinition.library Reference to a canonical', function () {
+    const input = {
+      resourceType: 'ActivityDefinition',
+      status: 'draft',
+      library: [
+        { reference: 'Library/one' },
+        { reference: 'Library/two' },
+      ],
+    };
+    const engine = createEngine('ActivityDefinition', 'R3', 'R4');
+    const out = engine.convert({ input });
+
+    assert.deepEqual(out.library, ['Library/one', 'Library/two']);
+  });
+
+  it('coerces each array element when the source rule declares an alias', function () {
+    const fml = `
+/// url = "http://test/AliasedArrayMap"
+/// name = "AliasedArrayMap"
+
+group Test(source src, target tgt) {
+  src.value as v -> tgt.value;
+}
+`;
+    const coercion = `
+uses "http://test/StructureDefinition/string" alias stringSource as source
+uses "http://test/StructureDefinition/code" alias codeTarget as target
+
+group string2code(source src : stringSource, target tgt : codeTarget) extends Element <<types>> {
+  src.value -> tgt.value = 'coerced';
+}
+`;
+    const engine = compileFmlXver({
+      fmlText: fml,
+      importedFmlTexts: [coercion],
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'string' },
+        arrayPaths: ['Test.value'],
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'code' },
+        arrayPaths: ['Test.value'],
+      },
+    });
+    const out = engine.convert({
+      input: { resourceType: 'Test', value: ['first', 'second'] },
+    });
+
+    assert.deepEqual(out.value, ['coerced', 'coerced']);
+  });
+
+  it('reports a missing aliased-array coercion group once per conversion', function () {
+    const fml = `
+/// url = "http://test/MissingAliasedArrayMap"
+/// name = "MissingAliasedArrayMap"
+
+group Test(source src, target tgt) {
+  src.value as v -> tgt.value;
+}
+`;
+    const unrelatedCoercion = `
+uses "http://test/StructureDefinition/integer" alias integerSource as source
+uses "http://test/StructureDefinition/boolean" alias booleanTarget as target
+
+group integer2boolean(source src : integerSource, target tgt : booleanTarget) extends Element <<types>> {
+  src.value -> tgt.value;
+}
+`;
+    const info = [];
+    const engine = compileFmlXver({
+      fmlText: fml,
+      importedFmlTexts: [unrelatedCoercion],
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'string' },
+        arrayPaths: ['Test.value'],
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'code' },
+        arrayPaths: ['Test.value'],
+      },
+      onInfo: message => info.push(message),
+    });
+
+    engine.convert({
+      input: { resourceType: 'Test', value: ['one', 'two', 'three'] },
+    });
+    assert.equal(info.length, 1);
+
+    info.length = 0;
+    engine.convert({
+      input: {
+        resourceType: 'Test',
+        value: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+      },
+    });
+    assert.equal(info.length, 1, 'a reused engine must report once for each resource');
   });
 });
 
