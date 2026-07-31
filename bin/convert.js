@@ -6,19 +6,21 @@
  * shell. Reads a FHIR resource from a JSON file (or stdin), converts it across
  * one adjacent version hop, prints the converted resource to stdout, and prints
  * a short diagnostics summary (aggregated across all conversion stages) to
- * stderr.
+ * stderr. Bundle entry.resource values are not recursively converted.
  *
  * Usage:
- *   node bin/convert.js <fromVer> <toVer> [inputFile] [--verbose]
+ *   node bin/convert.js <fromVer> <toVer> [inputFile] [options]
  *
  *   <fromVer>    Source version (R2|R3|R4|R4B|R5).
  *   <toVer>      Target version (R2|R3|R4|R4B|R5).
  *   [inputFile]  Path to the resource JSON. If omitted, reads from stdin.
- *   --verbose    Also print info-level diagnostics (warnings always shown).
+ *   --verbose                         Print info-level diagnostics.
+ *   --target-resource-type <type>     Select an ambiguous target resource type.
  *
  * Examples:
  *   node bin/convert.js R4 R5 ./patient.json
  *   cat patient.json | node bin/convert.js R4 R5
+ *   node bin/convert.js R4 R3 ./request.json --target-resource-type ProcedureRequest
  *
  * @module bin/convert
  */
@@ -42,16 +44,62 @@ function readStream(stream) {
 }
 
 /**
+ * Parse supported CLI options and positional arguments.
+ *
+ * Options may appear before or after positional arguments. Unknown options,
+ * duplicate target selectors, and missing option values are rejected rather
+ * than being mistaken for an input filename.
+ *
+ * @param {string[]} args Raw command-line arguments after the script path.
+ * @returns {{verbose: boolean, targetResourceType: string|undefined, positional: string[]}}
+ * @throws {Error} If an option is unknown or malformed.
+ */
+function parseArgs(args) {
+  let verbose = false;
+  let targetResourceType;
+  const positional = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--verbose') {
+      verbose = true;
+    } else if (arg === '--target-resource-type') {
+      if (targetResourceType !== undefined) {
+        throw new Error('--target-resource-type may be specified only once');
+      }
+
+      const value = args[++i];
+      if (!value || value.startsWith('--')) {
+        throw new Error('--target-resource-type requires a resource type');
+      }
+      targetResourceType = value;
+    } else if (arg.startsWith('--')) {
+      throw new Error(`unknown option: ${arg}`);
+    } else {
+      positional.push(arg);
+    }
+  }
+
+  if (positional.length > 3) {
+    throw new Error('too many positional arguments');
+  }
+
+  return { verbose, targetResourceType, positional };
+}
+
+/**
  * Print the CLI usage text to stderr.
  *
  * @returns {void}
  */
 function printUsage() {
   process.stderr.write(
-    'Usage: node bin/convert.js <fromVer> <toVer> [inputFile] [--verbose]\n' +
+    'Usage: node bin/convert.js <fromVer> <toVer> [inputFile] [options]\n' +
     '  Reads inputFile (or stdin) as a FHIR resource JSON and converts it\n' +
     '  across one adjacent version hop. Versions: R2|R3|R4|R4B|R5.\n' +
-    '  --verbose also prints info-level diagnostics (warnings always shown).\n',
+    '  --verbose also prints info-level diagnostics (warnings always shown).\n' +
+    '  --target-resource-type <type> selects an ambiguous target mapping.\n' +
+    '  Note: Bundle entry.resource values are not recursively converted.\n',
   );
 }
 
@@ -61,9 +109,18 @@ function printUsage() {
  * @returns {Promise<void>} Resolves after output is written.
  */
 async function main() {
-  const args = process.argv.slice(2);
-  const verbose = args.includes('--verbose');
-  const [fromVer, toVer, inputFile] = args.filter(a => a !== '--verbose');
+  let parsed;
+  try {
+    parsed = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(`Error: ${error.message}\n`);
+    printUsage();
+    process.exitCode = 2;
+    return;
+  }
+
+  const { verbose, targetResourceType, positional } = parsed;
+  const [fromVer, toVer, inputFile] = positional;
 
   if (!fromVer || !toVer) {
     printUsage();
@@ -85,7 +142,9 @@ async function main() {
     return;
   }
 
-  const result = convertSingleHop(resource, fromVer, toVer);
+  const result = convertSingleHop(resource, fromVer, toVer, {
+    targetResourceType,
+  });
 
   // Converted resource goes to stdout (pipe/redirect friendly).
   process.stdout.write(`${JSON.stringify(result.resource, null, 2)}\n`);
@@ -123,4 +182,3 @@ main().catch(err => {
   process.stderr.write(`Error: ${err.message}\n`);
   process.exitCode = 1;
 });
-

@@ -111,7 +111,7 @@ const TK = Object.freeze({
   SEMI: 'SEMI', COMMA: 'COMMA', COLON: 'COLON', DOT: 'DOT',
   LPAREN: 'LPAREN', RPAREN: 'RPAREN', LBRACE: 'LBRACE', RBRACE: 'RBRACE',
   EQ: 'EQ', NEQ: 'NEQ', META: 'META', EOF: 'EOF', PIPE: 'PIPE',
-  TYPE_ANNOT: 'TYPE_ANNOT',
+  TYPE_ANNOT: 'TYPE_ANNOT', MINUS: 'MINUS',
 });
 
 /** Map from single-character punctuation to its token kind. */
@@ -187,6 +187,14 @@ export function tokenise(text, onWarning) {
     // --- Multi-char operators ---
     if (c === '-' && c2 === '>') { i += 2; push(TK.ARROW, '->'); start = i; continue; }
     if (c === '!' && c2 === '=') { i += 2; push(TK.NEQ, '!=');  start = i; continue; }
+
+    // --- Standalone minus (signed numerics / subtraction) ---
+    // `->` is handled just above, and identifiers consume their own embedded
+    // hyphens, so any `-` reaching here begins a real minus (e.g. the `- 1` in
+    // a guard like `(v = ( - 1))`). Emit a token rather than warning: the guard
+    // RHS is captured as raw source text, so nothing is lost, and unrelated
+    // conversions that merely import this file no longer inherit a warning.
+    if (c === '-') { i++; push(TK.MINUS, '-'); start = i; continue; }
 
     // --- <<...>> type annotation: capture inner content as TYPE_ANNOT ---
     if (c === '<' && c2 === '<') {

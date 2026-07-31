@@ -69,12 +69,30 @@ console.log(result.status);    // 'ok' or 'warning'
 console.log(result.coverage);  // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
 ```
 
-**convertSingleHop(resource, fromVer, toVer)** throws when the request cannot be
+**convertSingleHop(resource, fromVer, toVer, opts?)** throws when the request cannot be
 run, such as an unknown version token, the same source and target version, an
 unknown resource type, or a version pair with no direct FML mapping.
 
 The input resource is deep-cloned before conversion. Your original resource object
 is not modified.
+
+Because resources are sometimes renamed or split between FHIR versions, a
+source resource type can map to more than one target type on a single hop. Use
+`opts.targetResourceType` to assert the intended target:
+
+```js
+// R4 -> R3: a ServiceRequest may become a ProcedureRequest or a ReferralRequest,
+// so the target type must be stated explicitly.
+const result = convertSingleHop(serviceRequestR4, 'R4', 'R3', {
+  targetResourceType: 'ProcedureRequest',
+});
+```
+
+`targetResourceType` names the **intended target type**. It is **required**
+only when the source resource maps to more than one target on the hop (as with
+`ServiceRequest` R4->R3 above); for a one-to-one mapping it is optional. When
+supplied, it is checked against the target type declared by the FML
+StructureMap, so a mismatched value is rejected rather than silently ignored.
 
 ## Supported version pairs
 
@@ -112,6 +130,9 @@ resource. Please keep the following in mind:
   convert them separately for now. Automatic conversion of contained resources
   is planned for a future release, at which point the conversion report will
   include a per-contained-resource status you can check.
+- **Bundle entry resources are not version-converted.** Bundle structure is
+  mapped, but each `entry.resource` is carried through as-is. Recursive
+  conversion of Bundle entries is planned for a future release.
 - **Non-adjacent versions require manual chaining.** Only direct (adjacent) FML
   hops are supported by a single call. For a conversion such as **R3 -> R5**, call
   the converter once for **R3 -> R4** and then again for **R4 -> R5**. Automatic
@@ -222,6 +243,14 @@ are written to stderr. Use `--verbose` to include info messages:
 
 ```bash
 node bin/convert.js --verbose R3 R4 questionnaire-r3.json > questionnaire-r4.json
+```
+
+For a source type with multiple possible targets, select the intended mapping
+with `--target-resource-type`:
+
+```bash
+node bin/convert.js R4 R3 service-request-r4.json \
+  --target-resource-type ProcedureRequest > procedure-request-r3.json
 ```
 
 ## Coverage and contributions
