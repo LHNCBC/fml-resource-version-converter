@@ -1,114 +1,87 @@
 # fhir-defs
 
-Per-version data extracted from official HL7 FHIR specification publications.
-Each generated file under this directory is regenerable; do not edit by hand.
+Per-version runtime tables are generated from official HL7 FHIR specification
+publications. Do not edit these files.
+
+The source FHIR spec zips are downloaded into `data/fhir-spec-downloads/`
+from the official HL7 website but are not needed at runtime and are not
+shipped with the package.
+See `data/fhir-spec-downloads/README.md` for more details.
 
 ## Layout
 
-```
+```text
 data/fhir-defs/
-  SOURCE.md             (this file)
-  poly-paths/           Polymorphic field paths, one file per FHIR version.
-    DSTU2.json
-    STU3.json
-    R4.json
-    R4B.json
-    R5.json
-  cardinality/          Array-cardinality field paths (max > 1), one per version.
-    DSTU2.json
-    STU3.json
-    R4.json
-    R4B.json
-    R5.json
-  (future kinds of derived data may live in sibling subdirectories)
+  SOURCE.md
+  DSTU2.json
+  STU3.json
+  R4.json
+  R4B.json
+  R5.json
 ```
 
-Both kinds of tables are produced together by a single pass over each
-FHIR spec zip (see "Regenerating" below). The FHIR version for each
-file is in the filename and also in its `fhirVersion` field.
+The FHIR version for each file is in the filename and also in its `fhirVersion`
+field.
 
-| File         | FHIR version    |
-| ------------ | --------------- |
-| `DSTU2.json` | DSTU2 (1.0.2)   |
-| `STU3.json`  | STU3 (3.0.2)    |
-| `R4.json`    | R4 (4.0.1)      |
-| `R4B.json`   | R4B (4.3.0)     |
-| `R5.json`    | R5 (5.0.0)      |
+| File         | FHIR version  |
+| ------------ | ------------- |
+| `DSTU2.json` | DSTU2 (1.0.2) |
+| `STU3.json`  | STU3 (3.0.2)  |
+| `R4.json`    | R4 (4.0.1)    |
+| `R4B.json`   | R4B (4.3.0)   |
+| `R5.json`    | R5 (5.0.0)    |
 
-## poly-paths/
+## File format
 
-### File format
+Each generated file contains three sibling tables produced by one pass over the
+FHIR StructureDefinition bundles.
 
 ```json
 {
-  "fhirVersion":   "R4",
-  "generated":     "YYYY-MM-DD",
+  "fhirVersion": "R4",
+  "generated": "YYYY-MM-DD",
   "sourceArchive": "definitions.json.zip",
   "sourceBundles": ["profiles-resources.json", "profiles-types.json"],
-  "pathCount":     186,
+  "pathCounts": {
+    "poly": 186,
+    "array": 3153,
+    "elementTypes": 3300
+  },
   "polyPaths": {
-    "Observation.value": ["CodeableConcept", "Quantity", "..."],
-    "Questionnaire.item.initial.value": ["Attachment", "Coding", "..."]
+    "Observation.value": ["CodeableConcept", "Quantity", "..."]
+  },
+  "arrayPaths": [
+    "Bundle.entry",
+    "Patient.name",
+    "..."
+  ],
+  "elementTypes": {
+    "Patient.gender": "code",
+    "Questionnaire.item.answerValueSet": "canonical"
   }
 }
 ```
 
-Each `polyPaths` key is a dotted path from the resource root with the `[x]`
-suffix stripped. Each value is the sorted, de-duplicated list of FHIR type
-codes that may appear in the field's typed variant
-(e.g. `valueQuantity`, `initialString`).
+## Why these tables exist
 
-### Why these tables exist
+FHIR polymorphic fields, such as `Observation.value[x]`, are serialized in JSON
+as typed variants, such as `valueQuantity` or `valueString`. The official
+cross-version FML mappings sometimes refer to the bare polymorphic name without
+enumerating each typed variant. The FML engine consults `polyPaths` to expand
+those references and to decide whether to apply a typed suffix on the target
+side.
 
-FHIR polymorphic fields (e.g. `Observation.value[x]`) are serialized in
-JSON as typed variants (`valueQuantity`, `valueString`, ...). The
-official cross-version FML mappings published by HL7 sometimes refer to
-the bare polymorphic name (e.g. `src.initial as s`) without enumerating
-each variant. The FML execution engine in this project consults these
-tables at runtime to expand a bare polymorphic reference to the set of
-typed JSON fields that may actually carry the value, and to decide
-whether to apply a typed suffix on the target side.
+The FML text also does not fully describe FHIR JSON cardinality. The engine
+consults `arrayPaths` to decide when a target write must be wrapped in an array.
 
-## cardinality/
-
-### File format
-
-```json
-{
-  "fhirVersion":   "R4",
-  "generated":     "YYYY-MM-DD",
-  "sourceArchive": "definitions.json.zip",
-  "sourceBundles": ["profiles-resources.json", "profiles-types.json"],
-  "pathCount":     3153,
-  "arrayPaths": [
-    "Bundle.entry",
-    "Patient.name",
-    "Questionnaire.item",
-    "Questionnaire.item.initial",
-    "..."
-  ]
-}
-```
-
-`arrayPaths` lists dotted paths whose `max` cardinality is greater than 1
-(i.e. the field is encoded as a JSON array). Paths not in this list are
-either scalar (`max=1`) or forbidden (`max=0`). The `[x]` suffix on
-polymorphic paths is stripped so the key shape matches the poly-paths
-file's keys.
-
-### Why these tables exist
-
-The FML execution engine doesn't know FHIR cardinality from the FML
-text alone. A rule like `src.initial as s -> tgt.initial as t, t.value = s`
-must wrap its output in an array when the target field is array-typed
-(R4's `Questionnaire.item.initial` is `max=*`) but leave it scalar
-otherwise. The engine consults these tables at write time to make that
-decision.
+The `elementTypes` table records scalar element types. The engine uses it when a
+source and target element have different FHIR types and a shared type-conversion
+group may need to run.
 
 ## Provenance
 
-Both tables are derived from the StructureDefinition Bundles published
-by HL7 for each FHIR version.
+The tables are derived from the StructureDefinition bundles published by HL7 for
+each FHIR version.
 
 | Version | Source archive                                              | Bundles used                                                  |
 | ------- | ----------------------------------------------------------- | ------------------------------------------------------------- |
@@ -123,19 +96,28 @@ extracted from the full `fhir-spec.zip` under the `site/` directory.
 
 ## Regenerating
 
-Use `tools/build_fhir_tables.js`. See its file header for full usage.
-A single invocation per version produces both the `poly-paths/<VER>.json`
-and `cardinality/<VER>.json` files. Raw spec zip archives live under
-`data/fhir-spec-downloads/` (gitignored; see that directory's `README.md`
-for how to populate it). The script reads the StructureDefinition
-bundles directly out of each zip; no manual extraction is needed.
+Use the npm wrapper:
 
-```sh
-# Assumes data/fhir-spec-downloads/ is already populated.
-for V in DSTU2 STU3 R4 R4B R5; do
-  ZIP=$([ "$V" = "DSTU2" ] && echo fhir-spec.zip || echo definitions.json.zip)
-  node tools/build_fhir_tables.js "$V" \
-    "data/fhir-spec-downloads/$V/$ZIP" \
-    data/fhir-defs
-done
+```bash
+npm run build:fhir-defs
 ```
+
+The wrapper checks for the expected raw spec zip archives under
+`data/fhir-spec-downloads/`. By default it does not use the network. If an
+archive is missing, it reports the missing file and exits with instructions.
+
+To download missing raw archives and then regenerate the generated tables, use
+the same command with `--download-missing`:
+
+```bash
+npm run build:fhir-defs -- --download-missing
+```
+
+A single run produces `data/fhir-defs/<VER>.json` for each known version,
+including `polyPaths`, `arrayPaths`, and `elementTypes`. The underlying extractor
+is `tools/build_fhir_tables.js`.
+
+Raw spec zip archives live under `data/fhir-spec-downloads/` and are gitignored.
+The extractor reads the StructureDefinition bundles directly out of each zip; no
+manual extraction is needed.
+

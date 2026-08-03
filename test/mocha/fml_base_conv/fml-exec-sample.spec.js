@@ -4,7 +4,10 @@
  * and that core fields survive conversion.
  */
 import { strict as assert } from 'node:assert';
-import { createFmlEngine } from '../../../src/fml_base_conv/create_converter.js';
+import { createFmlEngineFactory } from '../../../src/fml_base_conv/create_converter.js';
+import { compileFmlXver } from '../../../src/fml_base_conv/fml_xver_engine.js';
+
+const { createEngine } = createFmlEngineFactory();
 
 /** @type {Array<{from: string, to: string}>} */
 const DIRECTIONS = [
@@ -130,7 +133,7 @@ function makeObservationInput(version) {
  */
 function convertWithWarnings(resourceType, from, to, input) {
   const warnings = [];
-  const engine = createFmlEngine(resourceType, from, to, {
+  const engine = createEngine(resourceType, from, to, {
     onWarning: msg => warnings.push(msg),
   });
 
@@ -242,7 +245,7 @@ describe('FML exec: targeted conversions', function () {
 
 describe('fml_base_conv: STU3->R4 polymorphic initial conversion', () => {
   it('converts initialString to initial[{valueString}] array form', function () {
-    const engine = createFmlEngine('Questionnaire', 'R3', 'R4');
+    const engine = createEngine('Questionnaire', 'R3', 'R4');
     const input = {
       resourceType: 'Questionnaire',
       status: 'draft',
@@ -260,4 +263,67 @@ describe('fml_base_conv: STU3->R4 polymorphic initial conversion', () => {
     assert.equal(item.initial[0].valueString, 'Mint');
   });
 });
+
+
+/**
+ * Compile a raw FML string and run one conversion, capturing warnings.
+ *
+ * Uses compileFmlXver directly (no version-specific mapping files) so a tiny,
+ * self-contained group can exercise engine features in isolation.
+ *
+ * @param {string} fmlText FML mapping source.
+ * @param {object} input Source resource (its resourceType names the entry group).
+ * @returns {{ output: object, warnings: string[] }}
+ */
+function runRawFml(fmlText, input) {
+  const warnings = [];
+  const engine = compileFmlXver({ fmlText, onWarning: msg => warnings.push(msg) });
+  const output = engine.convert({ input });
+  return { output, warnings };
+}
+
+describe('fml_base_conv: source list mode only_one', function () {
+  // A single-rule group that copies a repeating source field to the target.
+  const groupWith = clause =>
+    `group TestRes(source src, target tgt) {\n  src.tag ${clause} -> tgt.picked = vs;\n}`;
+
+  it('collapses a multi-item source to the first item and warns', function () {
+    const { output, warnings } = runRawFml(
+      groupWith('only_one as vs'),
+      { resourceType: 'TestRes', tag: ['a', 'b', 'c'] },
+    );
+
+    // only_one keeps exactly the first item.
+    assert.deepEqual(output.picked, ['a']);
+
+    // Exactly one warning, naming the mode, the source path, and the count.
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /only_one/);
+    assert.match(warnings[0], /src\.tag/);
+    assert.match(warnings[0], /3 items/);
+  });
+
+  it('passes a single-item source through without warning', function () {
+    const { output, warnings } = runRawFml(
+      groupWith('only_one as vs'),
+      { resourceType: 'TestRes', tag: ['a'] },
+    );
+
+    assert.deepEqual(output.picked, ['a']);
+    assert.equal(warnings.length, 0);
+  });
+
+  it('without only_one, all items pass through (guards against regression)', function () {
+    const { output, warnings } = runRawFml(
+      groupWith('as vs'),
+      { resourceType: 'TestRes', tag: ['a', 'b', 'c'] },
+    );
+
+    // Contrast case: the plain alias keeps every item. This is what only_one
+    // must narrow, and documents why the only_one handling is needed.
+    assert.deepEqual(output.picked, ['a', 'b', 'c']);
+    assert.equal(warnings.length, 0);
+  });
+});
+
 

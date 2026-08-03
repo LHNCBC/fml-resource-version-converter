@@ -1,32 +1,37 @@
-# Change Log
+# Changelog
 
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
-## [1.2.0] - 2026-06-05
-### Added
-- FHIR resource version conversion engine that executes the HL7 fhir-cross-version
-  mapping files to convert/map FHIR resources between versions. This has not been
-  integrated into the Questionniare version converter itself yet. See README.md for details.
-- Other minor updates and refactorings.
+## [0.1.0] - 2026-07-20
 
-### Changed
-- Added options to enable (default) or disable conversion history tagging.
-- Added inter-version extension (and recovery) between R4 and R5
+Initial release of the FML-based FHIR resource version converter.
 
-## [1.1.0] - 2025-08-07
-### Changed
-- Added options to enable (default) or disable conversion history tagging.
-- Added inter-version extension (and recovery) between R4 and R5
+This project evolved from
+[questionnaire-version-converter](https://github.com/LHNCBC/questionnaire-version-converter)
+(now deprecated), which was a hand-rolled converter for FHIR Questionnaire
+resources.
 
-## [1.0.2] - 2025-04-10
-### Changed
-- Added homepage and repository to the package.json
+This new project is a general FHIR resource version converter that is designed
+to work for all FHIR resource types. It is based on the FML (FHIR Mapping Language)
+mapping files from HL7 and its extensible architecture allows postprocessors to be
+added incrementally and cleanly to handle cases where the FML mapping is incomplete.
 
-## [1.0.1] - 2025-03-12
-### Changed
-- Updated license in package.json
+### Highlights
 
-## [1.0.0] - 2025-02-10
-### New
-- First version with a library and a command line interface
+- FML (FHIR Mapping Language) conversion engine that executes the HL7 fhir-cross-version
+  mapping files to convert a FHIR resource of any covered type across one adjacent version
+  hop. Available via the `./fml-engine` entry point for advanced use.
+- A public API for converting a FHIR resource between adjacent FHIR versions, returning the
+  converted resource together with a coverage level, a runtime status, and diagnostic
+  messages.
+- Postprocessor framework for plugging in postprocessors that correct or complete a
+  conversion where the FML mapping is incomplete: a processor contract, a package registry,
+  and coverage / diagnostics primitives. Callers may also supply their own pre- and postprocessors.
+- Questionnaire postprocessors for conversions: R3 <-> R4, R4 <-> R5, and R4B <-> R5.
+- A postprocessor registry that records, for each resource type and version pair, the FML
+  mapping's coverage and the applicable postprocessors, giving a clear and reviewable
+  picture of each conversion's coverage status.
+- A generated conversion coverage report (`COVERAGE.md`), produced from the registry via
+  `npm run build`.
+- A simple command-line runner (`bin/convert.js`) for single-hop conversions.

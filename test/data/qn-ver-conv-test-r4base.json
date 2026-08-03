@@ -14,7 +14,7 @@
     "status": "draft",
     "title": "Demo form",
     "resourceType": "Questionnaire",
-    "derivedFrom": "http://standard-qn-repo.org/qn-100",
+    "derivedFrom": ["http://standard-qn-repo.org/qn-100"],
     "item": [
         {
             "type": "string",

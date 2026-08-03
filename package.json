@@ -1,28 +1,59 @@
 {
-  "name": "questionnaire-version-converter",
-  "version": "1.2.0",
-  "description": "For converting FHIR questionnaires between FHIR versions.",
+  "name": "@lhncbc/fml-resource-version-converter",
+  "version": "0.1.0",
+  "description": "For converting FHIR resources between FHIR versions.",
   "keywords": [
     "fhir",
-    "Questionnaire",
-    "converter"
+    "resource",
+    "version",
+    "converter",
+    "convert",
+    "conversion"
   ],
-  "main": "src/qnvconv.js",
+  "main": "src/index.js",
   "type": "module",
-  "homepage": "https://github.com/LHNCBC/questionnaire-version-converter",
+  "exports": {
+    ".": "./src/index.js",
+    "./fml-engine": "./src/fml-engine.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "data/fhir-cross-version/",
+    "data/fhir-defs/",
+    "data/fhir-spec-downloads/README.md",
+    "tools/",
+    "README.md",
+    "CHANGELOG.md",
+    "COVERAGE.md",
+    "CONTRIBUTING.md",
+    "LICENSE.md"
+  ],
+  "homepage": "https://github.com/LHNCBC/fml-resource-version-converter",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LHNCBC/questionnaire-version-converter"
+    "url": "git+https://github.com/LHNCBC/fml-resource-version-converter.git"
   },
-  "license": "See LICENSE.md",
+  "bugs": {
+    "url": "https://github.com/LHNCBC/fml-resource-version-converter/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "SEE LICENSE IN LICENSE.md",
+  "engines": {
+    "node": ">=20.11.0"
+  },
   "scripts": {
-    "test": "mocha test/mocha --recursive"
+    "test": "mocha test/mocha --recursive",
+    "build": "npm run build:coverage",
+    "build:coverage": "node tools/build-coverage.js",
+    "build:fhir-defs": "node tools/build-fhir-defs.js"
   },
   "devDependencies": {
-    "commander": "^13.1.0",
     "jszip": "^3.10.1",
-    "mocha": "^11.1.0",
-    "typescript": "^5.8.2"
+    "mocha": "^11.7.6"
   },
   "dependencies": {
     "fhirpath": "^4.11.0"

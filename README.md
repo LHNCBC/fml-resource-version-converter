@@ -1,88 +1,278 @@
-### Questionnaire Version Converter
+# FML-based FHIR Resource Version Converter
 
-This questionnaire converter converts FHIR&copy; Questionnaire resources between different FHIR versions. 
-It includes a library and a command line tool. The FHIR versions currently supported include STU3, R4, and R5, 
-and the support for R6 is being considered.
+This FML-based FHIR Resource Version Converter is a JavaScript package
+for converting FHIR resources between FHIR versions.
 
-A few general notes:
-- The converter assumes that the input questionnaires are valid, and if not, the results may be corrupted.
-- The converter continues on in the face of errors, e.g., when a data element from the source version 
-  cannot be converted to the target version and will report such incidents at the item level.
-- The intention is to always produce a valid questionnaire if the input is valid, although
-  there may be data losses, e.g., data elements unable to convert.
-- The resulting resource will have the same resource id and url (if present) as the input resource.
+The conversion starts with HL7's FHIR cross-version FML (FHIR Mapping Language)
+mapping files, which handle most, and sometimes all, data elements in
+a conversion. When a mapping is incomplete, postprocessors may be used
+to refine the converted resource.
 
-#### Installing the package
-As with any npm packages, it needs to be installed before use:
-<pre>npm install questionnaire-version-converter-lhc</pre>
+The initial release includes postprocessors for **Questionnaire** only. For the
+other resource types, the FML mappings have not been reviewed and no
+package postprocessors have been provided. However, the converter can
+still handle most of the data elements (via FML mapping), and
+you can pass in a postprocessor as needed to make the conversion complete.
 
-#### Using the Questionnaire Conversion Library
-To make a conversion within javascript apps/code: 
-<pre>
-import { convert } from 'questionnaire-version-converter';
-let resultOjb = convert(qnJson, 'STU3', 'R4');
-</pre>
-or,
-<pre>
-import { getConverter } from 'questionnaire-version-converter';
-let converter = getConverter('STU3', 'R4');
-let resultOjb = converter(qnJson);
-</pre>
-Where the result object has 3 fields:
-- status: the status code:
-  - 1: conversion completed with success
-  - 0: conversion completed with warning 
-  - -1: conversion completed with data loss, i.e., some elements may have been dropped. 
-  - -2: conversion aborted due to unexpected errors. 
-- message: a list of message objects (may not present) each has the following fields:
-  - ctxId: the context id, usually the linkId of the item the message is about, but it can also be
-    the questionnaire id if the issue is at the top level.
-  - status: statue code or nature of the message, can be 0, -1, or -2 as described above.
-  - text: the message text.
-- data: the converted questionnaire
+This project is designed as a general, extensible framework to support all
+FHIR resource types that have FML mappings. Postprocessors can be added
+incrementally and cleanly in future releases as the mappings are reviewed.
+
+For non-adjacent version pairs such as R3 -> R5, the conversion can be
+completed through a hop via R4, that is, R3 -> R4 and then R4 -> R5.
+Direct support for such conversion chains is planned for a future release.
+
+The community is encouraged to contribute by reviewing the conversions for
+other resource types and version pairs, and by providing postprocessors
+as needed to make the conversion complete. Detailed instructions
+for contributing are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+As a historical note, this project evolved from the now-deprecated
+[questionnaire-version-converter](https://github.com/LHNCBC/questionnaire-version-converter),
+which was a hand-rolled converter for FHIR Questionnaire resources.
 
 
-#### Using the Command Line Tool
-The command line tool may be used to convert questionnaire files, either single resource files or 
-resource bundle files, and the result files are written to the output directory specified on the
-command line.
-- Only .json files will be processed.
-- JSON files that aren't FHIR resources or aren't Questionnaire resources will still be written to the
-  output directory, as is.
-- For resources in a bundle, the resources that aren't Questionnaire resources will be copied as is
-  to the output file.
+## Installation
+
+```bash
+npm install @lhncbc/fml-resource-version-converter
+```
+
+The package is published as an ES module.
 
 
-To get detailed usage instructions, run
-- node src/qnvconv_cli.js --help
+## Quick start
 
-For examples:
-- node src/qnvconv_cli.js R4 R5 /tmp/my-questionnaire.json /tmp
+```js
+import { convertSingleHop } from '@lhncbc/fml-resource-version-converter';
 
-Will convert the given questionnaire file (single Questionnaire or bundle) from R4 to R5 and write to the
-output file /tmp/my-questionnaire-R5.json (note the -R5 suffix in the result file name).
+const questionnaireR4 = {
+  resourceType: 'Questionnaire',
+  status: 'active',
+  item: [
+    {
+      linkId: 'q1',
+      text: 'Favorite color?',
+      type: 'choice',
+      answerOption: [
+        { valueCoding: { code: 'blue', display: 'Blue' } },
+      ],
+    },
+  ],
+};
 
-- node src/qnvconv_cli.js R4 R5 /tmp/my-source-dir/ /tmp/output
+const result = convertSingleHop(questionnaireR4, 'R4', 'R5');
 
-Will process every .json file under /tmp/my-source-dir/ (recursively) and write the output
-files to /tmp/output, with the same subdirectory structure as the source directory.
+console.log(result.resource);  // the converted R5 Questionnaire
+console.log(result.status);    // 'ok' or 'warning'
+console.log(result.coverage);  // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
+```
 
-### An experimental FML Based Resource Version Converter
+**convertSingleHop(resource, fromVer, toVer, opts?)** throws when the request cannot be
+run, such as an unknown version token, the same source and target version, an
+unknown resource type, or a version pair with no direct FML mapping.
 
-This project ships with an experimental, FML (FHIR Mapping Language) based FHIR resource version
-converter (under src/fml_base_conv/, details see below) that executes the 
-HL7 [fhir-cross-version](https://build.fhir.org/ig/HL7/fhir-cross-version)
-FML mapping files to convert FHIR resources (of any type) between versions.
+The input object is deep-cloned before conversion. Your original resource object
+is not modified.
 
-Note that the FHIR Cross-Version Mapping Pack itself is still under development, and this FML base
-converter is in its own early stage of development and testing. It has not yet been integrated into
-the Questionnaire version converter (which still uses the hand rolled conversion logic), but it can
-be used on its own to convert any FHIR resources between versions, to the extent covered by the FML
-mapping files available from the HL7 FHIR cross-version package.
+Because resources are sometimes renamed or split between FHIR versions, a
+source resource type can map to more than one target type on a single hop. Use
+`opts.targetResourceType` to assert the intended target:
 
-The intention is for this FML based converter to be used as the base converter, and then layers may
-be built on top of it to handle anything that the FML mapping files haven't fully covered. This FML
-based converter has built-in framework for plugging in pre and/or post processors to support this
-type of integration.
+```js
+// R4 -> R3: a ServiceRequest may become a ProcedureRequest or a ReferralRequest,
+// so the target type must be stated explicitly.
+const result = convertSingleHop(serviceRequestR4, 'R4', 'R3', {
+  targetResourceType: 'ProcedureRequest',
+});
+```
 
-Interested users may take a look at src/fml_base_conv/convert_cli.js as an example on how to use it.
+`targetResourceType` names the **intended target type**. It is **required**
+only when the source resource maps to more than one target on the hop (as with
+`ServiceRequest` R4->R3 above); for a one-to-one mapping it is optional. When
+supplied, it is checked against the target type declared by the FML
+StructureMap, so a mismatched value is rejected rather than silently ignored.
+
+## Supported version pairs
+
+Use the canonical version tokens **R2**, **R3**, **R4**, **R4B**, and **R5**.
+Other names such as **STU3**, **DSTU2**, or **4.0.1** are not accepted by the
+public API.
+
+Direct FML mappings are available for these adjacent pairs, in both directions:
+
+```text
+R2  <-> R3
+R3  <-> R4
+R4  <-> R5
+R4B <-> R5
+```
+
+This release exposes a single-hop conversion API. If you need **R3 -> R5**, call
+the converter once for **R3 -> R4** and then again for **R4 -> R5**.
+
+R4B has mappings only with R5. There is no **R4 <-> R4B** conversion, and there
+is no **{R2, R3} <-> R4B** conversion. In those cases, use **R4** instead of
+**R4B** when that is acceptable for your workflow.
+
+## Limitations
+
+This initial release focuses on the single-hop conversion of a top-level
+resource. Please keep the following in mind:
+
+- **Contained resources are not version-converted.** A resource's `contained[]`
+  entries are carried through as-is and are not converted to the target version.
+  If your resource holds contained resources that must match the target version,
+  convert them separately for now. Automatic conversion of contained resources
+  is planned for a future release, at which point the conversion report will
+  include a per-contained-resource status you can check.
+- **Bundle entry resources are not version-converted.** Bundle structure is
+  mapped, but each `entry.resource` is carried through as-is. Recursive
+  conversion of Bundle entries is planned for a future release.
+- **Non-adjacent versions require manual chaining.** Only direct (adjacent) FML
+  hops are supported by a single call. For a conversion such as **R3 -> R5**, call
+  the converter once for **R3 -> R4** and then again for **R4 -> R5**. Automatic
+  multi-hop chaining is planned for a future release.
+- **Reviewed postprocessors are supplied only for Questionnaire.** Other resource
+  types are converted by the FML mapping alone (see [COVERAGE.md](COVERAGE.md)),
+  and more postprocessors may be added in future releases. You certainly can
+  supply your own postprocessors as needed - and better yet, contribute
+  them back to the project.
+
+## Understanding the result
+
+A successful conversion returns a result object:
+
+```text
+{
+  resource,       // converted resource
+  coverage,       // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
+  status,         // 'ok' or 'warning'
+  fml_base_conv,  // report for the FML mapping step
+  postprocessors, // reports for postprocessors, omitted when none ran
+  preprocessors,  // reports for caller preprocessors, omitted when none ran
+}
+```
+
+The two most important fields are:
+
+- **resource**: the converted FHIR resource.
+- **status**: whether the conversion completed without warnings (**ok**) or with
+  warnings (**warning**). Hard failures throw instead of returning a result.
+
+Coverage is separate from runtime status. It describes the capability and
+completeness of the FML mapping and any related postprocessors.
+
+### Coverage levels
+
+- **not_reviewed**: the FML mapping has not yet been reviewed for completeness for
+  that resource type and version pair.
+- **known_gaps**: the conversion has known gaps that could be improved with
+  additional mapping or postprocessing.
+- **best_effort**: the conversion has been reviewed and implemented as far as
+  practical, but documented limitations remain because some valid source content
+  cannot be fully represented in the target version or is intentionally out of
+  scope.
+- **complete**: the conversion has been reviewed, and no known necessary
+  conversion gaps remain for valid supported input.
+- **neutral**: the processor or component makes no coverage claim and does not
+  change the conversion's running coverage level. This is useful for custom
+  processors that add metadata, tags, logging, or other changes that do not
+  affect conversion completeness.
+
+The top-level `result.coverage` is normally one of the ordered levels:
+**not_reviewed**, **known_gaps**, **best_effort**, or **complete**.
+The **neutral** level is mostly seen on individual processor reports,
+especially for caller-provided processors.
+
+See [COVERAGE.md](COVERAGE.md) for the current coverage level report.
+
+## Custom pre- and postprocessors
+
+Most users do not need custom processors. If you do, pass them in the optional
+fourth argument:
+
+```js
+const result = convertSingleHop(resource, 'R3', 'R4', {
+  preprocs: [myPreprocessor],
+  postprocs: [myPostprocessor],
+  postprocessPolicy: 'append',
+  checkCoverage: true,
+});
+```
+
+**postprocessPolicy** controls how your postprocessors combine with the package's
+registered postprocessors (if any):
+
+- **append** (default): run package postprocessors first, then yours.
+- **replace**: run only the postprocessors specified in the request -
+  this may include the package postprocessors if you explicitly include
+  them in your list (in any order you deem appropriate). The package
+  postprocessors may be obtained using the `getRegistryEntry()`
+  function in the public API.
+
+The processor contract is documented in [CONTRIBUTING.md](CONTRIBUTING.md) for
+contributors and advanced users.
+
+## Command line
+
+The repository includes a small command-line runner for quick checks and shell
+pipelines:
+
+```bash
+node bin/convert.js R4 R5 questionnaire-r4.json > questionnaire-r5.json
+```
+
+You can also read the input resource from stdin:
+
+```bash
+cat questionnaire-r4.json | node bin/convert.js R4 R5 > questionnaire-r5.json
+```
+
+The converted JSON is written to stdout. A short status summary and any warnings
+are written to stderr. Use `--verbose` to include info messages:
+
+```bash
+node bin/convert.js --verbose R3 R4 questionnaire-r3.json > questionnaire-r4.json
+```
+
+For a source type with multiple possible targets, select the intended mapping
+with `--target-resource-type`:
+
+```bash
+node bin/convert.js R4 R3 service-request-r4.json \
+  --target-resource-type ProcedureRequest > procedure-request-r3.json
+```
+
+## Coverage and contributions
+
+FHIR has many resource types and many version pairs. This package is meant to
+grow incrementally: review one resource type and version pair at a time, add a
+postprocessor if needed, add tests, and regenerate the coverage report.
+
+In this initial release, reviewed postprocessors are supplied only for
+**Questionnaire**. Contributions for other resource types are welcome.
+
+See [COVERAGE.md](COVERAGE.md) for current coverage status.
+See [CONTRIBUTING.md](CONTRIBUTING.md) on how to contribute.
+
+## Using the FML engine directly
+
+The public API above runs the FML mapping and package postprocessors together.
+If you want the lower-level FML engine without postprocessor orchestration, use
+the `./fml-engine` entry point:
+
+```js
+import {
+  createFmlEngineFactory,
+  getAdjacentPairs,
+  planHops,
+} from '@lhncbc/fml-resource-version-converter/fml-engine';
+```
+
+There is also a lower-level experimental CLI at
+`src/fml_base_conv/convert_cli.js` for engine-level testing.
+
+## License
+
+See [LICENSE.md](LICENSE.md).

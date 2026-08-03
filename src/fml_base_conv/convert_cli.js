@@ -33,7 +33,7 @@
  */
 
 import fs from 'node:fs';
-import { createConverter } from './create_converter.js';
+import { createFmlEngineFactory } from './create_converter.js';
 
 const USAGE = `Usage: node convert_cli.js [options] <from-version> <to-version> <resource-file.json>
 
@@ -122,7 +122,7 @@ try {
     process.exit(1);
   }
 
-  const engine = createConverter(input.resourceType, fromVer, toVer, {
+  const engine = createFmlEngineFactory().createEngine(input.resourceType, fromVer, toVer, {
     strict: opts.strict,
     onWarning,
     onInfo,
