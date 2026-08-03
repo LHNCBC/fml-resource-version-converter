@@ -617,21 +617,18 @@ export function compileFmlXver({
   }
 
   /**
-   * Polymorphic-leaf sets for the source and target FHIR versions.
-   * - srcPolyLeaves: used by readSource() to decide whether a bare-path
-   *   miss is a candidate for variant expansion ("initial" -> "initialString").
-   * - tgtPolyLeaves: used by writeTarget() to decide whether a target
-   *   leaf that differs from the source root is itself polymorphic and
-   *   should receive the typed suffix ("value" + "String" -> "valueString").
+   * Polymorphic-leaf set for the source FHIR version. Used by readSource()
+   * to decide whether a bare-path miss is a candidate for variant expansion
+   * ("initial" -> "initialString"). Target polymorphism is resolved by its
+   * absolute path through tgtPolyTypeLists below.
    */
   const srcPolyLeaves = buildPolyLeaves(srcDefs);
-  const tgtPolyLeaves = buildPolyLeaves(tgtDefs);
   // Whether target polymorphic metadata is available. When it is, the poly
-  // leaf table is authoritative for deciding whether a suffix may be appended;
+  // path table is authoritative for deciding whether a suffix may be appended;
   // when it is absent (e.g. defs-less unit tests) the engine falls back to a
-  // source/target leaf-name heuristic. Every real FHIR version has many
-  // `[x]` fields, so a populated table reliably means "target defs loaded".
-  const hasTgtPolyInfo = tgtPolyLeaves.size > 0;
+  // source/target leaf-name heuristic. An explicitly empty table is still
+  // authoritative: it means none of the supplied target paths is polymorphic.
+  const hasTgtPolyInfo = tgtDefs?.polyPaths != null;
 
   /**
    * Set of absolute dotted paths whose target field is an array
@@ -796,21 +793,6 @@ export function compileFmlXver({
    * no such groups are present.
    */
   const typesIndex = buildTypesIndex([ast, ...importedAsts]);
-
-  /**
-   * Names of `<<types>>` groups that convert between DIFFERENT types (e.g.
-   * `canonical2Reference`). A `then`-clause invoking one of these performs a
-   * real structural conversion, so the primitive direct-write shortcut must
-   * not skip it. Same-type entries (identity primitive copies) are excluded so
-   * the shortcut still applies to them.
-   *
-   * @type {Set<string>}
-   */
-  const conversionGroupNames = new Set();
-  for (const [key, name] of typesIndex) {
-    const [srcType, tgtType] = key.split('::');
-    if (srcType !== tgtType) conversionGroupNames.add(name);
-  }
 
   /**
    * Type-mismatch diagnostics already emitted during the current conversion.
@@ -1559,7 +1541,11 @@ export function compileFmlXver({
     let path = tgtSpec.path;
     const segs       = path.split('.');
     const targetLeaf = segs[segs.length - 1];
-    const tgtIsPolyByLeaf = tgtPolyLeaves.has(targetLeaf);
+    const targetAbsPath = composeChildPath(tctx, path);
+    const targetPolyTypes = targetAbsPath
+      ? tgtPolyTypeLists.get(targetAbsPath)
+      : null;
+    const tgtIsPolyByPath = targetPolyTypes != null;
 
     if (polySuffix) {
       // Append the suffix only when the TARGET leaf is polymorphic in the
@@ -1567,21 +1553,20 @@ export function compileFmlXver({
       // not sufficient; fall back to the leaf-name heuristic only when no
       // target poly metadata is available.
       const sameLeaf = sourceLeaf && targetLeaf === sourceLeaf;
-      if (tgtIsPolyByLeaf || (!hasTgtPolyInfo && sameLeaf)) {
+      if (tgtIsPolyByPath || (!hasTgtPolyInfo && sameLeaf)) {
         segs[segs.length - 1] = targetLeaf + polySuffix;
         path = segs.join('.');
       }
       // Else: source carries a polymorphic suffix but the target leaf
       // isn't polymorphic in the target version; write to the bare path.
-    } else if (tgtIsPolyByLeaf) {
+    } else if (tgtIsPolyByPath) {
       // JS-type fallback for unambiguous primitives. Validate against
       // the absolute target path's allowed variants (when known) so we
       // don't fire on paths that merely share a leaf name with an
       // unrelated poly field elsewhere.
       const inferred = inferPolySuffixFromValue(value);
       if (inferred) {
-        const tgtAbsPath = composeChildPath(tctx, path);
-        const allowed = tgtAbsPath ? tgtPolyTypeLists.get(tgtAbsPath) : null;
+        const allowed = targetPolyTypes;
         const inferredType = inferred.toLowerCase();  // "Boolean" -> "boolean"
         if (!allowed || allowed.includes(inferredType)) {
           segs[segs.length - 1] = targetLeaf + inferred;
@@ -1833,9 +1818,10 @@ export function compileFmlXver({
    * @param {Target} tgtSpec   The target clause.
    * @param {Object} primary   The primary source binding.
    * @param {Array}  bindings  All source bindings (for alias matching).
+   * @param {Object} tctx      Target context used to compose the schema path.
    * @returns {string|null}
    */
-  function resolveWritePath(tgtSpec, primary, bindings) {
+  function resolveWritePath(tgtSpec, primary, bindings, tctx) {
     if (!tgtSpec.path) return tgtSpec.path;
 
     let polySuffix = null, sourceLeaf = null;
@@ -1856,7 +1842,10 @@ export function compileFmlXver({
 
     const segs       = tgtSpec.path.split('.');
     const targetLeaf = segs[segs.length - 1];
-    const tgtIsPoly  = tgtPolyLeaves.has(targetLeaf);
+    const targetAbsPath = composeChildPath(tctx, tgtSpec.path);
+    const tgtIsPoly = targetAbsPath
+      ? tgtPolyTypeLists.has(targetAbsPath)
+      : false;
     // Append the source's polymorphic suffix only when the TARGET leaf is
     // itself polymorphic in the target version. A matching leaf name alone is
     // not enough: a fixed target field that merely shares its name with a
@@ -1938,7 +1927,7 @@ export function compileFmlXver({
   }
 
   /**
-   * Modes already emitted, so we warn at most once per mode per engine
+   * Modes already emitted, so we warn at most once per mode per conversion
    * (array rules would otherwise warn once per iterated item).
    * @type {Set<string>}
    */
@@ -2026,6 +2015,28 @@ export function compileFmlXver({
   }
 
   /**
+   * Return whether a primitive `then` rule is the standard identity-wrapper
+   * idiom that can be serialized directly without executing its group.
+   *
+   * The shortcut is deliberately narrow: the target must create a FHIR
+   * primitive, and the invoked `<<type+>>` group must have that same primitive
+   * name. All other named groups execute normally because they may perform a
+   * structural conversion or custom transformation.
+   *
+   * @param {Target} tgtSpec Primary target clause.
+   * @param {Object|null} thenGroup Parsed group invocation.
+   * @returns {boolean}
+   */
+  function isPrimitiveIdentityWrapper(tgtSpec, thenGroup) {
+    if (!thenGroup || tgtSpec.transform?.fn !== 'create') return false;
+    const primitiveType = tgtSpec.transform.args?.[0]?.value;
+    if (!FHIR_PRIMITIVES.has(primitiveType) || thenGroup.name !== primitiveType) {
+      return false;
+    }
+    return groups.get(thenGroup.name)?.annotations?.includes('type+') === true;
+  }
+
+  /**
    * Apply a rule to a single (non-iterated) source value.
    *
    * Three sub-modes, in priority order:
@@ -2098,7 +2109,7 @@ export function compileFmlXver({
       // from the source binding (so `tgt.answer = create('Coding') as vt
       // then Coding(vs, vt) "answerCoding"` writes to `tgt.answerCoding`
       // rather than `tgt.answer`).
-      const writePath = resolveWritePath(tgtSpec, primary, bindings);
+      const writePath = resolveWritePath(tgtSpec, primary, bindings, tctx);
 
       // A transformed primary in a multi-target rule is an ordinary target
       // assignment, not the child object filled by the then-clause. Evaluate
@@ -2141,13 +2152,12 @@ export function compileFmlXver({
       // that case. When a companion exists, invoke the group with the expanded
       // primitive so its Element rules can copy id/extension.
       //
-      // Exception: when the `then` group is a `<<types>>` conversion group
-      // (e.g. canonical2Reference), skipping it would drop a real structural
-      // conversion (canonical URL -> Reference), so fall through to run it.
-      const thenIsConversion = thenGroup && conversionGroupNames.has(thenGroup.name);
+      // Apply this optimization only to the exact identity-wrapper shape.
+      // Every other named group must execute faithfully.
+      const isIdentityWrapper = isPrimitiveIdentityWrapper(tgtSpec, thenGroup);
       if (targets.length === 1 &&
           !isObject(primaryValue) && primary.companion == null &&
-          !thenIsConversion) {
+          isIdentityWrapper) {
         if (writePath) {
           const { parent, key } = ensurePath(tctx, writePath);
           writeToSlot(parent, key, primaryValue, composeChildPath(tctx, writePath));
@@ -2169,7 +2179,9 @@ export function compileFmlXver({
         // single is trivially satisfied in scalar context (one value); warn
         // only for genuinely unhandled modes here.
         if (tgtSpec.listMode && tgtSpec.listMode !== 'single') warnUnhandledTargetListMode(tgtSpec);
-        child = {};
+        child = tgtSpec.transform?.fn === 'create'
+          ? evalTransform(tgtSpec.transform, ruleScope)
+          : {};
         // Record the child's absolute FHIR path so deeper writes (and the
         // final slot write below) can consult target-version cardinality.
         setObjectPath(child, composeChildPath(tctx, writePath));
@@ -2341,7 +2353,9 @@ export function compileFmlXver({
     // then-rules (which build child objects).
     const reuseSlot = (tgtSpec.listMode === 'first' || tgtSpec.listMode === 'last') &&
                       (thenGroup || thenRules) && !!tgtSpec.path;
-    const sharedWritePath = reuseSlot ? resolveWritePath(tgtSpec, primary, bindings) : null;
+    const sharedWritePath = reuseSlot
+      ? resolveWritePath(tgtSpec, primary, bindings, tctx)
+      : null;
     // Resolve (and, if absent, create) the reused slot lazily - only on the
     // first item that passes its guard - so an all-filtered rule leaves no
     // empty element behind.
@@ -2404,7 +2418,12 @@ export function compileFmlXver({
         // clause. `create(...)` transforms build the then-container itself and
         // are handled by the child path below, so they are excluded here.
         if (targets.length > 1 && tgtSpec.transform && tgtSpec.transform.fn !== 'create') {
-          const transformWritePath = resolveWritePath(tgtSpec, iterationPrimary, iterationBindings);
+          const transformWritePath = resolveWritePath(
+            tgtSpec,
+            iterationPrimary,
+            iterationBindings,
+            tctx,
+          );
           const primaryTargetValue = applyIntermediateTarget(tgtSpec, iterScope, transformWritePath);
           for (let i = 1; i < targets.length; i++) {
             applyIntermediateTarget(targets[i], iterScope);
@@ -2433,7 +2452,9 @@ export function compileFmlXver({
           // Merge every item into the shared reused element.
           child = slot;
         } else {
-          child = {};
+          child = tgtSpec.transform?.fn === 'create'
+            ? evalTransform(tgtSpec.transform, iterScope)
+            : {};
           // Record the child's absolute FHIR path so writes into it (and
           // any group invoked on it) can consult target-version cardinality.
           // FHIR paths are array-blind: an item at index i still has the
@@ -2442,6 +2463,7 @@ export function compileFmlXver({
             tgtSpec,
             iterationPrimary,
             iterationBindings,
+            tctx,
           );
           setObjectPath(child, composeChildPath(tctx, writePath));
         }
@@ -2507,7 +2529,7 @@ export function compileFmlXver({
     // Reused-slot rules have already written into the existing list element.
     if (reuseSlot) return;
     if (results.length === 0) return;
-    const targetPath = resolveWritePath(tgtSpec, primary, bindings);
+    const targetPath = resolveWritePath(tgtSpec, primary, bindings, tctx);
     if (!targetPath) {
       onWarning?.(`Array rule: no target path; cannot write ${results.length} item(s)`);
       return;

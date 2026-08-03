@@ -311,6 +311,20 @@ group integer2boolean(source src : integerSource, target tgt : booleanTarget) ex
 // ---------- then-clause / poly-suffix / array-transform correctness ---------
 
 describe('fml_base_conv: then-clause and target-path correctness', function () {
+  it('executes a non-type primitive-source then group', function () {
+    const fml = `
+group T(source src, target tgt) {
+  src.value as s -> tgt.out = create('Wrapper') as o then Fill(s, o);
+}
+group Fill(source src, target tgt) { src.value -> tgt.copied; }
+`;
+    const engine = compileFmlXver({ fmlText: fml });
+    const out = engine.convert({
+      input: { resourceType: 'T', value: 'abc' },
+    });
+    assert.deepEqual(out.out, { copied: 'abc' });
+  });
+
   it('runs a <<types>> conversion group instead of shortcut-copying the primitive', function () {
     // R4 GuidanceResponse.moduleCanonical (canonical) must become an R3
     // Reference via canonical2Reference - not be copied through as a string.
@@ -332,6 +346,26 @@ describe('fml_base_conv: then-clause and target-path correctness', function () {
     assert.ok(out.module && typeof out.module === 'object');
   });
 
+  it('uses the absolute target path when deciding polymorphism', function () {
+    const fml = `
+group T(source src, target tgt) {
+  src.value : string as s -> tgt.value = s;
+}
+`;
+    const engine = compileFmlXver({
+      fmlText: fml,
+      tgtDefs: {
+        polyPaths: { 'Other.value': ['string'] },
+        elementTypes: { 'T.value': 'string' },
+      },
+    });
+    const out = engine.convert({
+      input: { resourceType: 'T', valueString: 'abc' },
+    });
+    assert.equal(out.value, 'abc');
+    assert.equal(out.valueString, undefined);
+  });
+
   it('applies a transformed primary target in a repeating then-rule', function () {
     const fml = `
 group T(source src, target tgt) {
@@ -346,6 +380,29 @@ group Fill(source src, target tgt) { src.v -> tgt.v; }
     // The transformed primary (flag = true) must be assigned, not turned into
     // an array of empty then-children.
     assert.equal(out.flag, true);
+  });
+
+  it('preserves create(resource) in a repeating then-rule', function () {
+    const fml = `
+group T(source src, target tgt) {
+  src.items as s -> tgt.contained = create('Observation') as o, o.code as c then Fill(s, c);
+}
+group Fill(source src, target tgt) { src.text -> tgt.text; }
+`;
+    const engine = compileFmlXver({
+      fmlText: fml,
+      tgtDefs: {
+        resourceTypes: ['Observation'],
+        polyPaths: {},
+        elementTypes: {},
+        arrayPaths: ['T.contained'],
+      },
+    });
+    const out = engine.convert({
+      input: { resourceType: 'T', items: [{ text: 'x' }] },
+    });
+    assert.equal(out.contained[0].resourceType, 'Observation');
+    assert.equal(out.contained[0].code.text, 'x');
   });
 
   it('leaves no empty element when every first/last item is filtered out', function () {
