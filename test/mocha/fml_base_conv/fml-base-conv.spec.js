@@ -308,6 +308,64 @@ group integer2boolean(source src : integerSource, target tgt : booleanTarget) ex
   });
 });
 
+// ---------- then-clause / poly-suffix / array-transform correctness ---------
+
+describe('fml_base_conv: then-clause and target-path correctness', function () {
+  it('runs a <<types>> conversion group instead of shortcut-copying the primitive', function () {
+    // R4 GuidanceResponse.moduleCanonical (canonical) must become an R3
+    // Reference via canonical2Reference - not be copied through as a string.
+    const engine = createEngine('GuidanceResponse', 'R4', 'R3');
+    const out = engine.convert({
+      input: { resourceType: 'GuidanceResponse', status: 'success', moduleCanonical: 'Library/123' },
+    });
+    assert.deepEqual(out.module, { reference: 'Library/123' });
+  });
+
+  it('does not leak a source polymorphic suffix onto a fixed target field', function () {
+    // R3 GuidanceResponse.module is a fixed Reference, not module[x]; the
+    // source "Canonical" suffix must not create a `moduleCanonical` field.
+    const engine = createEngine('GuidanceResponse', 'R4', 'R3');
+    const out = engine.convert({
+      input: { resourceType: 'GuidanceResponse', status: 'success', moduleCanonical: 'Library/123' },
+    });
+    assert.equal(out.moduleCanonical, undefined);
+    assert.ok(out.module && typeof out.module === 'object');
+  });
+
+  it('applies a transformed primary target in a repeating then-rule', function () {
+    const fml = `
+group T(source src, target tgt) {
+  src.items as s -> tgt.flag = true, tgt.out as o then Fill(s, o);
+}
+group Fill(source src, target tgt) { src.v -> tgt.v; }
+`;
+    const engine = compileFmlXver({ fmlText: fml });
+    const out = engine.convert({
+      input: { resourceType: 'T', items: [{ v: 'a' }, { v: 'b' }] },
+    });
+    // The transformed primary (flag = true) must be assigned, not turned into
+    // an array of empty then-children.
+    assert.equal(out.flag, true);
+  });
+
+  it('leaves no empty element when every first/last item is filtered out', function () {
+    const fml = `
+group T(source src, target tgt) {
+  src.more as s where (s.keep = true) -> tgt.list as l first, l.w as w then Fill(s, w);
+}
+group Fill(source src, target tgt) { src.x -> tgt.x; }
+`;
+    const engine = compileFmlXver({
+      fmlText: fml,
+      tgtDefs: { polyPaths: {}, elementTypes: {}, arrayPaths: ['T.list'] },
+    });
+    const out = engine.convert({
+      input: { resourceType: 'T', more: [{ keep: false, x: 'z' }] },
+    });
+    assert.equal(out.list, undefined);
+  });
+});
+
 // ---------- Basic conversion R4->R5 -----------------------------------------
 
 describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
