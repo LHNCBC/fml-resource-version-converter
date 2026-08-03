@@ -137,12 +137,12 @@ describe('public API: ./fml-engine subpath barrel', function () {
       ['createFmlEngineFactory', 'getAdjacentPairs', 'planHops'].sort());
   });
 
-  it('createFmlEngineFactory yields a working factory (hasMapping/createEngine)', function () {
+  it('createFmlEngineFactory yields a working factory', function () {
     const factory = engine.createFmlEngineFactory();
     assert.equal(typeof factory.hasMapping, 'function');
+    assert.equal(typeof factory.resolveMapping, 'function');
     assert.equal(typeof factory.createEngine, 'function');
     assert.equal(factory.hasMapping('Questionnaire', 'R4', 'R5'), true);
     assert.equal(factory.hasMapping('Questionnaire', 'R4', 'R4B'), false);
   });
 });
-

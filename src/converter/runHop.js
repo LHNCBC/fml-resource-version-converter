@@ -49,6 +49,8 @@ import {
  * @param {Function} [opts.postLookup] `(type, v1, v2) -> { policy, processors }|undefined`.
  * @param {boolean}  [opts.checkCoverage=true] Enforce non-decreasing coverage
  *   along the resolved postprocessor list.
+ * @param {string} [opts.targetResourceType] Intended target FHIR resource type.
+ *   Required when the source maps to more than one target on this hop.
  * @returns {{resource: Object, fragment: Object, hopCoverage: string, status: string}}
  *   The converted resource, the hop report fragment
  *   (`{ fromVer, toVer, preprocessors?, fml_base_conv, postprocessors? }`), the
@@ -58,18 +60,30 @@ import {
  *   or the engine.
  */
 export function runHop(resource, fromVer, toVer, opts = {}) {
-  const { preLookup, postLookup, checkCoverage = true } = opts;
+  const {
+    preLookup,
+    postLookup,
+    checkCoverage = true,
+    targetResourceType,
+  } = opts;
 
   // ---- 1. Validate resource + mapping gate ------------------------------
   const resType = resource?.resourceType;
   if (typeof resType !== 'string' || resType.length === 0) {
     throw new Error('runHop: resource.resourceType is required');
   }
+  if (targetResourceType != null &&
+      (typeof targetResourceType !== 'string' || targetResourceType.length === 0)) {
+    throw new Error('runHop: opts.targetResourceType must be a non-empty string');
+  }
 
   const { engineFactory, registry } = converterContext;
   if (!engineFactory.hasMapping(resType, fromVer, toVer)) {
     throw new Error(`runHop: no direct FML mapping for ${resType} ${fromVer}->${toVer}`);
   }
+  const mapping = engineFactory.resolveMapping(resType, fromVer, toVer, {
+    targetResourceType,
+  });
 
   let working = resource;
 
@@ -102,6 +116,7 @@ export function runHop(resource, fromVer, toVer, opts = {}) {
   // ---- 4. FML engine, capturing diagnostics -----------------------------
   const fmlMessages = [];
   const engine = engineFactory.createEngine(resType, fromVer, toVer, {
+    targetResourceType: mapping.targetResourceType,
     onWarning: text => fmlMessages.push(makeMessage(MESSAGE_TYPE.WARNING, text)),
     onInfo:    text => fmlMessages.push(makeMessage(MESSAGE_TYPE.INFO, text)),
   });
@@ -169,6 +184,9 @@ function runProcessor(processor, inputResource, ctx, kind, reports, reportOpts =
   if (!outResource || typeof outResource !== 'object' || Array.isArray(outResource)) {
     throw new Error(`${label}.resource must be an object`);
   }
+  if (messages != null && !Array.isArray(messages)) {
+    throw new Error(`${label}.messages must be an array`);
+  }
   assertWarningInvariant(status, messages, label);
 
   const report = { name: processor.name, status, messages: messages || [] };
@@ -178,4 +196,3 @@ function runProcessor(processor, inputResource, ctx, kind, reports, reportOpts =
   reports.push(report);
   return outResource;
 }
-

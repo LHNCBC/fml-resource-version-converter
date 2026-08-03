@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { compileFmlXver } from './fml_xver_engine.js';
+import { createFmlMappingCatalog } from './fml_mapping_catalog.js';
 import {
   DEFAULT_XVER_ROOT,
   extractConceptMapUrls,
@@ -23,8 +24,6 @@ import {
 
 const __dirname = import.meta.dirname;
 const FHIR_DEFS_DIR = path.resolve(__dirname, '../../data/fhir-defs');
-
-const VER_SUFFIX = { R2: '2', R3: '3', R4: '4', R4B: '4B', R5: '5' };
 
 /**
  * FHIR-version label -> consolidated definitions JSON filename.
@@ -75,63 +74,6 @@ function loadFhirDefs(ver, onWarning) {
   }
 }
 
-
-/**
- * Process-lifetime cache for FML-file existence resolution. Keyed by
- * `${xverRoot}::${resType}::${fromVer}::${toVer}` -> resolved path | null.
- * hasMapping()/buildEngine() both resolve the same paths repeatedly (e.g. the
- * integration layer checks hasMapping, then the registry consults it again),
- * and each resolution does up to two fs.existsSync calls; caching removes that
- * redundant filesystem work.
- * @type {Map<string, string|null>}
- */
-const fmlFileCache = new Map();
-
-/**
- * Find the FML file path for a resource type and version pair.
- * Tries the versioned filename first (e.g. `Questionnaire4to5.fml`), then
- * falls back to the plain filename (e.g. `Questionnaire.fml`). The result
- * (path or null) is cached for the life of the process.
- *
- * @param {string} resType  FHIR resource type, e.g. 'Questionnaire'.
- * @param {string} fromVer  Source version, e.g. 'R4'.
- * @param {string} toVer    Target version, e.g. 'R5'.
- * @param {string} xverRoot Absolute path to the xver input directory.
- * @returns {string|null} Absolute path to the FML file, or null if not found.
- */
-function findFmlFile(resType, fromVer, toVer, xverRoot) {
-  const cacheKey = `${xverRoot}::${resType}::${fromVer}::${toVer}`;
-  if (fmlFileCache.has(cacheKey)) return fmlFileCache.get(cacheKey);
-
-  const result = resolveFmlFile(resType, fromVer, toVer, xverRoot);
-  fmlFileCache.set(cacheKey, result);
-  return result;
-}
-
-/**
- * Resolve the FML file path without caching (see findFmlFile for the cached
- * entry point).
- *
- * @param {string} resType  FHIR resource type.
- * @param {string} fromVer  Source version.
- * @param {string} toVer    Target version.
- * @param {string} xverRoot Absolute path to the xver input directory.
- * @returns {string|null} Absolute path to the FML file, or null if not found.
- */
-function resolveFmlFile(resType, fromVer, toVer, xverRoot) {
-  const fromSuffix = VER_SUFFIX[fromVer];
-  const toSuffix   = VER_SUFFIX[toVer];
-  if (!fromSuffix || !toSuffix) return null;
-
-  const dir = path.join(xverRoot, `${fromVer}to${toVer}`);
-  const versionedPath = path.join(dir, `${resType}${fromSuffix}to${toSuffix}.fml`);
-  if (fs.existsSync(versionedPath)) return versionedPath;
-
-  const plainPath = path.join(dir, `${resType}.fml`);
-  if (fs.existsSync(plainPath)) return plainPath;
-
-  return null;
-}
 
 /**
  * Process-lifetime cache for imported FML texts. Keyed by
@@ -309,7 +251,7 @@ export function getAdjacentPairs() {
  * Compile a single FML file into a single-hop conversion engine. Internal
  * helper behind the factory's createEngine().
  *
- * @param {string}  resType   FHIR resource type, e.g. 'Questionnaire'.
+ * @param {Object}  mapping   Selected FML mapping descriptor.
  * @param {string}  fromVer   Canonical source version.
  * @param {string}  toVer     Canonical target version.
  * @param {string}  xverRoot  Absolute path to the FML input root.
@@ -318,10 +260,8 @@ export function getAdjacentPairs() {
  * @throws {Error} If the FML file is missing, or if strict is set and a
  *                 referenced ConceptMap file is missing or unparseable.
  */
-function buildEngine(resType, fromVer, toVer, xverRoot, opts = {}) {
-
-  const fmlFile = findFmlFile(resType, fromVer, toVer, xverRoot);
-  if (!fmlFile) throw new Error(`FML file not found for ${resType} ${fromVer}->${toVer}`);
+function buildEngine(mapping, fromVer, toVer, xverRoot, opts = {}) {
+  const fmlFile = mapping.filePath;
   const fmlText = fs.readFileSync(fmlFile, 'utf-8');
 
   // Resolve imported type-group FML files (Coding, Reference, etc.)
@@ -355,6 +295,7 @@ function buildEngine(resType, fromVer, toVer, xverRoot, opts = {}) {
     fmlText, conceptMaps, importedFmlTexts,
     strict: opts.strict ?? false,
     fromVer, toVer,
+    mapping,
     srcDefs: loadFhirDefs(fromVer, opts.onWarning),
     tgtDefs: loadFhirDefs(toVer,   opts.onWarning),
     onWarning: opts.onWarning, onInfo: opts.onInfo, onRuleExec: opts.onRuleExec,
@@ -375,11 +316,13 @@ function buildEngine(resType, fromVer, toVer, xverRoot, opts = {}) {
  *        the bundled data path (data/fhir-cross-version/input).
  * @returns {{
  *   hasMapping: (resType: string, fromVer: string, toVer: string) => boolean,
+ *   resolveMapping: (resType: string, fromVer: string, toVer: string, opts?: Object) => Object,
  *   createEngine: (resType: string, fromVer: string, toVer: string, opts?: Object) => {convert: Function},
  * }}
  */
 export function createFmlEngineFactory({ xverInputRoot } = {}) {
   const xverRoot = xverInputRoot || DEFAULT_XVER_ROOT;
+  const mappingCatalog = createFmlMappingCatalog(xverRoot);
 
   return {
     /**
@@ -392,7 +335,23 @@ export function createFmlEngineFactory({ xverInputRoot } = {}) {
      * @returns {boolean}
      */
     hasMapping(resType, fromVer, toVer) {
-      return !!findFmlFile(resType, fromVer, toVer, xverRoot);
+      return mappingCatalog.hasMapping(resType, fromVer, toVer);
+    },
+
+    /**
+     * Resolve the authoritative FML route for a resource type and hop.
+     *
+     * @param {string} resType Source FHIR resource type.
+     * @param {string} fromVer Canonical source version.
+     * @param {string} toVer Canonical target version.
+     * @param {Object} [opts]
+     * @param {string} [opts.targetResourceType] The intended target type.
+     *        Required only when the source maps to more than one target
+     *        (e.g. ServiceRequest R4->R3); checked whenever supplied.
+     * @returns {Object} Immutable mapping descriptor.
+     */
+    resolveMapping(resType, fromVer, toVer, opts = {}) {
+      return mappingCatalog.resolveMapping(resType, fromVer, toVer, opts);
     },
 
     /**
@@ -408,11 +367,15 @@ export function createFmlEngineFactory({ xverInputRoot } = {}) {
      * @param {Function} [opts.onInfo]       `(msg) => void` info sink.
      * @param {Function} [opts.onRuleExec]   `({rule, srcVal}) => void` per-rule
      *        tracing hook (observational only).
+     * @param {string} [opts.targetResourceType] The intended target type.
+     *        Required only when more than one FML mapping accepts the source
+     *        resource type (e.g. ServiceRequest R4->R3 -> ProcedureRequest
+     *        or ReferralRequest); checked whenever supplied.
      * @returns {{convert: Function}}
      */
     createEngine(resType, fromVer, toVer, opts = {}) {
-      return buildEngine(resType, fromVer, toVer, xverRoot, opts);
+      const mapping = mappingCatalog.resolveMapping(resType, fromVer, toVer, opts);
+      return buildEngine(mapping, fromVer, toVer, xverRoot, opts);
     },
   };
 }
-

@@ -5,25 +5,30 @@
  * A minimal, dependency-free harness for trying out chainedConverter.convert
  * from the shell. Reads a FHIR resource from a JSON file (or stdin), converts it
  * across one or more version hops, prints the converted resource to stdout, and
- * prints a short diagnostics summary to stderr.
+ * prints a short diagnostics summary, aggregated across all conversion stages
+ * and hops, to stderr. Bundle entry.resource values are not recursively
+ * converted.
  *
  * Usage:
- *   node bin/convert.js <fromVer> <toVer> [inputFile] [--verbose]
+ *   node bin/convert.js <fromVer> <toVer> [inputFile] [options]
  *
  *   <fromVer>    Source version (R2|R3|R4|R4B|R5).
  *   <toVer>      Target version (R2|R3|R4|R4B|R5).
  *   [inputFile]  Path to the resource JSON. If omitted, reads from stdin.
- *   --verbose    Also print info-level diagnostics (warnings always shown).
+ *   --verbose                         Print info-level diagnostics.
+ *   --target-resource-type <type>     Select an ambiguous target resource type.
  *
  * Examples:
  *   node bin/convert.js R4 R5 ./patient.json
  *   node bin/convert.js R3 R5 ./questionnaire.json
  *   cat patient.json | node bin/convert.js R4 R5
+ *   node bin/convert.js R4 R3 ./request.json --target-resource-type ProcedureRequest
  *
  * @module bin/convert
  */
 import fs from 'node:fs';
 import { chainedConverter } from '../src/converter/chainedConverter.js';
+import { singleHopConverter } from '../src/converter/singleHopConverter.js';
 
 /**
  * Read the whole of a readable stream as a UTF-8 string.
@@ -42,17 +47,88 @@ function readStream(stream) {
 }
 
 /**
+ * Parse supported CLI options and positional arguments.
+ *
+ * Options may appear before or after positional arguments. Unknown options,
+ * duplicate target selectors, and missing option values are rejected rather
+ * than being mistaken for an input filename.
+ *
+ * @param {string[]} args Raw command-line arguments after the script path.
+ * @returns {{verbose: boolean, targetResourceType: string|undefined, positional: string[]}}
+ * @throws {Error} If an option is unknown or malformed.
+ */
+function parseArgs(args) {
+  let verbose = false;
+  let targetResourceType;
+  const positional = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--verbose') {
+      verbose = true;
+    } else if (arg === '--target-resource-type') {
+      if (targetResourceType !== undefined) {
+        throw new Error('--target-resource-type may be specified only once');
+      }
+
+      const value = args[++i];
+      if (!value || value.startsWith('--')) {
+        throw new Error('--target-resource-type requires a resource type');
+      }
+      targetResourceType = value;
+    } else if (arg.startsWith('--')) {
+      throw new Error(`unknown option: ${arg}`);
+    } else {
+      positional.push(arg);
+    }
+  }
+
+  if (positional.length > 3) {
+    throw new Error('too many positional arguments');
+  }
+
+  return { verbose, targetResourceType, positional };
+}
+
+/**
  * Print the CLI usage text to stderr.
  *
  * @returns {void}
  */
 function printUsage() {
   process.stderr.write(
-    'Usage: node bin/convert.js <fromVer> <toVer> [inputFile] [--verbose]\n' +
+    'Usage: node bin/convert.js <fromVer> <toVer> [inputFile] [options]\n' +
     '  Reads inputFile (or stdin) as a FHIR resource JSON and converts it\n' +
     '  across one or more version hops. Versions: R2|R3|R4|R4B|R5.\n' +
-    '  --verbose also prints info-level diagnostics (warnings always shown).\n',
+    '  --verbose also prints info-level diagnostics (warnings always shown).\n' +
+    '  --target-resource-type <type> selects an ambiguous single-hop target.\n' +
+    '  Note: Bundle entry.resource values are not recursively converted.\n',
   );
+}
+
+/**
+ * Normalize a flat single-hop result to the CLI's chained result shape.
+ *
+ * @param {Object} result Flat result from singleHopConverter.convert().
+ * @param {string} fromVer Source version.
+ * @param {string} toVer Target version.
+ * @returns {Object} Result with one entry in hops[].
+ */
+function normalizeSingleHopResult(result, fromVer, toVer) {
+  const {
+    resource,
+    coverage,
+    status,
+    preprocessors,
+    fml_base_conv: fmlBaseConv,
+    postprocessors,
+  } = result;
+  const hop = { fromVer, toVer, fml_base_conv: fmlBaseConv };
+
+  if (preprocessors) hop.preprocessors = preprocessors;
+  if (postprocessors) hop.postprocessors = postprocessors;
+
+  return { resource, coverage, status, hops: [hop] };
 }
 
 /**
@@ -92,9 +168,18 @@ function collectMessages(hops) {
  * @returns {Promise<void>} Resolves after output is written.
  */
 async function main() {
-  const args = process.argv.slice(2);
-  const verbose = args.includes('--verbose');
-  const [fromVer, toVer, inputFile] = args.filter(a => a !== '--verbose');
+  let parsed;
+  try {
+    parsed = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(`Error: ${error.message}\n`);
+    printUsage();
+    process.exitCode = 2;
+    return;
+  }
+
+  const { verbose, targetResourceType, positional } = parsed;
+  const [fromVer, toVer, inputFile] = positional;
 
   if (!fromVer || !toVer) {
     printUsage();
@@ -116,7 +201,13 @@ async function main() {
     return;
   }
 
-  const result = chainedConverter.convert(resource, fromVer, toVer);
+  const result = targetResourceType === undefined
+    ? chainedConverter.convert(resource, fromVer, toVer)
+    : normalizeSingleHopResult(
+      singleHopConverter.convert(resource, fromVer, toVer, { targetResourceType }),
+      fromVer,
+      toVer,
+    );
 
   // Converted resource goes to stdout (pipe/redirect friendly).
   process.stdout.write(`${JSON.stringify(result.resource, null, 2)}\n`);

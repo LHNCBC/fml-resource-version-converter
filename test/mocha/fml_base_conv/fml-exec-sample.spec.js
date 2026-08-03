@@ -353,6 +353,26 @@ describe('fml_base_conv: multi-target then-rule (intermediate target binding)', 
     assert.deepEqual(warnings.filter(w => /not in scope/.test(w)), []);
   });
 
+  it('preserves a transformed primary target for a primitive source', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.value as s -> tgt.flag = true, tgt.out as o then FillPrimitive(s, o);',
+      '}',
+      'group FillPrimitive(source src, target tgt) {',
+      '  src.value -> tgt.copied;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      value: 'abc',
+    });
+
+    assert.equal(output.flag, true);
+    assert.equal(output.out.copied, 'abc');
+    assert.deepEqual(warnings, []);
+  });
+
   it('binds intermediate aliases per item (array context)', function () {
     const fml = [
       'group TestRes(source src, target tgt) {',
@@ -694,3 +714,29 @@ describe('fml_base_conv: target list mode first/last reuse', function () {
   });
 });
 
+
+describe('fml_base_conv: unsupported target list mode diagnostics', function () {
+  it('warns once per conversion when a compiled engine is reused', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.items as s -> tgt.out = s share;',
+      '}',
+    ].join('\n');
+    const warnings = [];
+    const engine = compileFmlXver({
+      fmlText: fml,
+      onWarning: message => warnings.push(message),
+    });
+
+    engine.convert({
+      input: { resourceType: 'TestRes', items: ['a', 'b'] },
+    });
+    assert.equal(warnings.filter(w => /list mode "share"/.test(w)).length, 1);
+
+    warnings.length = 0;
+    engine.convert({
+      input: { resourceType: 'TestRes', items: ['c', 'd'] },
+    });
+    assert.equal(warnings.filter(w => /list mode "share"/.test(w)).length, 1);
+  });
+});

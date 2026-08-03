@@ -22,11 +22,12 @@ const r4Input = fs.readFileSync(FIXTURE, 'utf-8');
  * Run the CLI with the R4 fixture piped on stdin.
  *
  * @param {Array<string>} args CLI arguments (e.g. ['R4', 'R3']).
+ * @param {string} [input=r4Input] JSON input supplied on stdin.
  * @returns {{status: number, stdout: string, stderr: string}} Process result.
  */
-function runCli(args) {
+function runCli(args, input = r4Input) {
   return spawnSync(process.execPath, [CLI, ...args], {
-    input: r4Input,
+    input,
     encoding: 'utf-8',
   });
 }
@@ -64,5 +65,31 @@ describe('bin/convert.js CLI diagnostics', function () {
     // Verbose shows info lines and drops the "hidden" note.
     assert.match(res.stderr, / info: /);
     assert.doesNotMatch(res.stderr, /info messages hidden/);
+  });
+
+  it('selects an ambiguous target with --target-resource-type', function () {
+    const input = JSON.stringify({
+      resourceType: 'ServiceRequest',
+      id: 'service-request-r4',
+      status: 'active',
+      intent: 'order',
+      subject: { reference: 'Patient/example' },
+    });
+    const res = runCli([
+      '--target-resource-type',
+      'ProcedureRequest',
+      'R4',
+      'R3',
+    ], input);
+
+    assert.equal(res.status, 0);
+    assert.equal(JSON.parse(res.stdout).resourceType, 'ProcedureRequest');
+  });
+
+  it('rejects --target-resource-type without a value', function () {
+    const res = runCli(['R4', 'R3', '--target-resource-type']);
+
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /requires a resource type/);
   });
 });

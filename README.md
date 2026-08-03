@@ -76,6 +76,24 @@ version, an unknown resource type, or an unsupported version path.
 The input resource is deep-cloned before conversion. Your original resource object
 is not modified.
 
+Because resources are sometimes renamed or split between FHIR versions, a
+source resource type can map to more than one target type on a single hop. Use
+`opts.targetResourceType` to assert the intended target:
+
+```js
+// R4 -> R3: a ServiceRequest may become a ProcedureRequest or a ReferralRequest,
+// so the target type must be stated explicitly.
+const result = convertSingleHop(serviceRequestR4, 'R4', 'R3', {
+  targetResourceType: 'ProcedureRequest',
+});
+```
+
+`targetResourceType` names the **intended target type**. It is **required**
+only when the source resource maps to more than one target on the hop (as with
+`ServiceRequest` R4->R3 above); for a one-to-one mapping it is optional. When
+supplied, it is checked against the target type declared by the FML
+StructureMap, so a mismatched value is rejected rather than silently ignored.
+
 ## Supported version pairs
 
 Use the canonical version tokens **R2**, **R3**, **R4**, **R4B**, and **R5**.
@@ -113,6 +131,9 @@ following in mind:
   convert them separately for now. Automatic conversion of contained resources
   is planned for a future release, at which point the conversion report will
   include a per-contained-resource status you can check.
+- **Bundle entry resources are not version-converted.** Bundle structure is
+  mapped, but each `entry.resource` is carried through as-is. Recursive
+  conversion of Bundle entries is planned for a future release.
 - **Reviewed postprocessors are supplied only for Questionnaire.** Other resource
   types are converted by the FML mapping alone (see [COVERAGE.md](COVERAGE.md)),
   and more postprocessors may be added in future releases. You certainly can
@@ -280,6 +301,14 @@ warnings are written to stderr. Use `--verbose` to include info messages:
 
 ```bash
 node bin/convert.js --verbose R3 R4 questionnaire-r3.json > questionnaire-r4.json
+```
+
+For a source type with multiple possible targets, select the intended mapping
+with `--target-resource-type`:
+
+```bash
+node bin/convert.js R4 R3 service-request-r4.json \
+  --target-resource-type ProcedureRequest > procedure-request-r3.json
 ```
 
 ## Coverage and contributions
