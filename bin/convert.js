@@ -72,11 +72,11 @@ function parseArgs(args) {
       }
 
       const value = args[++i];
-      if (!value || value.startsWith('--')) {
+      if (!value || value.startsWith('-')) {
         throw new Error('--target-resource-type requires a resource type');
       }
       targetResourceType = value;
-    } else if (arg.startsWith('--')) {
+    } else if (arg.startsWith('-')) {
       throw new Error(`unknown option: ${arg}`);
     } else {
       positional.push(arg);

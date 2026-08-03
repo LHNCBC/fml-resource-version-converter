@@ -92,4 +92,18 @@ describe('bin/convert.js CLI diagnostics', function () {
     assert.equal(res.status, 2);
     assert.match(res.stderr, /requires a resource type/);
   });
+
+  it('rejects an unknown short option', function () {
+    const res = runCli(['-x', 'R4', 'R5']);
+
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /unknown option: -x/);
+  });
+
+  it('rejects an option-shaped target resource type', function () {
+    const res = runCli(['--target-resource-type', '-x', 'R4', 'R5']);
+
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /requires a resource type/);
+  });
 });
