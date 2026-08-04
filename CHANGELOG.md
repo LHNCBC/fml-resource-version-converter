@@ -18,6 +18,7 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 ### Changed
 
+- The FML engine now returns a conversion result envelope.
 - The single-hop entry point `convertSingleHop(...)` is now the object method
   `singleHopConverter.convert(...)`; it returns the same flat result shape.
 - Caller processor options were renamed and restructured: outer-boundary

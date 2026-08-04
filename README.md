@@ -45,7 +45,7 @@ The package is published as an ES module.
 ## Quick start
 
 ```js
-import { chainedConverter } from '@lhncbc/fml-resource-version-converter';
+import { chainedConverter, singleHopConverter } from '@lhncbc/fml-resource-version-converter';
 
 const questionnaireR4 = {
   resourceType: 'Questionnaire',
@@ -83,7 +83,7 @@ source resource type can map to more than one target type on a single hop. Use
 ```js
 // R4 -> R3: a ServiceRequest may become a ProcedureRequest or a ReferralRequest,
 // so the target type must be stated explicitly.
-const result = convertSingleHop(serviceRequestR4, 'R4', 'R3', {
+const result = singleHopConverter.convert(serviceRequestR4, 'R4', 'R3', {
   targetResourceType: 'ProcedureRequest',
 });
 ```
@@ -134,6 +134,8 @@ following in mind:
 - **Bundle entry resources are not version-converted.** Bundle structure is
   mapped, but each `entry.resource` is carried through as-is. Recursive
   conversion of Bundle entries is planned for a future release.
+- **One-to-many conversion is not yet supported.** A future release will handle
+  cases such as R2 -> R3 `CarePlan` -> `CarePlan` + `CareTeam` when needed.
 - **Reviewed postprocessors are supplied only for Questionnaire.** Other resource
   types are converted by the FML mapping alone (see [COVERAGE.md](COVERAGE.md)),
   and more postprocessors may be added in future releases. You certainly can

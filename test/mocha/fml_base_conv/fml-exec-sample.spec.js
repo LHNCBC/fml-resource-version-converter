@@ -137,7 +137,7 @@ function convertWithWarnings(resourceType, from, to, input) {
     onWarning: msg => warnings.push(msg),
   });
 
-  const output = engine.convert({ input });
+  const { resource: output } = engine.convert({ input });
   return { output, warnings };
 }
 
@@ -255,7 +255,7 @@ describe('fml_base_conv: STU3->R4 polymorphic initial conversion', () => {
         initialString: 'Mint',
       }],
     };
-    const output = engine.convert({ input });
+    const { resource: output } = engine.convert({ input });
     assert.ok(Array.isArray(output.item), 'item should be an array');
     const item = output.item[0];
     assert.ok(Array.isArray(item.initial), 'item.initial should be an array');
@@ -278,7 +278,7 @@ describe('fml_base_conv: STU3->R4 polymorphic initial conversion', () => {
 function runRawFml(fmlText, input) {
   const warnings = [];
   const engine = compileFmlXver({ fmlText, onWarning: msg => warnings.push(msg) });
-  const output = engine.convert({ input });
+  const { resource: output } = engine.convert({ input });
   return { output, warnings };
 }
 
@@ -293,8 +293,8 @@ describe('fml_base_conv: source list mode only_one', function () {
       { resourceType: 'TestRes', tag: ['a', 'b', 'c'] },
     );
 
-    // only_one keeps exactly the first item.
-    assert.deepEqual(output.picked, ['a']);
+    // only_one selects exactly one scalar item.
+    assert.equal(output.picked, 'a');
 
     // Exactly one warning, naming the mode, the source path, and the count.
     assert.equal(warnings.length, 1);
@@ -309,8 +309,34 @@ describe('fml_base_conv: source list mode only_one', function () {
       { resourceType: 'TestRes', tag: ['a'] },
     );
 
-    assert.deepEqual(output.picked, ['a']);
+    assert.equal(output.picked, 'a');
     assert.equal(warnings.length, 0);
+  });
+
+  it('does not write a target for an empty source list', function () {
+    const { output, warnings } = runRawFml(
+      groupWith('only_one as vs'),
+      { resourceType: 'TestRes', tag: [] },
+    );
+
+    assert.equal('picked' in output, false);
+    assert.equal(warnings.length, 0);
+  });
+
+  it('converts a single R3 MedicationRequest note to the R2 scalar', function () {
+    const engine = createEngine('MedicationRequest', 'R3', 'R2');
+    const { resource: output } = engine.convert({
+      input: {
+        resourceType: 'MedicationRequest',
+        status: 'active',
+        intent: 'order',
+        medicationCodeableConcept: { text: 'Example medication' },
+        subject: { reference: 'Patient/example' },
+        note: [{ text: 'Take with food' }],
+      },
+    });
+
+    assert.equal(output.note, 'Take with food');
   });
 
   it('without only_one, all items pass through (guards against regression)', function () {
@@ -525,7 +551,9 @@ describe('fml_base_conv: datatype-internal array wrapping', function () {
       elementTypes: { 'TestRes.field': 'CodeableConcept' },
     };
     const engine = compileFmlXver({ fmlText: fml, tgtDefs });
-    const output = engine.convert({ input: { resourceType: 'TestRes', c: { code: 'x' } } });
+    const { resource: output } = engine.convert({
+      input: { resourceType: 'TestRes', c: { code: 'x' } },
+    });
 
     // `coding` is wrapped as an array; the scalar `code` inside stays scalar.
     assert.ok(Array.isArray(output.field.coding), 'field.coding should be an array');
@@ -548,7 +576,9 @@ describe('fml_base_conv: create() resourceType handling', function () {
     // Resource classification is read from the FHIR defs (resourceTypes);
     // pass a minimal tgtDefs so CareTeam is recognised as a resource.
     const engine = compileFmlXver({ fmlText: fml, tgtDefs: { resourceTypes: ['CareTeam'] } });
-    const output = engine.convert({ input: { resourceType: 'TestRes', a: 1, b: 1, c: 1 } });
+    const { resource: output } = engine.convert({
+      input: { resourceType: 'TestRes', a: 1, b: 1, c: 1 },
+    });
 
     // Datatype and primitive: bare object, no resourceType.
     assert.deepEqual(output.dt, {});
@@ -624,7 +654,9 @@ describe('fml_base_conv: log clause and backtick identifiers', function () {
       onInfo: m => infos.push(m),
       onWarning: m => warnings.push(m),
     });
-    const output = engine.convert({ input: { resourceType: 'TestRes', a: 'v' } });
+    const { resource: output } = engine.convert({
+      input: { resourceType: 'TestRes', a: 'v' },
+    });
 
     // Parses (no throw), the rule runs, and the literal is logged.
     assert.equal(output.b, 'v');

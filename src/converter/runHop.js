@@ -120,7 +120,8 @@ export function runHop(resource, fromVer, toVer, opts = {}) {
     onWarning: text => fmlMessages.push(makeMessage(MESSAGE_TYPE.WARNING, text)),
     onInfo:    text => fmlMessages.push(makeMessage(MESSAGE_TYPE.INFO, text)),
   });
-  working = engine.convert({ input: working });
+  const engineResult = engine.convert({ input: working });
+  working = engineResult.resource;
   const fmlStatus = statusFromMessages(fmlMessages);
 
   // ---- 5. Postprocessors ------------------------------------------------

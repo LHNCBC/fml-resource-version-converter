@@ -10,12 +10,13 @@
  *   |    parseFml(text)  -> AST { metadata, uses, groups }             |
  *   |                       (defined in ./fml_parser.js)               |
  *   |    compile(ast)    -> engine bound to translator + diagnostics   |
- *   |    engine.convert({ input }) -> output FHIR JSON                 |
+ *   |    engine.convert({ input }) -> conversion result               |
  *   +------------------------------------------------------------------+
  *
  * Public API:
  *   compileFmlXver({ fmlText, conceptMaps, ...opts }) -> engine
- *   engine.convert({ input, entryGroup? }) -> output JSON resource
+ *   engine.convert({ input, entryGroup? })
+ *     -> { resource: output JSON resource, spinOffResources? }
  *
  * Design tenets:
  *   - Tight: every operation that could produce an incorrect output emits
@@ -242,6 +243,7 @@ const BASE_COPIERS = {
   },
   Resource(src, tgt) {
     if (src.id !== undefined)            tgt.id            = src.id;
+    // TODO: Resource.id companion field `_id` is TBD and currently not copied.
     if (src.meta !== undefined)          tgt.meta          = deepClone(src.meta);
     copyPrimitiveProperty(src, tgt, 'implicitRules');
     copyPrimitiveProperty(src, tgt, 'language');
@@ -265,14 +267,14 @@ const BASE_COPIERS = {
  * A FHIR ConceptMap is organised as: ConceptMap -> groups -> elements
  * (source codes) -> targets (mapped codes with a relationship). This
  * function flattens that into a Map keyed by `${groupIdx}::${sourceCode}`
- * for O(1) lookup. Group ordering is preserved so the translator can try
- * later groups as fallbacks for the same source code.
+ * for O(1) lookup. Group metadata and ordering are preserved so coded inputs
+ * can select the matching source system and construct a target Coding.
  *
  * Supports both R4 (`equivalence`) and R5 (`relationship`) target fields;
  * either is normalised to lowercase under the `rel` key.
  *
  * @param {Object} cm  A FHIR ConceptMap resource (R4 or R5 shape).
- * @returns {{url: string, groupCount: number, lookup: Map<string, Array>, unmapped: Map<number, Object>}}
+ * @returns {{url: string, groups: Object[], lookup: Map<string, Object>, unmapped: Map<number, Object>}}
  * @throws {Error} If the ConceptMap has neither `url` nor `id`.
  */
 function indexConceptMap(cm) {
@@ -295,36 +297,108 @@ function indexConceptMap(cm) {
           rel:     String(t.relationship || t.equivalence || '').toLowerCase(),
         }))
         .filter(t => t.code);
-      lookup.set(`${gi}::${el.code}`, targets);
+      const key = `${gi}::${el.code}`;
+      const entry = lookup.get(key) || { targets: [], noMap: false };
+      entry.targets.push(...targets);
+      entry.noMap ||= el.noMap === true;
+      lookup.set(key, entry);
     }
   }
-  return { url, groupCount: groups.length, lookup, unmapped };
+  return {
+    url,
+    groups: groups.map(group => ({
+      sourceSystem: group.source || group.sourceUri,
+      targetSystem: group.target || group.targetUri,
+    })),
+    lookup,
+    unmapped,
+  };
+}
+
+/**
+ * Normalize a FHIR code, Coding, or CodeableConcept into candidate Codings.
+ * Coding order is retained so a CodeableConcept is tried deterministically.
+ *
+ * @param {*} source A code primitive or coded datatype.
+ * @returns {Object[]} Candidate Coding-shaped objects.
+ */
+function sourceCodings(source) {
+  if (typeof source === 'string') return [{ code: source }];
+  if (!isObject(source)) return [];
+
+  if (Array.isArray(source.coding)) {
+    return source.coding.filter(coding => isObject(coding) && coding.code != null);
+  }
+
+  return source.code != null ? [source] : [];
+}
+
+/**
+ * Shape one translated Coding according to the FML translate output selector.
+ *
+ * @param {Object} coding Translated Coding-shaped value.
+ * @param {string} output One of code, system, display, Coding, CodeableConcept.
+ * @returns {*}
+ */
+function selectTranslationOutput(coding, output) {
+  if (output === 'code') return coding.code;
+  if (output === 'system') return coding.system;
+  if (output === 'display') return coding.display;
+
+  const result = {};
+  if (coding.system !== undefined) result.system = coding.system;
+  if (coding.code !== undefined) result.code = coding.code;
+  if (coding.display !== undefined) result.display = coding.display;
+
+  if (output === 'Coding') return result;
+  if (output === 'CodeableConcept') return { coding: [result] };
+  return undefined;
+}
+
+/**
+ * Apply an output selector when translation falls back to the source value.
+ * Complex coded inputs are preserved whole when the requested output type
+ * matches, avoiding loss of text, alternative codings, or Element metadata.
+ *
+ * @param {*} source Original code, Coding, or CodeableConcept.
+ * @param {Object} firstCoding First usable Coding normalized from the source.
+ * @param {string} output Requested translation output selector.
+ * @returns {*}
+ */
+function selectUnchangedTranslationOutput(source, firstCoding, output) {
+  if (output === 'CodeableConcept') {
+    if (isObject(source) && Array.isArray(source.coding)) return deepClone(source);
+    return { coding: [deepClone(firstCoding)] };
+  }
+
+  if (output === 'Coding') return deepClone(firstCoding);
+  return selectTranslationOutput(firstCoding, output);
 }
 
 /**
  * Create a code translator backed by a set of ConceptMaps.
  *
- * The returned `translate(code, mapUrl)` function looks up the source code
- * in the named ConceptMap and returns the best target code, choosing among
- * available targets in this priority order:
+ * The returned `translate(source, mapUrl, output)` function accepts a code,
+ * Coding, or CodeableConcept, looks it up in the named ConceptMap, and shapes
+ * the selected target according to the requested output. Available targets
+ * are chosen in this priority order:
  *
  *   1. `equivalent` / `equal`         - exact semantic match (silent)
  *   2. `source-is-narrower-than-target` / `wider` - safe widening (INFO)
  *   3. `source-is-broader-than-target` / `narrower` /
  *      `related-to`                    - lossy match (WARNS)
- *   4. `not-related-to`                - unrelated mapping used as last
- *                                        resort (WARNS)
- *   5. First listed target             - unrecognized relationship (WARNS)
- *   6. `unmapped.mode = fixed`         - group-level fallback code (INFO)
- *   7. `unmapped.mode = provided`      - return source code unchanged (INFO)
- *   8. Otherwise: return source code unchanged (WARNS), or throw if strict.
+ *   4. First listed target             - unrecognized relationship (WARNS)
+ *   5. `unmapped.mode = fixed`         - group-level fallback code (INFO)
+ *   6. `unmapped.mode = use-source-code` / `provided` - use the source code
+ *                                                       in the target system
+ *   7. Otherwise: return source code unchanged (WARNS), or throw if strict.
  *
  * @param {Object[]} conceptMaps                Indexed at construction time.
  * @param {Object}   opts
  * @param {boolean}  [opts.strict=false]        Throw on missing map / unmappable.
  * @param {Function} [opts.onWarning]
  * @param {Function} [opts.onInfo]
- * @returns {{translate: (code: string, mapUrl: string) => string}}
+ * @returns {{translate: (source: *, mapUrl: string, output: string) => *}}
  */
 function makeTranslator(conceptMaps, { strict = false, onWarning, onInfo } = {}) {
   const byUrl = new Map();
@@ -350,62 +424,156 @@ function makeTranslator(conceptMaps, { strict = false, onWarning, onInfo } = {})
     if (!targets?.length) return undefined;
 
     const exact = targets.find(t => EXACT.has(t.rel));
-    if (exact) return exact.code;
+    if (exact) return exact;
 
     // Widening (source narrower than target) is safe -- emit info, not warning.
     const safe = targets.find(t => SAFE.has(t.rel));
     if (safe) {
       onInfo?.(`translate("${code}", ${mapUrl}): widening "${safe.rel}" -> "${safe.code}"`);
-      return safe.code;
+      return safe;
     }
 
     const lossy = targets.find(t => LOSSY.has(t.rel));
     if (lossy) {
       onWarning?.(`translate("${code}", ${mapUrl}): using lossy relationship "${lossy.rel}" -> "${lossy.code}"`);
-      return lossy.code;
+      return lossy;
     }
 
-    const nrt = targets.find(t => t.rel === 'not-related-to');
-    if (nrt) {
-      onWarning?.(`translate("${code}", ${mapUrl}): only "not-related-to" mapping available, using "${nrt.code}" anyway`);
-      return nrt.code;
-    }
+    const usableTargets = targets.filter(target => ![
+      'not-related-to',
+      'unmatched',
+      'disjoint',
+    ].includes(target.rel));
+    if (usableTargets.length === 0) return undefined;
 
-    onWarning?.(`translate("${code}", ${mapUrl}): unrecognised relationship "${targets[0].rel}", falling back to first target "${targets[0].code}"`);
-    return targets[0].code;
+    onWarning?.(`translate("${code}", ${mapUrl}): unrecognised relationship "${usableTargets[0].rel}", falling back to first target "${usableTargets[0].code}"`);
+    return usableTargets[0];
   }
 
-  function translate(code, mapUrl) {
-    if (code == null) return code;
+  /**
+   * Return group indexes applicable to a source Coding. An explicit source
+   * system must match the ConceptMap group; an absent system may use any group.
+   *
+   * @param {Object} idx Indexed ConceptMap.
+   * @param {Object} coding Source Coding-shaped value.
+   * @returns {number[]} Applicable group indexes in declaration order.
+   */
+  function matchingGroupIndexes(idx, coding) {
+    const indexes = [];
+    for (let gi = 0; gi < idx.groups.length; gi++) {
+      const sourceSystem = idx.groups[gi].sourceSystem;
+      if (!coding.system || !sourceSystem || coding.system === sourceSystem) {
+        indexes.push(gi);
+      }
+    }
+    return indexes;
+  }
+
+  /**
+   * Add the target system from a ConceptMap group to a selected target.
+   *
+   * @param {Object} target Selected target element or fallback coding.
+   * @param {Object} group Indexed ConceptMap group metadata.
+   * @returns {Object} Coding-shaped translation result.
+   */
+  function translatedCoding(target, group) {
+    return {
+      ...(group.targetSystem !== undefined ? { system: group.targetSystem } : {}),
+      code: target.code,
+      ...(target.display !== undefined ? { display: target.display } : {}),
+    };
+  }
+
+  /**
+   * Translate a FHIR code or coded datatype and select the requested output.
+   *
+   * @param {*} source A code primitive, Coding, or CodeableConcept.
+   * @param {string} mapUrl ConceptMap canonical URL.
+   * @param {string} output Requested result: code, system, display, Coding, or CodeableConcept.
+   * @returns {*} Selected translation value.
+   */
+  function translate(source, mapUrl, output) {
+    if (source == null) return source;
+    const codings = sourceCodings(source);
+    const firstCoding = codings[0];
+
+    if (!['code', 'system', 'display', 'Coding', 'CodeableConcept'].includes(output)) {
+      const message = `translate: unsupported output selector "${output}"`;
+      if (strict) throw new Error(message);
+      onWarning?.(`${message}; omitting result`);
+      return undefined;
+    }
+
+    if (!firstCoding) {
+      const message = 'translate: source is not a code, Coding, or populated CodeableConcept';
+      if (strict) throw new Error(message);
+      onWarning?.(`${message}; omitting result`);
+      return undefined;
+    }
+
     const idx = byUrl.get(mapUrl);
     if (!idx) {
       if (strict) throw new Error(`Missing ConceptMap: ${mapUrl}`);
-      onWarning?.(`translate: ConceptMap not found - ${mapUrl}; returning "${code}" unchanged`);
-      return code;
+      onWarning?.(`translate: ConceptMap not found - ${mapUrl}; returning source coding unchanged`);
+      return selectUnchangedTranslationOutput(source, firstCoding, output);
     }
-    // Try each group in declaration order; earlier groups win.
-    for (let gi = 0; gi < idx.groupCount; gi++) {
-      const ts = idx.lookup.get(`${gi}::${code}`);
-      if (ts) {
-        const out = pickTarget(ts, code, mapUrl);
-        if (out !== undefined) return out;
+
+    // Try source codings and matching groups in declaration order.
+    let explicitNoMapCode = null;
+    let excludedTargetCode = null;
+    for (const coding of codings) {
+      for (const gi of matchingGroupIndexes(idx, coding)) {
+        const entry = idx.lookup.get(`${gi}::${coding.code}`);
+        if (!entry) continue;
+        if (entry.noMap && entry.targets.length === 0) {
+          explicitNoMapCode ??= coding.code;
+          continue;
+        }
+
+        const target = pickTarget(entry.targets, coding.code, mapUrl);
+        if (target !== undefined) {
+          return selectTranslationOutput(
+            translatedCoding(target, idx.groups[gi]),
+            output,
+          );
+        }
+        if (entry.targets.length > 0) excludedTargetCode ??= coding.code;
       }
     }
+
     // No explicit mapping; try group-level `unmapped` fallbacks.
-    for (let gi = 0; gi < idx.groupCount; gi++) {
-      const um = idx.unmapped.get(gi);
-      if (um?.mode === 'fixed' && um.code) {
-        onInfo?.(`translate("${code}", ${mapUrl}): no explicit mapping, using fixed unmapped code "${um.code}"`);
-        return um.code;
-      }
-      if (um?.mode === 'provided') {
-        onInfo?.(`translate("${code}", ${mapUrl}): no explicit mapping, returning source code unchanged (unmapped.mode=provided)`);
-        return code;
+    for (const coding of codings) {
+      for (const gi of matchingGroupIndexes(idx, coding)) {
+        const entry = idx.lookup.get(`${gi}::${coding.code}`);
+        if (entry?.noMap || entry?.targets.length > 0) continue;
+
+        const unmapped = idx.unmapped.get(gi);
+        if (unmapped?.mode === 'fixed' && unmapped.code) {
+          onInfo?.(`translate("${coding.code}", ${mapUrl}): no explicit mapping, using fixed unmapped code "${unmapped.code}"`);
+          return selectTranslationOutput(
+            translatedCoding({ code: unmapped.code }, idx.groups[gi]),
+            output,
+          );
+        }
+        if (unmapped?.mode === 'use-source-code' || unmapped?.mode === 'provided') {
+          onInfo?.(`translate("${coding.code}", ${mapUrl}): no explicit mapping, using the source code (unmapped.mode=${unmapped.mode})`);
+          return selectTranslationOutput(
+            translatedCoding({ code: coding.code }, idx.groups[gi]),
+            output,
+          );
+        }
       }
     }
-    if (strict) throw new Error(`No mapping for "${code}" in ${mapUrl}`);
-    onWarning?.(`translate: no mapping for "${code}" in ${mapUrl}; returning unchanged`);
-    return code;
+
+    if (strict) throw new Error(`No mapping for "${firstCoding.code}" in ${mapUrl}`);
+    if (explicitNoMapCode !== null) {
+      onWarning?.(`translate: "${explicitNoMapCode}" is explicitly marked noMap in ${mapUrl}; returning unchanged`);
+    } else if (excludedTargetCode !== null) {
+      onWarning?.(`translate: "${excludedTargetCode}" has no related target in ${mapUrl}; returning unchanged`);
+    } else {
+      onWarning?.(`translate: no mapping for "${firstCoding.code}" in ${mapUrl}; returning unchanged`);
+    }
+    return selectUnchangedTranslationOutput(source, firstCoding, output);
   }
 
   return { translate };
@@ -507,8 +675,8 @@ export function compileFmlXver({
 
   // Pre-load groups from imported FML texts (type groups like Coding, Reference, etc.).
   // Imported groups are merged into the local map; local groups take precedence.
-  // The imported ASTs are also kept so buildTypesIndex can find <<types>>
-  // conversion groups declared in them (e.g. Reference.fml's canonical2Reference).
+  // The imported ASTs are also kept so default-group indexing can find
+  // <<types>> / <<type+>> groups declared in them.
   const importedAsts = [];
   for (const importedText of importedFmlTexts) {
     const importedAst = parseFml(importedText, onWarning);
@@ -657,12 +825,53 @@ export function compileFmlXver({
    * Maps of absolute FHIR dotted paths to their single concrete type
    * code (e.g. "canonical", "Reference", "Identifier") for non-poly
    * scalar elements in the source and target FHIR versions. These power
-   * future type-aware coercion: when a source path's type differs from
-   * the target path's type and a `<<types>>` conversion group matches,
-   * the engine can auto-invoke that group instead of plain copying.
+   * default-group dispatch and primitive serialization.
    */
   const srcElementTypes = new Map(Object.entries(srcDefs?.elementTypes || {}));
   const tgtElementTypes = new Map(Object.entries(tgtDefs?.elementTypes || {}));
+
+  /**
+   * Look up schema metadata for an absolute FHIR path, re-rooting at complex
+   * datatype boundaries when the resource snapshot does not expand datatype
+   * internals. For example, `Patient.name.family` resolves by first finding
+   * `Patient.name -> HumanName`, then looking up `HumanName.family`.
+   *
+   * @param {Map<string, *>} index Schema metadata keyed by FHIR path.
+   * @param {Map<string, string>} elementTypes Element-type table for the same version.
+   * @param {string|null} absolutePath Resource- or datatype-rooted FHIR path.
+   * @param {Set<string>} [visited] Re-rooted paths already inspected.
+   * @returns {*|undefined} The indexed value, or undefined when unresolved.
+   */
+  function lookupSchemaEntry(index, elementTypes, absolutePath, visited = new Set()) {
+    if (!absolutePath || visited.has(absolutePath)) return undefined;
+    visited.add(absolutePath);
+
+    if (index.has(absolutePath)) return index.get(absolutePath);
+
+    const segs = absolutePath.split('.');
+    for (let i = segs.length - 1; i >= 1; i--) {
+      const parentType = elementTypes.get(segs.slice(0, i).join('.'));
+      if (!parentType || parentType[0] !== parentType[0].toUpperCase()) continue;
+
+      const rerootedPath = `${parentType}.${segs.slice(i).join('.')}`;
+      const value = lookupSchemaEntry(index, elementTypes, rerootedPath, visited);
+      if (value !== undefined) return value;
+    }
+
+    return undefined;
+  }
+
+  /** Return the source element type at an absolute, possibly nested path. */
+  function sourceElementType(absolutePath) {
+    return lookupSchemaEntry(srcElementTypes, srcElementTypes, absolutePath) || null;
+  }
+
+  /** Return the target element type at an absolute, possibly nested path. */
+  function targetElementType(absolutePath) {
+    return lookupSchemaEntry(tgtElementTypes, tgtElementTypes, absolutePath) || null;
+  }
+
+  const srcPolyTypeLists = new Map(Object.entries(srcDefs?.polyPaths || {}));
 
   /**
    * Map from absolute FHIR dotted paths to the list of allowed FHIR type
@@ -679,6 +888,16 @@ export function compileFmlXver({
    * the source happened to be of type `code`.
    */
   const tgtPolyTypeLists = new Map(Object.entries(tgtDefs?.polyPaths || {}));
+
+  /** Return source polymorphic choices at an absolute, possibly nested path. */
+  function sourcePolyTypes(absolutePath) {
+    return lookupSchemaEntry(srcPolyTypeLists, srcElementTypes, absolutePath) || null;
+  }
+
+  /** Return target polymorphic choices at an absolute, possibly nested path. */
+  function targetPolyTypes(absolutePath) {
+    return lookupSchemaEntry(tgtPolyTypeLists, tgtElementTypes, absolutePath) || null;
+  }
 
   /**
    * Resolve concrete JSON names for polymorphic target fields back to their
@@ -710,9 +929,9 @@ export function compileFmlXver({
    */
   function targetPrimitiveType(absolutePath) {
     if (!absolutePath) return null;
-    const directType = tgtElementTypes.get(absolutePath);
+    const directType = targetElementType(absolutePath);
     if (FHIR_PRIMITIVES.has(directType)) return directType;
-    const typed = tgtTypedPolyPaths.get(absolutePath);
+    const typed = lookupSchemaEntry(tgtTypedPolyPaths, tgtElementTypes, absolutePath);
     return typed && FHIR_PRIMITIVES.has(typed.type) ? typed.type : null;
   }
 
@@ -726,32 +945,23 @@ export function compileFmlXver({
    * @returns {string|null} Schema path.
    */
   function targetSchemaPath(absolutePath) {
-    return tgtTypedPolyPaths.get(absolutePath)?.path || absolutePath;
+    return lookupSchemaEntry(tgtTypedPolyPaths, tgtElementTypes, absolutePath)?.path || absolutePath;
   }
 
   /**
-   * Build an index of FML `<<types>>` conversion groups across the main
-   * FML AST and all imported FML ASTs. Keyed by `${srcType}::${tgtType}`
-   * (canonical FHIR type codes, after resolving local `uses ... alias X`
-   * declarations back to the URL's terminal segment, e.g. ReferenceR3 ->
-   * Reference, codeR3 -> code).
+   * Build indexes of FML default mapping groups across the main and imported
+   * ASTs. Both `<<types>>` and `<<type+>>` groups are indexed by their exact
+   * source/target pair. `<<type+>>` groups are additionally indexed by source
+   * type so they can select a concrete target for a polymorphic field.
    *
-   * Used at write time: when a source field's type differs from the
-   * target field's type and a matching entry exists here, the engine
-   * invokes that group on a wrapped source object instead of plain
-   * copying the value. This implements the FML-spec behavior in which
-   * `<<types>>` groups are auto-applied to bridge cross-version type
-   * differences (e.g. R4 canonical -> R3 Reference for
-   * Questionnaire.item.answerValueSet -> Questionnaire.item.options).
+   * Parameter aliases are resolved to canonical FHIR type codes using their
+   * `uses` declarations (for example, HumanNameR2 -> HumanName).
    *
-   * Reads directly from the parsed ASTs (the parser captures `<<types>>`
-   * annotations into `Group.annotations` and resolves `uses` declarations
-   * into `Ast.uses`), so no raw-text re-scan is needed.
-   *
-   * @param {Ast[]} asts  Parsed ASTs (main + imported).
-   * @returns {Map<string,string>}  "srcType::tgtType" -> groupName.
+   * @param {Ast[]} asts Parsed ASTs (main + imported).
+   * @returns {{byPair: Map<string, string>, typePlusBySource: Map<string, Object[]>}}
+   *   Exact-pair groups and `<<type+>>` candidates keyed by source type.
    */
-  function buildTypesIndex(asts) {
+  function buildDefaultGroupIndexes(asts) {
     // Pass 1: gather alias -> canonical FHIR type code from `uses` decls.
     // Canonical is the last URL segment under /StructureDefinition/
     // (e.g. "Reference", "canonical"). Alias may be absent in the `uses`
@@ -768,31 +978,44 @@ export function compileFmlXver({
       }
     }
 
-    // Pass 2: find groups annotated `<<types>>` and resolve their src/tgt
-    // parameter types via the alias map. Skip malformed signatures.
-    const idx = new Map();
+    // Pass 2: find default groups and resolve their parameter types. The FML
+    // contract requires exactly one source and one target parameter.
+    const byPair = new Map();
+    const typePlusBySource = new Map();
     for (const a of asts) {
       for (const [name, g] of a.groups) {
-        if (!g.annotations?.includes('types')) continue;
-        if (g.params.length < 2) continue;
+        const isTypes = g.annotations?.includes('types');
+        const isTypePlus = g.annotations?.includes('type+');
+        if (!isTypes && !isTypePlus) continue;
+        if (g.params.length !== 2) continue;
         const [srcParam, tgtParam] = g.params;
         if (srcParam.mode !== 'source' || tgtParam.mode !== 'target') continue;
         if (!srcParam.type || !tgtParam.type) continue;
         const srcType = aliases.get(srcParam.type) || srcParam.type;
         const tgtType = aliases.get(tgtParam.type) || tgtParam.type;
         const key = `${srcType}::${tgtType}`;
-        if (!idx.has(key)) idx.set(key, name);
+        if (!byPair.has(key)) byPair.set(key, name);
+
+        if (isTypePlus) {
+          const candidates = typePlusBySource.get(srcType) || [];
+          if (!candidates.some(candidate => candidate.targetType === tgtType)) {
+            candidates.push({ groupName: name, targetType: tgtType });
+          }
+          typePlusBySource.set(srcType, candidates);
+        }
       }
     }
-    return idx;
+    return { byPair, typePlusBySource };
   }
 
   /**
-   * Index of `(srcType, tgtType) -> conversionGroupName` built from all
-   * `<<types>>` groups in the main and imported FML ASTs. Empty when
-   * no such groups are present.
+   * Default group indexes built from all `<<types>>` and `<<type+>>` groups
+   * in the main and imported FML ASTs.
    */
-  const typesIndex = buildTypesIndex([ast, ...importedAsts]);
+  const {
+    byPair: defaultGroupsByPair,
+    typePlusBySource,
+  } = buildDefaultGroupIndexes([ast, ...importedAsts]);
 
   /**
    * Type-mismatch diagnostics already emitted during the current conversion.
@@ -813,8 +1036,8 @@ export function compileFmlXver({
    * we set when a child is created is still available when the same
    * object is later resolved as `tgt` inside a callee group.
    *
-   * Entries are needed only on target-side objects; source paths are
-   * not consulted by the engine today.
+   * Source and target paths are both tracked so default groups and nested
+   * datatype metadata can be resolved after values cross scope boundaries.
    */
   const objectPaths = new WeakMap();
 
@@ -1058,9 +1281,10 @@ export function compileFmlXver({
       }
 
       case 'translate': {
-        const code   = resolveArg(args[0], scope);
+        const source = resolveArg(args[0], scope);
         const mapUrl = args[1].value;  // always a literal in valid FML
-        return translator.translate(code, mapUrl);
+        const output = resolveArg(args[2], scope);
+        return translator.translate(source, mapUrl, output);
       }
 
       case 'copy': {
@@ -1281,7 +1505,7 @@ export function compileFmlXver({
 
     /**
      * Tag a source value with its absolute FHIR path so write-time type
-     * coercion can look up its element type. For arrays, also tag each
+     * default-group dispatch can look up its element type. For arrays, tag each
      * element with the same path (FHIR paths are array-blind: items
      * share their parent collection's path).
      */
@@ -1340,7 +1564,7 @@ export function compileFmlXver({
     }
 
     const directAbsPath = composeChildPath(ctx, srcSpec.path);
-    const sourceType = directAbsPath ? srcElementTypes.get(directAbsPath) : null;
+    const sourceType = directAbsPath ? sourceElementType(directAbsPath) : null;
     const directLeaf = srcSpec.path.split('.').pop();
     const directCompanion = readCompanion(ctx, srcSpec.path, directLeaf, sourceType);
     let directValue = getPath(ctx, srcSpec.path);
@@ -1393,7 +1617,7 @@ export function compileFmlXver({
           if (matches.length === 1) {
             const polyName   = matches[0];
             const polySuffix = polyName.slice(leaf.length);
-            const polyTypes = srcDefs?.polyPaths?.[composeChildPath(ctx, srcSpec.path)] || [];
+            const polyTypes = sourcePolyTypes(composeChildPath(ctx, srcSpec.path)) || [];
             const sourceType = polyTypes.find(type => cap(type) === polySuffix) || null;
             const companion = readCompanion(ctx, srcSpec.path, polyName, sourceType);
             let value = parent[polyName];
@@ -1542,10 +1766,10 @@ export function compileFmlXver({
     const segs       = path.split('.');
     const targetLeaf = segs[segs.length - 1];
     const targetAbsPath = composeChildPath(tctx, path);
-    const targetPolyTypes = targetAbsPath
-      ? tgtPolyTypeLists.get(targetAbsPath)
+    const allowedTargetTypes = targetAbsPath
+      ? targetPolyTypes(targetAbsPath)
       : null;
-    const tgtIsPolyByPath = targetPolyTypes != null;
+    const tgtIsPolyByPath = allowedTargetTypes != null;
 
     if (polySuffix) {
       // Append the suffix only when the TARGET leaf is polymorphic in the
@@ -1566,7 +1790,7 @@ export function compileFmlXver({
       // unrelated poly field elsewhere.
       const inferred = inferPolySuffixFromValue(value);
       if (inferred) {
-        const allowed = targetPolyTypes;
+        const allowed = allowedTargetTypes;
         const inferredType = inferred.toLowerCase();  // "Boolean" -> "boolean"
         if (!allowed || allowed.includes(inferredType)) {
           segs[segs.length - 1] = targetLeaf + inferred;
@@ -1743,18 +1967,24 @@ export function compileFmlXver({
     // Apply list-mode filter to the primary source (first/last/etc.).
     if (Array.isArray(primaryValue) && primary.spec.listMode) {
       switch (primary.spec.listMode) {
-        case 'first':
-          primaryValue = primaryValue.length ? [primaryValue[0]] : [];
-          if (Array.isArray(primaryCompanion)) {
-            primaryCompanion = primaryCompanion.length ? [primaryCompanion[0]] : [];
-          }
+        case 'first': {
+          const companionCount = Array.isArray(primaryCompanion)
+            ? primaryCompanion.length
+            : 0;
+          if (Math.max(primaryValue.length, companionCount) === 0) return;
+          primaryValue = primaryValue[0];
+          if (Array.isArray(primaryCompanion)) primaryCompanion = primaryCompanion[0];
           break;
-        case 'last':
-          primaryValue = primaryValue.length ? [primaryValue.at(-1)] : [];
-          if (Array.isArray(primaryCompanion)) {
-            primaryCompanion = primaryCompanion.length ? [primaryCompanion.at(-1)] : [];
-          }
+        }
+        case 'last': {
+          const companionCount = Array.isArray(primaryCompanion)
+            ? primaryCompanion.length
+            : 0;
+          if (Math.max(primaryValue.length, companionCount) === 0) return;
+          primaryValue = primaryValue.at(-1);
+          if (Array.isArray(primaryCompanion)) primaryCompanion = primaryCompanion.at(-1);
           break;
+        }
         case 'not_first':
           primaryValue = primaryValue.slice(1);
           if (Array.isArray(primaryCompanion)) {
@@ -1771,15 +2001,19 @@ export function compileFmlXver({
         // collapses it to that single element. Per FML semantics more than
         // one item is an error condition; we warn and keep the first so the
         // rule still produces the single value the map author expects.
-        case 'only_one':
-          if (primaryValue.length > 1) {
-            onWarning?.(`only_one: source "${primary.spec.context}${primary.spec.path ? '.' + primary.spec.path : ''}" has ${primaryValue.length} items; using the first`);
+        case 'only_one': {
+          const companionCount = Array.isArray(primaryCompanion)
+            ? primaryCompanion.length
+            : 0;
+          const itemCount = Math.max(primaryValue.length, companionCount);
+          if (itemCount === 0) return;
+          if (itemCount > 1) {
+            onWarning?.(`only_one: source "${primary.spec.context}${primary.spec.path ? '.' + primary.spec.path : ''}" has ${itemCount} items; using the first`);
           }
-          primaryValue = primaryValue.length ? [primaryValue[0]] : [];
-          if (Array.isArray(primaryCompanion)) {
-            primaryCompanion = primaryCompanion.length ? [primaryCompanion[0]] : [];
-          }
+          primaryValue = primaryValue[0];
+          if (Array.isArray(primaryCompanion)) primaryCompanion = primaryCompanion[0];
           break;
+        }
       }
     }
 
@@ -2376,6 +2610,12 @@ export function compileFmlXver({
 
     const results = [];
     const resultCompanions = [];
+    let defaultPolySuffix = null;
+    const inlineTargetAlias = !thenGroup && !thenRules &&
+      targets.length > 1 && tgtSpec.alias &&
+      targets.slice(1).some(target => target.context === tgtSpec.alias)
+      ? tgtSpec.alias
+      : null;
     for (let itemIndex = 0; itemIndex < iterItems.length; itemIndex++) {
       const item = iterItems[itemIndex];
       const itemCompanion = Array.isArray(itemCompanions)
@@ -2404,6 +2644,32 @@ export function compileFmlXver({
         onWarning?.(`check failed in iteration (${primary.spec.alias})`);
       }
       if (primary.spec.log) emitLog(primary.spec.log, iterScope);
+
+      // Array counterpart of scalar inline-target lifting:
+      //   src.items as s -> tgt.parts as p, p.value = s
+      // creates and fills one aliased child per source item.
+      if (inlineTargetAlias) {
+        const writePath = resolveWritePath(
+          tgtSpec,
+          iterationPrimary,
+          iterationBindings,
+          tctx,
+        );
+        const child = tgtSpec.transform?.fn === 'create'
+          ? evalTransform(tgtSpec.transform, iterScope)
+          : {};
+        setObjectPath(child, composeChildPath(tctx, writePath));
+
+        const childScope = iterScope.child();
+        childScope.set(inlineTargetAlias, child);
+        for (let i = 1; i < targets.length; i++) {
+          applyTarget(targets[i], iterationPrimary, iterationBindings, childScope);
+        }
+
+        results.push(child);
+        resultCompanions.push(null);
+        continue;
+      }
 
       if (thenGroup || thenRules) {
         if (thenRules && !isObject(item)) {
@@ -2498,12 +2764,12 @@ export function compileFmlXver({
           resultCompanions.push(null);
         }
       } else {
-        // No then-clause: each iteration produces one value. Apply automatic
-        // type coercion to the individual item just as applyTarget() does for
-        // a scalar rule; an alias should affect scope, not coercion semantics.
-        const coerced = tryTypeCoercion(tgtSpec, iterationPrimary, iterScope);
-        const value = coerced !== undefined
-          ? coerced
+        // No then-clause: each iteration produces one value. Apply the
+        // applicable default group just as applyTarget() does for a scalar
+        // rule; an alias should affect scope, not dispatch semantics.
+        const defaultResult = tryDefaultGroup(tgtSpec, iterationPrimary, iterScope);
+        const value = defaultResult !== undefined
+          ? defaultResult.value
           : computeTargetValue(
             tgtSpec,
             iterationPrimary,
@@ -2511,7 +2777,8 @@ export function compileFmlXver({
             iterScope,
             item,
           );
-        const provenance = coerced === undefined
+        if (defaultResult?.polySuffix) defaultPolySuffix = defaultResult.polySuffix;
+        const provenance = defaultResult === undefined
           ? targetSourceBinding(
             tgtSpec,
             iterationPrimary,
@@ -2529,7 +2796,14 @@ export function compileFmlXver({
     // Reused-slot rules have already written into the existing list element.
     if (reuseSlot) return;
     if (results.length === 0) return;
-    const targetPath = resolveWritePath(tgtSpec, primary, bindings, tctx);
+    let targetPath = resolveWritePath(tgtSpec, primary, bindings, tctx);
+    if (defaultPolySuffix && tgtSpec.path && targetPolyTypes(
+      composeChildPath(tctx, tgtSpec.path),
+    )) {
+      const segs = tgtSpec.path.split('.');
+      segs[segs.length - 1] += defaultPolySuffix;
+      targetPath = segs.join('.');
+    }
     if (!targetPath) {
       onWarning?.(`Array rule: no target path; cannot write ${results.length} item(s)`);
       return;
@@ -2548,40 +2822,50 @@ export function compileFmlXver({
     );
   }
 
+  /** Return whether a value is a nested FHIR resource instance. */
+  function isResourceInstance(value) {
+    return isObject(value) && typeof value.resourceType === 'string';
+  }
+
   /**
-   * Attempt FML-spec-style automatic type coercion for a plain-copy
-   * target write. Returns the coerced value (an object produced by the
-   * matching `<<types>>` conversion group) on success, or `undefined`
-   * when no coercion applies and the caller should fall back to a plain
-   * copy.
+   * Resolve the source type represented by one rule binding.
    *
-   * Coercion is attempted only when:
-   *   - typesIndex is non-empty (some `<<types>>` group exists), AND
-   *   - the target has no explicit `transform` (the FML author hasn't
-   *     opted in to a specific RHS expression), AND
-   *   - the primary source value or primitive companion is present, AND
-   *   - both the source and target absolute paths are known and resolve
-   *     to scalar types in their respective FHIR versions, AND
-   *   - those scalar types differ, AND
-   *   - a `<<types>>` group exists for `(srcType, tgtType)`.
-   *
-   * Each source value and companion are expanded as
-   * `{value: <srcVal>, id?, extension?}` when primitive. Object sources are
-   * passed through unchanged. Repeating sources are coerced element by element
-   * so a conversion group never receives the array itself as one scalar value.
-   *
-   * Emits `onInfo` once per unresolvable type mismatch (types differ but
-   * no conversion group available) so that gaps can be diagnosed.
-   *
-   * @param {Target} tgt       The target clause being written to.
-   * @param {Object} primary   The primary source binding.
-   * @param {Scope}  scope     The current rule scope (for execGroup).
-   * @returns {*|undefined}    Coerced value, or undefined to fall back.
+   * @param {Object} primary Source binding.
+   * @param {string} srcAbsPath Absolute source path.
+   * @returns {string|null} Canonical FHIR type code.
    */
-  function tryTypeCoercion(tgt, primary, scope) {
-    if (typesIndex.size === 0) return undefined;
+  function sourceBindingType(primary, srcAbsPath) {
+    if (primary.spec.typeHint) return primary.spec.typeHint;
+
+    const fixedType = sourceElementType(srcAbsPath);
+    if (fixedType) return fixedType;
+
+    const choices = sourcePolyTypes(srcAbsPath);
+    if (!choices || !primary.polySuffix) return null;
+    return choices.find(type => cap(type) === primary.polySuffix) || null;
+  }
+
+  /**
+   * Attempt FML default-group dispatch for an implicit simple target.
+   * Exact source/target pairs may use either `<<types>>` or `<<type+>>`;
+   * polymorphic targets select a compatible `<<type+>>` group by source type.
+   *
+   * Nested resource instances deliberately remain plain copies until recursive
+   * contained/Bundle conversion is supported by the public conversion pipeline.
+   *
+   * @param {Target} tgt The target clause being written to.
+   * @param {Object} primary The primary source binding.
+   * @param {Scope} scope The current rule scope.
+   * @returns {{value: *, polySuffix: string|null}|undefined} Default-group
+   *   output and optional polymorphic suffix, or undefined for plain copy.
+   */
+  function tryDefaultGroup(tgt, primary, scope) {
+    if (defaultGroupsByPair.size === 0 && typePlusBySource.size === 0) return undefined;
     if (tgt.transform) return undefined;
     if (primary.value == null && primary.companion == null) return undefined;
+
+    const sourceValues = Array.isArray(primary.value) ? primary.value : [primary.value];
+    if (sourceValues.some(isResourceInstance)) return undefined;
 
     const srcCtx = scope.get(primary.spec.context);
     const tctx   = scope.get(tgt.context);
@@ -2595,34 +2879,70 @@ export function compileFmlXver({
       : getObjectPath(tctx);
     if (!srcAbsPath || !tgtAbsPath) return undefined;
 
-    const srcType = srcElementTypes.get(srcAbsPath);
-    const tgtType = tgtElementTypes.get(tgtAbsPath);
-    if (!srcType || !tgtType || srcType === tgtType) return undefined;
+    const srcType = sourceBindingType(primary, srcAbsPath);
+    const fixedTargetType = targetElementType(tgtAbsPath);
+    const targetChoices = targetPolyTypes(tgtAbsPath);
+    if (!srcType || (!fixedTargetType && !targetChoices)) return undefined;
 
-    const groupName = typesIndex.get(`${srcType}::${tgtType}`);
+    let groupName = null;
+    let selectedTargetType = fixedTargetType;
+    let polySuffix = null;
+
+    if (fixedTargetType) {
+      groupName = defaultGroupsByPair.get(`${srcType}::${fixedTargetType}`) || null;
+    } else {
+      const candidates = (typePlusBySource.get(srcType) || [])
+        .filter(candidate => targetChoices.includes(candidate.targetType));
+      if (candidates.length === 1) {
+        groupName = candidates[0].groupName;
+        selectedTargetType = candidates[0].targetType;
+        polySuffix = cap(selectedTargetType);
+      } else if (candidates.length > 1) {
+        const ambiguityKey =
+          `ambiguous:${srcType}:${srcAbsPath}->${tgtAbsPath}`;
+        if (!reportedTypeMismatches.has(ambiguityKey)) {
+          reportedTypeMismatches.add(ambiguityKey);
+          onWarning?.(
+            `ambiguous <<type+>> default for ${srcType} at ${srcAbsPath} -> ` +
+            `${tgtAbsPath}: ${candidates.map(candidate => candidate.targetType).join(', ')}`,
+          );
+        }
+        return undefined;
+      }
+    }
+
     if (!groupName) {
-      const mismatchKey =
-        `${srcType}->${tgtType}:${srcAbsPath}->${tgtAbsPath}`;
-      if (!reportedTypeMismatches.has(mismatchKey)) {
-        reportedTypeMismatches.add(mismatchKey);
-        onInfo?.(`type mismatch ${srcType}->${tgtType} at ${srcAbsPath} -> ${tgtAbsPath}; no <<types>> group, plain copy`);
+      if (fixedTargetType && srcType !== fixedTargetType) {
+        const mismatchKey =
+          `${srcType}->${fixedTargetType}:${srcAbsPath}->${tgtAbsPath}`;
+        if (!reportedTypeMismatches.has(mismatchKey)) {
+          reportedTypeMismatches.add(mismatchKey);
+          onInfo?.(
+            `type mismatch ${srcType}->${fixedTargetType} at ${srcAbsPath} -> ` +
+            `${tgtAbsPath}; no default group, plain copy`,
+          );
+        }
       }
       return undefined;
     }
 
+    const targetValuePath = polySuffix
+      ? tgtAbsPath.replace(/([^.]+)$/, `$1${polySuffix}`)
+      : tgtAbsPath;
+
     /**
-     * Coerce one source value with its aligned primitive companion.
+     * Map one source value with its aligned primitive companion.
      *
      * @param {*} value One source field value.
      * @param {*} companion Primitive metadata aligned with the value.
-     * @returns {Object} Expanded target value produced by the coercion group.
+     * @returns {Object} Expanded target value produced by the default group.
      */
-    function coerceValue(value, companion) {
+    function mapValue(value, companion) {
       const wrapped = isObject(value)
         ? value
         : expandPrimitive(value, companion);
       const child = {};
-      setObjectPath(child, tgtAbsPath);
+      setObjectPath(child, targetValuePath);
       execGroup(groupName, [wrapped, child], scope);
       return child;
     }
@@ -2631,14 +2951,20 @@ export function compileFmlXver({
       const companions = Array.isArray(primary.companion)
         ? primary.companion
         : [];
-      return primary.value.map((value, index) =>
-        coerceValue(value, companions[index]));
+      return {
+        value: primary.value.map((value, index) =>
+          mapValue(value, companions[index])),
+        polySuffix,
+      };
     }
 
     // Keep primitive results expanded. writeToSlot() is the single
     // serialization boundary that splits {value, id, extension} into the
     // target field and `_field` companion.
-    return coerceValue(primary.value, primary.companion);
+    return {
+      value: mapValue(primary.value, primary.companion),
+      polySuffix,
+    };
   }
 
   /**
@@ -2711,12 +3037,11 @@ export function compileFmlXver({
     // A plain (non-then) target inherently produces a single value, so
     // `single` is satisfied; warn only for the other unhandled modes here.
     if (tgt.listMode && tgt.listMode !== 'single') warnUnhandledTargetListMode(tgt);
-    // FML-spec auto-coercion: when source and target element types
-    // differ and a <<types>> conversion group is available, run that
-    // group instead of plain copying.
-    const coerced = tryTypeCoercion(tgt, primary, scope);
-    if (coerced !== undefined) {
-      writeTarget(tgt, coerced, scope, null, null);
+    // FML simple rules invoke the applicable <<types>> / <<type+>> default
+    // group instead of copying the source value directly.
+    const defaultResult = tryDefaultGroup(tgt, primary, scope);
+    if (defaultResult !== undefined) {
+      writeTarget(tgt, defaultResult.value, scope, defaultResult.polySuffix, null);
       return;
     }
 
@@ -2743,12 +3068,12 @@ export function compileFmlXver({
     if (!polySuffix && tgt.path && primary.spec.path) {
       const tctx = scope.get(tgt.context);
       const tgtAbsPath = tctx ? composeChildPath(tctx, tgt.path) : null;
-      const allowed = tgtAbsPath ? tgtPolyTypeLists.get(tgtAbsPath) : null;
+      const allowed = tgtAbsPath ? targetPolyTypes(tgtAbsPath) : null;
       if (allowed) {
         const srcCtx = scope.get(primary.spec.context);
         const srcAbsPath = srcCtx ? composeChildPath(srcCtx, primary.spec.path) : null;
         if (srcAbsPath) {
-          const srcType = srcElementTypes.get(srcAbsPath);
+          const srcType = sourceElementType(srcAbsPath);
           if (srcType && allowed.includes(srcType)) {
             polySuffix = cap(srcType);
           }
@@ -2782,7 +3107,7 @@ export function compileFmlXver({
       if (match) {
         const cloned = deepClone(match.value);
         // Preserve the source's absolute FHIR path on the clone so that
-        // downstream <<types>> coercion (which keys off srcElementTypes
+        // downstream default-group dispatch (which keys off srcElementTypes
         // via getObjectPath) keeps working after the value has been
         // cloned into a target slot.
         const srcPath = getObjectPath(match.value);
@@ -2803,7 +3128,8 @@ export function compileFmlXver({
    * @param {Object} opts.input        Source FHIR resource (JSON).
    * @param {string} [opts.entryGroup] Group name to start execution at;
    *                                   defaults to `input.resourceType`.
-   * @returns {Object} The converted resource (a new object).
+   * @returns {{resource: Object, spinOffResources?: Object[]}} Conversion
+   *   result containing the converted resource and any optional spin-offs.
    * @throws {Error} If `input` is not an object or has no `resourceType`
    *                 and `entryGroup` is not provided.
    */
@@ -2857,6 +3183,62 @@ export function compileFmlXver({
     return url;
   }
 
+  /**
+   * Rewrite `meta.profile` values while keeping `_profile` primitive metadata
+   * at the same indexes. Rewritten duplicates are removed only when their
+   * companion metadata is also identical; distinct metadata must remain
+   * attached to distinct primitive entries.
+   *
+   * @param {Object} meta Resource metadata containing a profile array.
+   * @param {string|null} declaredTargetProfile Mapping-declared target profile.
+   * @returns {void}
+   */
+  function rewriteMetaProfiles(meta, declaredTargetProfile) {
+    const profiles = meta.profile;
+    const hasCompanions = Array.isArray(meta._profile);
+    const companions = hasCompanions ? meta._profile : [];
+    const entryCount = Math.max(profiles.length, companions.length);
+    const updatedProfiles = [];
+    const updatedCompanions = [];
+    const seenRewrittenPairs = new Set();
+
+    for (let index = 0; index < entryCount; index++) {
+      const url = profiles[index] ?? null;
+      const companion = companions[index] ?? null;
+      let updatedUrl = url;
+      let rewritten = false;
+
+      if (typeof url === 'string' && isSourceVersionProfile(url)) {
+        updatedUrl = declaredTargetProfile || toTargetVersionProfile(url);
+        rewritten = true;
+      } else if (typeof url === 'string' && FHIR_BASE_PROFILE_RE.test(url)) {
+        // Drop standard FHIR profiles belonging to a different version.
+        continue;
+      }
+
+      if (rewritten) {
+        const pairKey = JSON.stringify([updatedUrl, companion]);
+        if (seenRewrittenPairs.has(pairKey)) continue;
+        seenRewrittenPairs.add(pairKey);
+      }
+
+      updatedProfiles.push(updatedUrl);
+      if (hasCompanions) updatedCompanions.push(companion);
+    }
+
+    if (updatedProfiles.length) {
+      meta.profile = updatedProfiles;
+    } else {
+      delete meta.profile;
+    }
+
+    if (hasCompanions && updatedCompanions.some(value => value !== null)) {
+      meta._profile = updatedCompanions;
+    } else {
+      delete meta._profile;
+    }
+  }
+
   function convert({ input, entryGroup } = {}) {
     reportedTypeMismatches.clear();
     _listModeWarned.clear();
@@ -2882,7 +3264,7 @@ export function compileFmlXver({
     // every subsequent child write can build its path by descent.
     setObjectPath(out, targetResourceType);
 
-    // Seed the source root path too, so write-time type coercion can
+    // Seed the source root path too, so write-time default-group dispatch can
     // look up source element types via composeChildPath(srcCtx, path).
     setObjectPath(input, sourceResourceType);
 
@@ -2894,33 +3276,28 @@ export function compileFmlXver({
     if (fromVer && toVer && tgtVerNum && targetResourceType) {
       const declaredTargetProfile = mapping?.targetProfile || null;
       if (Array.isArray(out.meta?.profile)) {
-        const updated = [];
-        for (const url of out.meta.profile) {
-          if (isSourceVersionProfile(url)) {
-            const targetProfile =
-              declaredTargetProfile || toTargetVersionProfile(url);
-            if (!updated.includes(targetProfile)) updated.push(targetProfile);
-          } else if (!FHIR_BASE_PROFILE_RE.test(url)) {
-            // Non-standard profile -- keep as-is.
-            updated.push(url);
-          }
-          // else: standard FHIR profile for a different version -- drop it.
-        }
-        out.meta.profile = updated.length ? updated : undefined;
-        if (!out.meta.profile && Object.keys(out.meta).length === 0) {
-          delete out.meta;
-        }
+        rewriteMetaProfiles(out.meta, declaredTargetProfile);
+        if (Object.keys(out.meta).length === 0) delete out.meta;
       } else {
         // No profile on source -- add the target version's base profile.
         if (!out.meta) out.meta = {};
-        out.meta.profile = [
-          declaredTargetProfile ||
-          `http://hl7.org/fhir/${tgtVerNum}/StructureDefinition/${targetResourceType}`,
-        ];
+        const targetProfile = declaredTargetProfile ||
+          `http://hl7.org/fhir/${tgtVerNum}/StructureDefinition/${targetResourceType}`;
+        const companions = Array.isArray(out.meta._profile) ? out.meta._profile : [];
+
+        out.meta.profile = [targetProfile];
+        if (companions.some(value => value !== null)) {
+          out.meta.profile.push(...companions.map(() => null));
+          out.meta._profile = [null, ...companions.map(value => value ?? null)];
+        } else {
+          delete out.meta._profile;
+        }
       }
     }
 
-    return out;
+    return {
+      resource: out,
+    };
   }
 
 
