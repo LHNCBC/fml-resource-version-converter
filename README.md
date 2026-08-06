@@ -94,6 +94,10 @@ only when the source resource maps to more than one target on the hop (as with
 supplied, it is checked against the target type declared by the FML
 StructureMap, so a mismatched value is rejected rather than silently ignored.
 
+Naming a target type does not always identify a single mapping: `ProcedureRequest`
+R3 -> R2 targeting `DiagnosticOrder` is served by two FML StructureMaps and
+therefore cannot be run. See [Limitations](#limitations).
+
 ## Supported version pairs
 
 Use the canonical version tokens **R2**, **R3**, **R4**, **R4B**, and **R5**.
@@ -146,6 +150,12 @@ following in mind:
   modes. These are not used by the current HL7 cross-version mapping files,
   and current conversions are not affected. The engine will emit a warning
   message if it sees one. The features will be implemented in a future release.
+- **`ProcedureRequest` R3 -> R2 with target type `DiagnosticOrder` is not handled.**
+  Two bundled FML StructureMaps declare that same source/target pair
+  (`DiagnosticOrder.fml` and `ProcedureRequestDO.fml`), and choosing between
+  them requires clinical knowledge this converter does not have. See
+  [CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md) for the full list of
+  known mapping ambiguities.
 
 ## Understanding the result
 

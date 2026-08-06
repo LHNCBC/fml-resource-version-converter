@@ -298,10 +298,38 @@ To update this snapshot:
 
 1. Update `data/fhir-cross-version/SOURCE.md` with the source URL, commit, and
    snapshot date.
-2. Re-run the FML parser tests and conversion tests.
-3. Review behavior changes for any resource and version pair affected by the
+2. Run the data-integrity check (see below) and address anything it reports.
+3. Re-run the FML parser tests and conversion tests.
+4. Review behavior changes for any resource and version pair affected by the
    new mappings.
-4. Update postprocessors and `COVERAGE.md` if the reviewed coverage changes.
+5. Update postprocessors and `COVERAGE.md` if the reviewed coverage changes.
+
+#### Checking the snapshot with `tools/check-data.js`
+
+After refreshing the snapshot, run:
+
+```bash
+node tools/check-data.js
+```
+
+Snapshot refreshes are infrequent, so this is deliberately a manual step and is
+not part of `npm test`. The tool reports two things:
+
+- **ConceptMap integrity.** Every standalone ConceptMap referenced by the FML
+  mappings must be present and parseable. A problem here is a genuine error and
+  the tool exits non-zero.
+- **Mapping selection ambiguities (informational).** The FML files may declare
+  a source resource type with more than one target type (Type A), or a single
+  source/target pair served by more than one mapping file (Type B). These are
+  not errors and do not affect the exit code, but they are something you should
+  be aware of and address appropriately.
+
+Compare the reported ambiguities against
+[CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md). If an entry has appeared or
+disappeared, update that document, and update `README.md` as well if a
+documented limitation changed. A new Type B ambiguity on an actively supported
+version pair is worth a closer look, since the converter cannot currently
+resolve one on its own.
 
 ### `data/fhir-defs/` and `data/fhir-spec-downloads/`
 
