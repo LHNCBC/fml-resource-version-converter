@@ -37,11 +37,11 @@ type pair; see the details below.
 
 ## Resolution
 
-**Type A is handled** by the caller declaring the intended target type: the
-targetResourceType option on the public API, or the --target-resource-type
-argument on the command line. The declared type is validated against the target
-declared by the FML mapping file, so a mismatched value is rejected rather than
-silently ignored. Both Type A cases above are therefore fully supported.
+**Type A is handled for the main resource** with the `targetResourceType` option
+or the `--target-resource-type` command-line argument. Specify a target when
+there is ambiguity; the converter validates it against the bundled mappings.
+Contained resources and Bundle entries are not yet converted recursively. Their
+target-selection needs will be addressed when that support is added.
 
 **Type B is deferred** until there is a demonstrated need. Resolving it would
 require a further selector naming a specific mapping file, which would become
