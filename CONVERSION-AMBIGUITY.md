@@ -10,11 +10,11 @@ This report lists all the known ambiguities in the current version of the
 FML mappings. There are two types of ambiguities, and a specific conversion
 may exhibit both.
 
-- **Type A: 1-to-N source-target selection**  
+- **Type A: 1-to-N source-target selection**
 A source resource type may be mapped to more than one target resource type;
 see the details below.
 
-- **Type B: Multiple mapping files for a given source-target pair**  
+- **Type B: Multiple mapping files for a given source-target pair**
 There is more than one mapping file to choose from for the same source-target resource
 type pair; see the details below.
 
@@ -63,8 +63,5 @@ permanent public API surface. That is not justified at present:
   produced by an arbitrarily chosen mapping file.
 
 If a future refresh of the HL7 mapping files introduces a Type B collision on
-an actively supported version pair, or if this specific case of R3 -> R3
+an actively supported version pair, or if this specific case of R3 -> R2
 conversion can be justified, this decision should be revisited.
-
-
-

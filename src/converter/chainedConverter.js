@@ -101,5 +101,3 @@ function convert(resource, fromVer, toVer, opts = {}) {
  * @type {{convert: typeof convert}}
  */
 export const chainedConverter = { convert };
-
-

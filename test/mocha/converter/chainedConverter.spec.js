@@ -128,5 +128,3 @@ describe('converter/chainedConverter', function () {
     });
   });
 });
-
-
