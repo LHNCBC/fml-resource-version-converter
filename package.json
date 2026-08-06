@@ -23,7 +23,6 @@
     "data/fhir-cross-version/",
     "data/fhir-defs/",
     "data/fhir-spec-downloads/README.md",
-    "tools/",
     "README.md",
     "CHANGELOG.md",
     "COVERAGE.md",

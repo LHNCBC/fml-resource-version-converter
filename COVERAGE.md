@@ -9,7 +9,7 @@ A conversion runs in up to two steps:
 
 For each resource type, the tables report the coverage of the FML step, of the postprocessors (when any apply), and of the two combined as the overall coverage.
 
-> _Generated file - do not edit by hand. Regenerate with `npm run build:coverage` (see `tools/build-coverage.js`)._
+> _Generated file - do not edit by hand. Maintainers regenerate it with `npm run build:coverage` (see `tools/build-coverage.js` in the source repository)._
 
 ## Coverage levels
 

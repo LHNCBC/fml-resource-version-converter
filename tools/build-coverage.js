@@ -171,8 +171,9 @@ function buildDocument() {
     '',
   );
   out.push(
-    '> _Generated file - do not edit by hand. Regenerate with `npm run build:coverage` '
-    + '(see `tools/build-coverage.js`)._',
+    '> _Generated file - do not edit by hand. Maintainers regenerate it with '
+    + '`npm run build:coverage` (see `tools/build-coverage.js` in the source '
+    + 'repository)._',
     '',
   );
 
