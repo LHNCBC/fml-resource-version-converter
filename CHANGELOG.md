@@ -16,8 +16,9 @@ This project follows [Semantic Versioning](http://semver.org/).
 - The command-line runner (`bin/convert.js`) now handles multi-hop conversions
   and prints a per-hop diagnostics summary.
 - `opts.targetResourceType` (and the `--target-resource-type` CLI option) to
-  name the intended target type when a source resource type maps to more than
-  one target on a hop, such as `ServiceRequest` R4 -> R3.
+  name the intended target type when there is ambiguity, such as
+  `ServiceRequest` R4 -> R3. See [CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md)
+  for the known ambiguous mappings.
 - `CONVERSION-AMBIGUITY.md`, documenting the known mapping-selection
   ambiguities. One of them, `ProcedureRequest` R3 -> R2 targeting
   `DiagnosticOrder`, is served by two mapping files and cannot be run; it is
