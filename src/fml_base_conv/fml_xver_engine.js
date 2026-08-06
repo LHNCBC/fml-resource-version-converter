@@ -243,7 +243,7 @@ const BASE_COPIERS = {
   },
   Resource(src, tgt) {
     if (src.id !== undefined)            tgt.id            = src.id;
-    // TODO: Resource.id companion field `_id` is TBD and currently not copied.
+    // Resource.id has no `_id` companion field
     if (src.meta !== undefined)          tgt.meta          = deepClone(src.meta);
     copyPrimitiveProperty(src, tgt, 'implicitRules');
     copyPrimitiveProperty(src, tgt, 'language');
