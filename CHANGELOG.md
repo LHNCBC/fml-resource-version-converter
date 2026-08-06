@@ -3,7 +3,7 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-06
 
 ### Added
 
@@ -15,6 +15,13 @@ This project follows [Semantic Versioning](http://semver.org/).
   `postproc` options.
 - The command-line runner (`bin/convert.js`) now handles multi-hop conversions
   and prints a per-hop diagnostics summary.
+- `opts.targetResourceType` (and the `--target-resource-type` CLI option) to
+  name the intended target type when a source resource type maps to more than
+  one target on a hop, such as `ServiceRequest` R4 -> R3.
+- `CONVERSION-AMBIGUITY.md`, documenting the known mapping-selection
+  ambiguities. One of them, `ProcedureRequest` R3 -> R2 targeting
+  `DiagnosticOrder`, is served by two mapping files and cannot be run; it is
+  listed under Limitations in `README.md`.
 
 ### Changed
 
@@ -26,6 +33,9 @@ This project follows [Semantic Versioning](http://semver.org/).
   combination policy now lives inside a postprocessor's configuration entry as
   `{ policy: 'append' | 'replace', psps: [...] }` (the standalone
   `postprocessPolicy` option was removed).
+- The public API now checks its arguments up front - the resource shape, the
+  version tokens, and the option types - and throws a clear error, instead of
+  failing later with a confusing one.
 
 ### Fixed
 
@@ -43,6 +53,14 @@ This project follows [Semantic Versioning](http://semver.org/).
 - FML engine: datatype-internal array fields written through a type/`then`
   conversion (e.g. `Encounter.class.coding`, `PractitionerRole.contact.telecom`)
   are now correctly wrapped as arrays.
+- Companion fields (the `_name` object that carries the `id` and extensions of a
+  primitive value, such as `_status` for `status`) are now carried over
+  correctly in a number of cases where they were previously dropped or
+  misplaced.
+- The converted resource no longer carries a stray `resourceType` on objects
+  that are not resources.
+- FML parser: fixed the tokenizing of a hyphen followed by a space, which could
+  cause some rules to be misread.
 
 ## [0.1.0] - 2026-07-20
 

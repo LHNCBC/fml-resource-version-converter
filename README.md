@@ -255,6 +255,10 @@ const result = chainedConverter.convert(resource, 'R3', 'R5', {
 For `singleHopConverter.convert()`, keyed maps may use either the full
 `'Questionnaire:R4->R5'` key or the type-only `'Questionnaire'` key.
 
+The package also exports helpers for authoring processors - `makeProcessor`,
+`validateProcessorDescriptor`, `makeMessage`, `infoMessage`, `warningMessage`,
+and `statusFromMessages`.
+
 The processor contract is documented in [CONTRIBUTING.md](CONTRIBUTING.md) for
 contributors and advanced users.
 
