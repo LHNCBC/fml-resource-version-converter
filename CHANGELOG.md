@@ -37,9 +37,17 @@ This project follows [Semantic Versioning](http://semver.org/).
 - The public API now checks its arguments up front - the resource shape, the
   version tokens, and the option types - and throws a clear error, instead of
   failing later with a confusing one.
+- `singleHopConverter.convert()` now rejects a non-adjacent version pair up
+  front, pointing to `chainedConverter.convert()`, instead of failing later with
+  a less obvious error.
+- `chainedConverter.convert()` now rejects `opts.targetResourceType` instead of
+  silently ignoring it. Target selection currently only applies to one hop.
 
 ### Fixed
 
+- A single (unkeyed) `postproc` was silently skipped on the last hop when an
+  earlier hop renamed the resource type (for example `Sequence` R3 ->
+  `MolecularSequence` R4); it now runs as documented.
 - FML engine: multi-target `then` rules now process the intermediate
   targets (e.g. `tgt.A as t, t.B as tc then Group(s, tc)`) correctly.
 - FML parser and engine: target list modes are now recognized:

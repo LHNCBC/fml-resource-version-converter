@@ -54,13 +54,24 @@ import { rollupStatus } from './diagnostics.js';
  * @param {boolean} [opts.checkCoverage=true] Enforce non-decreasing coverage
  *   within each hop.
  * @returns {Object} Unified result object; see the module overview for the shape.
- * @throws {Error} On same-version / unsupported version pairs, unknown resource
- *   type / missing FML mapping for a required hop, invalid processor options,
- *   decreasing coverage, a warning-invariant violation, or any hard error from a
- *   processor or the engine.
+ * @throws {Error} On same-version / unsupported version pairs, an unsupported
+ *   `targetResourceType` option, unknown resource type / missing FML mapping for
+ *   a required hop, invalid processor options, decreasing coverage, a
+ *   warning-invariant violation, or any hard error from a processor or the
+ *   engine.
  */
 function convert(resource, fromVer, toVer, opts = {}) {
   const { checkCoverage = true } = opts;
+
+  // Target selection is a single-hop capability: on a multi-hop path the option
+  // is ambiguous (which hop does it name?). Reject it rather than ignore it, so
+  // a caller is never left believing a target was honored.
+  if (opts.targetResourceType !== undefined) {
+    throw new Error(
+      'chainedConverter.convert does not support opts.targetResourceType; '
+      + 'use singleHopConverter.convert for the ambiguous hop',
+    );
+  }
 
   // Plan first: planHops validates the version pair (same-version, unsupported
   // pairs, and unknown versions all throw here, before any work).

@@ -29,6 +29,7 @@
 import fs from 'node:fs';
 import { chainedConverter } from '../src/converter/chainedConverter.js';
 import { singleHopConverter } from '../src/converter/singleHopConverter.js';
+import { planHops } from '../src/fml_base_conv/create_converter.js';
 
 /**
  * Read the whole of a readable stream as a UTF-8 string.
@@ -197,6 +198,18 @@ async function main() {
     resource = JSON.parse(raw);
   } catch (e) {
     process.stderr.write(`Error: input is not valid JSON: ${e.message}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // Target selection is a single-hop capability. Check it here so the user gets
+  // a command-line-oriented message instead of one naming the JavaScript API.
+  if (targetResourceType !== undefined && planHops(fromVer, toVer).length !== 1) {
+    process.stderr.write(
+      `Error: --target-resource-type is supported only for an adjacent version pair, `
+      + `but ${fromVer} -> ${toVer} takes more than one hop.\n`
+      + `       Convert one hop at a time, selecting the target on the ambiguous hop.\n`,
+    );
     process.exitCode = 1;
     return;
   }

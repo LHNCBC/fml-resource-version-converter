@@ -36,6 +36,28 @@ describe('converter/chainedConverter', function () {
     });
   });
 
+  // -------- unsupported options --------------------------------------------
+  describe('targetResourceType option', function () {
+    it('is rejected rather than silently ignored', function () {
+      assert.throws(
+        () => convert(r4Questionnaire, 'R4', 'R5', { targetResourceType: 'Questionnaire' }),
+        /does not support opts\.targetResourceType/,
+      );
+    });
+
+    it('is rejected on a multi-hop path too', function () {
+      assert.throws(
+        () => convert(r3Questionnaire, 'R3', 'R5', { targetResourceType: 'Questionnaire' }),
+        /use singleHopConverter\.convert for the ambiguous hop/,
+      );
+    });
+
+    it('is accepted as undefined (option simply absent)', function () {
+      const result = convert(r4Questionnaire, 'R4', 'R5', { targetResourceType: undefined });
+      assert.equal(result.resource.resourceType, 'Questionnaire');
+    });
+  });
+
   // -------- multi-hop chain ------------------------------------------------
   describe('R3 -> R5 (two hops)', function () {
     let result;
