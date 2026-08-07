@@ -63,8 +63,8 @@
  * @property {GuardExpr|null} log       `log (...)` clause. Diagnostic only:
  *                                      per the FML spec its evaluated result
  *                                      is a log message; it does not affect
- *                                      the transformation. Parsed and stored
- *                                      but not executed.
+ *                                      the transformation. The engine emits
+ *                                      the evaluated value as an info message.
  * @property {'first'|'last'|'not_first'|'not_last'|'only_one'|null} listMode
  *
  * @typedef {Object} Target
@@ -111,7 +111,7 @@ const TK = Object.freeze({
   SEMI: 'SEMI', COMMA: 'COMMA', COLON: 'COLON', DOT: 'DOT',
   LPAREN: 'LPAREN', RPAREN: 'RPAREN', LBRACE: 'LBRACE', RBRACE: 'RBRACE',
   EQ: 'EQ', NEQ: 'NEQ', META: 'META', EOF: 'EOF', PIPE: 'PIPE',
-  TYPE_ANNOT: 'TYPE_ANNOT',
+  TYPE_ANNOT: 'TYPE_ANNOT', MINUS: 'MINUS',
 });
 
 /** Map from single-character punctuation to its token kind. */
@@ -187,6 +187,14 @@ export function tokenise(text, onWarning) {
     // --- Multi-char operators ---
     if (c === '-' && c2 === '>') { i += 2; push(TK.ARROW, '->'); start = i; continue; }
     if (c === '!' && c2 === '=') { i += 2; push(TK.NEQ, '!=');  start = i; continue; }
+
+    // --- Standalone minus (signed numerics / subtraction) ---
+    // `->` is handled just above, and identifiers consume their own embedded
+    // hyphens, so any `-` reaching here begins a real minus (e.g. the `- 1` in
+    // a guard like `(v = ( - 1))`). Emit a token rather than warning: the guard
+    // RHS is captured as raw source text, so nothing is lost, and unrelated
+    // conversions that merely import this file no longer inherit a warning.
+    if (c === '-') { i++; push(TK.MINUS, '-'); start = i; continue; }
 
     // --- <<...>> type annotation: capture inner content as TYPE_ANNOT ---
     if (c === '<' && c2 === '<') {
@@ -533,8 +541,8 @@ export function parseFml(fmlText, onWarning) {
     if (atWord('as'))    { advance(); src.alias = expect(TK.WORD).value; }
     if (atWord('where')) { advance(); src.where = parseGuardExpr(); }
     if (atWord('check')) { advance(); src.check = parseGuardExpr(); }
-    // `log (...)` -- diagnostic only per the FML spec; parsed so it does not
-    // mis-terminate the source clause, but not executed (no output effect).
+    // `log (...)` -- diagnostic only per the FML spec. The engine evaluates
+    // the parsed expression and emits its value as an info message.
     if (atWord('log'))   { advance(); src.log = parseGuardExpr(); }
     return src;
   }
@@ -745,4 +753,3 @@ export function parseFml(fmlText, onWarning) {
     return { name, args };
   }
 }
-

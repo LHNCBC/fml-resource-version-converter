@@ -45,7 +45,7 @@ The package is published as an ES module.
 ## Quick start
 
 ```js
-import { chainedConverter } from '@lhncbc/fml-resource-version-converter';
+import { chainedConverter, singleHopConverter } from '@lhncbc/fml-resource-version-converter';
 
 const questionnaireR4 = {
   resourceType: 'Questionnaire',
@@ -75,6 +75,28 @@ version, an unknown resource type, or an unsupported version path.
 
 The input resource is deep-cloned before conversion. Your original resource object
 is not modified.
+
+Because resources are sometimes renamed or split between FHIR versions, a
+source resource type can map to more than one target type on a single hop. Use
+`opts.targetResourceType` to assert the intended target:
+
+```js
+// R4 -> R3: a ServiceRequest may become a ProcedureRequest or a ReferralRequest,
+// so the target type must be stated explicitly.
+const result = singleHopConverter.convert(serviceRequestR4, 'R4', 'R3', {
+  targetResourceType: 'ProcedureRequest',
+});
+```
+
+`targetResourceType` names the **intended target type**. It is **required**
+only when the source resource maps to more than one target on the hop (as with
+`ServiceRequest` R4->R3 above); for a one-to-one mapping it is optional. When
+supplied, it is checked against the target type declared by the FML
+StructureMap, so a mismatched value is rejected rather than silently ignored.
+
+Naming a target type does not always identify a single mapping: `ProcedureRequest`
+R3 -> R2 targeting `DiagnosticOrder` is served by two FML StructureMaps and
+therefore cannot be run. See [Limitations](#limitations).
 
 ## Supported version pairs
 
@@ -113,6 +135,15 @@ following in mind:
   convert them separately for now. Automatic conversion of contained resources
   is planned for a future release, at which point the conversion report will
   include a per-contained-resource status you can check.
+- **Bundle entry resources are not version-converted.** Bundle structure is
+  mapped, but each `entry.resource` is carried through as-is. Recursive
+  conversion of Bundle entries is planned for a future release.
+- **One-to-many conversion is not yet supported.** A future release will handle
+  cases such as R2 -> R3 `CarePlan` -> `CarePlan` + `CareTeam` when needed.
+- **Ambiguous target selection with `targetResourceType` (or the CLI option
+  `--target-resource-type`) is supported only for a single hop.** Support for
+  selecting targets within a multi-hop conversion may be added in a future
+  release.
 - **Reviewed postprocessors are supplied only for Questionnaire.** Other resource
   types are converted by the FML mapping alone (see [COVERAGE.md](COVERAGE.md)),
   and more postprocessors may be added in future releases. You certainly can
@@ -123,6 +154,12 @@ following in mind:
   modes. These are not used by the current HL7 cross-version mapping files,
   and current conversions are not affected. The engine will emit a warning
   message if it sees one. The features will be implemented in a future release.
+- **`ProcedureRequest` R3 -> R2 with target type `DiagnosticOrder` is not handled.**
+  Two bundled FML StructureMaps declare that same source/target pair
+  (`DiagnosticOrder.fml` and `ProcedureRequestDO.fml`), and choosing between
+  them requires clinical knowledge this converter does not have. See
+  [CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md) for the full list of
+  known mapping ambiguities.
 
 ## Understanding the result
 
@@ -219,8 +256,18 @@ const result = chainedConverter.convert(resource, 'R3', 'R5', {
 });
 ```
 
+In a keyed `preprocs` or `postprocs` entry, the resource type is the type
+entering that hop. This also applies when a mapping renames the resource: for
+`Sequence` R3 -> `MolecularSequence` R4, use the postprocessor key
+`Sequence:R3->R4`, even though the postprocessor receives the converted
+`MolecularSequence`.
+
 For `singleHopConverter.convert()`, keyed maps may use either the full
 `'Questionnaire:R4->R5'` key or the type-only `'Questionnaire'` key.
+
+The package also exports helpers for authoring processors - `makeProcessor`,
+`validateProcessorDescriptor`, `makeMessage`, `infoMessage`, `warningMessage`,
+and `statusFromMessages`.
 
 The processor contract is documented in [CONTRIBUTING.md](CONTRIBUTING.md) for
 contributors and advanced users.
@@ -280,6 +327,14 @@ warnings are written to stderr. Use `--verbose` to include info messages:
 
 ```bash
 node bin/convert.js --verbose R3 R4 questionnaire-r3.json > questionnaire-r4.json
+```
+
+For a source type with multiple possible targets, select the intended mapping
+with `--target-resource-type`:
+
+```bash
+node bin/convert.js R4 R3 service-request-r4.json \
+  --target-resource-type ProcedureRequest > procedure-request-r3.json
 ```
 
 ## Coverage and contributions

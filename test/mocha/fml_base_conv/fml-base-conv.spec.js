@@ -4,6 +4,7 @@
  */
 import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createFmlEngineFactory, planHops } from '../../../src/fml_base_conv/create_converter.js';
 import { compileFmlXver } from '../../../src/fml_base_conv/fml_xver_engine.js';
@@ -34,15 +35,146 @@ describe('fml_base_conv/createEngine', function () {
   it('reports mapping availability via hasMapping', function () {
     const factory = createFmlEngineFactory();
     assert.equal(factory.hasMapping('Questionnaire', 'R4', 'R5'), true);
+    assert.equal(factory.hasMapping('Sequence', 'R3', 'R4'), true);
     assert.equal(factory.hasMapping('NoSuchResource', 'R4', 'R5'), false);
   });
 
   it('throws for unknown resource type', function () {
-    assert.throws(() => createEngine('NoSuchResource', 'R4', 'R5'), /FML file not found/);
+    assert.throws(() => createEngine('NoSuchResource', 'R4', 'R5'), /FML mapping not found/);
   });
 
   it('throws for unknown FHIR version', function () {
     assert.throws(() => createEngine('Questionnaire', 'R4', 'R99'), /not found|Unknown/);
+  });
+});
+
+// ---------- resource mapping discovery and selection ------------------------
+
+describe('fml_base_conv: resource mapping discovery and selection', function () {
+  it('does not cache a partially scanned direction after an FML parse error', function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fml-catalog-'));
+    try {
+      const direction = path.join(root, 'R4toR5');
+      fs.mkdirSync(direction);
+
+      const validFml = `
+/// url = "http://example.org/StructureMap/Patient4to5"
+/// name = "Patient4to5"
+
+uses "http://hl7.org/fhir/4.0/StructureDefinition/Patient" alias PatientR4 as source
+uses "http://hl7.org/fhir/5.0/StructureDefinition/Patient" alias PatientR5 as target
+
+group Patient(source src : PatientR4, target tgt : PatientR5) extends DomainResource <<type+>> {
+  src.id -> tgt.id;
+}
+`;
+      fs.writeFileSync(path.join(direction, 'AValid.fml'), validFml, 'utf-8');
+      fs.writeFileSync(path.join(direction, 'ZInvalid.fml'), 'group Broken(', 'utf-8');
+
+      const factory = createFmlEngineFactory({ xverInputRoot: root });
+      const inspect = () => factory.hasMapping('Patient', 'R4', 'R5');
+
+      assert.throws(inspect, /failed to inspect.*ZInvalid\.fml/);
+      assert.throws(
+        inspect,
+        /failed to inspect.*ZInvalid\.fml/,
+        'a second lookup must retry the failed scan rather than use a partial cache',
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('discovers a renamed resource by its FML source declaration', function () {
+    const factory = createFmlEngineFactory();
+    const mapping = factory.resolveMapping('Sequence', 'R3', 'R4');
+
+    assert.equal(mapping.structureMapName, 'Sequence3to4');
+    assert.equal(mapping.entryGroup, 'Sequence');
+    assert.equal(mapping.sourceResourceType, 'Sequence');
+    assert.equal(mapping.targetResourceType, 'MolecularSequence');
+  });
+
+  it('uses the declared entry group and target type in both rename directions', function () {
+    const toR4 = createEngine('Sequence', 'R3', 'R4');
+    const { resource: r4 } = toR4.convert({
+      input: {
+        resourceType: 'Sequence',
+        id: 'sequence-r3',
+        type: 'dna',
+        coordinateSystem: 0,
+      },
+    });
+
+    assert.equal(r4.resourceType, 'MolecularSequence');
+    assert.equal(r4.id, 'sequence-r3');
+    assert.deepEqual(
+      r4.meta.profile,
+      ['http://hl7.org/fhir/4.0/StructureDefinition/MolecularSequence'],
+    );
+
+    const toR3 = createEngine('MolecularSequence', 'R4', 'R3');
+    const { resource: r3 } = toR3.convert({
+      input: {
+        resourceType: 'MolecularSequence',
+        id: 'sequence-r4',
+        type: 'dna',
+        coordinateSystem: 0,
+      },
+    });
+
+    assert.equal(r3.resourceType, 'Sequence');
+    assert.equal(r3.id, 'sequence-r4');
+    assert.deepEqual(
+      r3.meta.profile,
+      ['http://hl7.org/fhir/3.0/StructureDefinition/Sequence'],
+    );
+  });
+
+  it('requires targetResourceType for a one-to-many source mapping', function () {
+    const factory = createFmlEngineFactory();
+
+    assert.throws(
+      () => factory.resolveMapping('ServiceRequest', 'R4', 'R3'),
+      /targetResourceType is required.*ProcedureRequest, ReferralRequest/,
+    );
+  });
+
+  it('selects each ServiceRequest target by targetResourceType', function () {
+    const factory = createFmlEngineFactory();
+    const procedure = factory.resolveMapping('ServiceRequest', 'R4', 'R3', {
+      targetResourceType: 'ProcedureRequest',
+    });
+    const referral = factory.resolveMapping('ServiceRequest', 'R4', 'R3', {
+      targetResourceType: 'ReferralRequest',
+    });
+
+    assert.equal(procedure.entryGroup, 'ServiceRequestPR');
+    assert.equal(procedure.targetResourceType, 'ProcedureRequest');
+    assert.equal(referral.entryGroup, 'ServiceRequestR');
+    assert.equal(referral.targetResourceType, 'ReferralRequest');
+  });
+
+  it('rejects a target type that no candidate declares', function () {
+    const factory = createFmlEngineFactory();
+
+    assert.throws(
+      () => factory.resolveMapping('Questionnaire', 'R4', 'R5', {
+        targetResourceType: 'Patient',
+      }),
+      /targeting Patient.*Available targets: Questionnaire/,
+    );
+  });
+
+  it('fails closed when targetResourceType still leaves duplicate maps', function () {
+    const factory = createFmlEngineFactory();
+
+    assert.throws(
+      () => factory.resolveMapping('ProcedureRequest', 'R3', 'R2', {
+        targetResourceType: 'DiagnosticOrder',
+      }),
+      /Multiple FML StructureMaps.*DiagnosticOrder3to2, ProcedureRequestDO3to2/,
+    );
   });
 });
 
@@ -60,13 +192,390 @@ describe('fml_base_conv: ConceptMap path resolution', function () {
     };
     const warnings = [];
     const engine = createEngine('OperationDefinition', 'R4', 'R5', { onWarning: m => warnings.push(m) });
-    const output = engine.convert({ input });
+    const engineResult = engine.convert({ input });
+    const output = engineResult.resource;
+
+    assert.equal('spinOffResources' in engineResult, false);
 
     assert.equal(output.parameter[0].type, 'Reference');
     const typeMapNotFound = warnings.filter(
       w => /not found/.test(w) && /ConceptMap-(types|resources)-/.test(w),
     );
     assert.equal(typeMapNotFound.length, 0, 'types-/resources- ConceptMaps should resolve');
+  });
+});
+
+// ---------- default mapping group dispatch --------------------------------
+
+describe('fml_base_conv: default mapping group dispatch', function () {
+  it('invokes a same-type <<type+>> group and re-roots nested datatype paths', function () {
+    const fml = `
+group Test(source src, target tgt) {
+  src.name -> tgt.name;
+}
+`;
+    const humanName = `
+uses "http://test/source/StructureDefinition/HumanName" alias HumanNameSource as source
+uses "http://test/target/StructureDefinition/HumanName" alias HumanNameTarget as target
+
+group MapHumanName(source src : HumanNameSource, target tgt : HumanNameTarget) <<type+>> {
+  src.family -> tgt.family;
+  src.given as value -> tgt.text = value;
+}
+`;
+    const engine = compileFmlXver({
+      fmlText: fml,
+      importedFmlTexts: [humanName],
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: {
+          'Test.name': 'HumanName',
+          'HumanName.family': 'string',
+          'HumanName.given': 'string',
+        },
+        arrayPaths: ['Test.name'],
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: {
+          'Test.name': 'HumanName',
+          'HumanName.family': 'string',
+          'HumanName.text': 'string',
+        },
+        arrayPaths: ['Test.name'],
+      },
+    });
+    const familyCompanion = { id: 'family-id' };
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        name: [{
+          family: 'Smith',
+          _family: familyCompanion,
+          given: 'Jane',
+        }],
+      },
+    });
+
+    assert.deepEqual(out.name, [{
+      family: 'Smith',
+      _family: familyCompanion,
+      text: 'Jane',
+    }]);
+  });
+
+  it('uses <<type+>> to select a concrete polymorphic target type', function () {
+    const fml = `
+group Test(source src, target tgt) {
+  src.value -> tgt.choice;
+}
+`;
+    const primitive = `
+uses "http://test/source/StructureDefinition/string" alias stringSource as source
+uses "http://test/target/StructureDefinition/string" alias stringTarget as target
+
+group MapString(source src : stringSource, target tgt : stringTarget) <<type+>> {
+  src.value -> tgt.value = 'mapped';
+}
+`;
+    const engine = compileFmlXver({
+      fmlText: fml,
+      importedFmlTexts: [primitive],
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'string' },
+        arrayPaths: [],
+      },
+      tgtDefs: {
+        polyPaths: { 'Test.choice': ['string', 'CodeableConcept'] },
+        elementTypes: {},
+        arrayPaths: [],
+      },
+    });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', value: 'source' },
+    });
+
+    assert.equal(out.choiceString, 'mapped');
+    assert.equal('choice' in out, false);
+  });
+
+  it('runs the bundled HumanName default for Patient R2->R3', function () {
+    const engine = createEngine('Patient', 'R2', 'R3');
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Patient',
+        name: [{ family: ['Smith', 'Jones'] }],
+      },
+    });
+
+    assert.equal(out.name[0].family, 'Smith');
+    assert.deepEqual(out.name[0].extension, [{
+      url: 'http://hl7.org/fhir/StructureDefinition/HumanName-familyRepeat',
+      valueString: 'Jones',
+    }]);
+  });
+
+  it('leaves nested resource instances unconverted', function () {
+    const engine = createEngine('Bundle', 'R2', 'R3');
+    const nestedPatient = {
+      resourceType: 'Patient',
+      name: [{ family: ['Smith', 'Jones'] }],
+    };
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Bundle',
+        type: 'collection',
+        entry: [{ resource: nestedPatient }],
+      },
+    });
+
+    assert.deepEqual(out.entry[0].resource, nestedPatient);
+  });
+});
+
+// ---------- repeating type coercion -----------------------------------------
+
+describe('fml_base_conv: repeating type coercion', function () {
+  it('coerces each ActivityDefinition.library Reference to a canonical', function () {
+    const input = {
+      resourceType: 'ActivityDefinition',
+      status: 'draft',
+      library: [
+        { reference: 'Library/one' },
+        { reference: 'Library/two' },
+      ],
+    };
+    const engine = createEngine('ActivityDefinition', 'R3', 'R4');
+    const { resource: out } = engine.convert({ input });
+
+    assert.deepEqual(out.library, ['Library/one', 'Library/two']);
+  });
+
+  it('coerces each array element when the source rule declares an alias', function () {
+    const fml = `
+/// url = "http://test/AliasedArrayMap"
+/// name = "AliasedArrayMap"
+
+group Test(source src, target tgt) {
+  src.value as v -> tgt.value;
+}
+`;
+    const coercion = `
+uses "http://test/StructureDefinition/string" alias stringSource as source
+uses "http://test/StructureDefinition/code" alias codeTarget as target
+
+group string2code(source src : stringSource, target tgt : codeTarget) extends Element <<types>> {
+  src.value -> tgt.value = 'coerced';
+}
+`;
+    const engine = compileFmlXver({
+      fmlText: fml,
+      importedFmlTexts: [coercion],
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'string' },
+        arrayPaths: ['Test.value'],
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'code' },
+        arrayPaths: ['Test.value'],
+      },
+    });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', value: ['first', 'second'] },
+    });
+
+    assert.deepEqual(out.value, ['coerced', 'coerced']);
+  });
+
+  it('reports a missing aliased-array coercion group once per conversion', function () {
+    const fml = `
+/// url = "http://test/MissingAliasedArrayMap"
+/// name = "MissingAliasedArrayMap"
+
+group Test(source src, target tgt) {
+  src.value as v -> tgt.value;
+}
+`;
+    const unrelatedCoercion = `
+uses "http://test/StructureDefinition/integer" alias integerSource as source
+uses "http://test/StructureDefinition/boolean" alias booleanTarget as target
+
+group integer2boolean(source src : integerSource, target tgt : booleanTarget) extends Element <<types>> {
+  src.value -> tgt.value;
+}
+`;
+    const info = [];
+    const engine = compileFmlXver({
+      fmlText: fml,
+      importedFmlTexts: [unrelatedCoercion],
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'string' },
+        arrayPaths: ['Test.value'],
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'code' },
+        arrayPaths: ['Test.value'],
+      },
+      onInfo: message => info.push(message),
+    });
+
+    engine.convert({
+      input: { resourceType: 'Test', value: ['one', 'two', 'three'] },
+    });
+    assert.equal(info.length, 1);
+
+    info.length = 0;
+    engine.convert({
+      input: {
+        resourceType: 'Test',
+        value: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+      },
+    });
+    assert.equal(info.length, 1, 'a reused engine must report once for each resource');
+  });
+});
+
+// ---------- then-clause / poly-suffix / array-transform correctness ---------
+
+describe('fml_base_conv: then-clause and target-path correctness', function () {
+  it('fills every inline aliased target for an array source', function () {
+    const fml = `
+group Test(source src, target tgt) {
+  src.value as v -> tgt.part as p, p.label = 'mapped', p.value = v;
+}
+`;
+    const engine = compileFmlXver({
+      fmlText: fml,
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: {},
+        arrayPaths: ['Test.part'],
+      },
+    });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', value: ['a', 'b'] },
+    });
+
+    assert.deepEqual(out.part, [
+      { label: 'mapped', value: 'a' },
+      { label: 'mapped', value: 'b' },
+    ]);
+  });
+
+  it('executes a non-type primitive-source then group', function () {
+    const fml = `
+group T(source src, target tgt) {
+  src.value as s -> tgt.out = create('Wrapper') as o then Fill(s, o);
+}
+group Fill(source src, target tgt) { src.value -> tgt.copied; }
+`;
+    const engine = compileFmlXver({ fmlText: fml });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'T', value: 'abc' },
+    });
+    assert.deepEqual(out.out, { copied: 'abc' });
+  });
+
+  it('runs a <<types>> conversion group instead of shortcut-copying the primitive', function () {
+    // R4 GuidanceResponse.moduleCanonical (canonical) must become an R3
+    // Reference via canonical2Reference - not be copied through as a string.
+    const engine = createEngine('GuidanceResponse', 'R4', 'R3');
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'GuidanceResponse', status: 'success', moduleCanonical: 'Library/123' },
+    });
+    assert.deepEqual(out.module, { reference: 'Library/123' });
+  });
+
+  it('does not leak a source polymorphic suffix onto a fixed target field', function () {
+    // R3 GuidanceResponse.module is a fixed Reference, not module[x]; the
+    // source "Canonical" suffix must not create a `moduleCanonical` field.
+    const engine = createEngine('GuidanceResponse', 'R4', 'R3');
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'GuidanceResponse', status: 'success', moduleCanonical: 'Library/123' },
+    });
+    assert.equal(out.moduleCanonical, undefined);
+    assert.ok(out.module && typeof out.module === 'object');
+  });
+
+  it('uses the absolute target path when deciding polymorphism', function () {
+    const fml = `
+group T(source src, target tgt) {
+  src.value : string as s -> tgt.value = s;
+}
+`;
+    const engine = compileFmlXver({
+      fmlText: fml,
+      tgtDefs: {
+        polyPaths: { 'Other.value': ['string'] },
+        elementTypes: { 'T.value': 'string' },
+      },
+    });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'T', valueString: 'abc' },
+    });
+    assert.equal(out.value, 'abc');
+    assert.equal(out.valueString, undefined);
+  });
+
+  it('applies a transformed primary target in a repeating then-rule', function () {
+    const fml = `
+group T(source src, target tgt) {
+  src.items as s -> tgt.flag = true, tgt.out as o then Fill(s, o);
+}
+group Fill(source src, target tgt) { src.v -> tgt.v; }
+`;
+    const engine = compileFmlXver({ fmlText: fml });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'T', items: [{ v: 'a' }, { v: 'b' }] },
+    });
+    // The transformed primary (flag = true) must be assigned, not turned into
+    // an array of empty then-children.
+    assert.equal(out.flag, true);
+  });
+
+  it('preserves create(resource) in a repeating then-rule', function () {
+    const fml = `
+group T(source src, target tgt) {
+  src.items as s -> tgt.contained = create('Observation') as o, o.code as c then Fill(s, c);
+}
+group Fill(source src, target tgt) { src.text -> tgt.text; }
+`;
+    const engine = compileFmlXver({
+      fmlText: fml,
+      tgtDefs: {
+        resourceTypes: ['Observation'],
+        polyPaths: {},
+        elementTypes: {},
+        arrayPaths: ['T.contained'],
+      },
+    });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'T', items: [{ text: 'x' }] },
+    });
+    assert.equal(out.contained[0].resourceType, 'Observation');
+    assert.equal(out.contained[0].code.text, 'x');
+  });
+
+  it('leaves no empty element when every first/last item is filtered out', function () {
+    const fml = `
+group T(source src, target tgt) {
+  src.more as s where (s.keep = true) -> tgt.list as l first, l.w as w then Fill(s, w);
+}
+group Fill(source src, target tgt) { src.x -> tgt.x; }
+`;
+    const engine = compileFmlXver({
+      fmlText: fml,
+      tgtDefs: { polyPaths: {}, elementTypes: {}, arrayPaths: ['T.list'] },
+    });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'T', more: [{ keep: false, x: 'z' }] },
+    });
+    assert.equal(out.list, undefined);
   });
 });
 
@@ -81,7 +590,7 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
     engine = createEngine('Questionnaire', 'R4', 'R5', {
       onWarning: msg => warnings.push(msg),
     });
-    output = engine.convert({ input: r4Questionnaire });
+    ({ resource: output } = engine.convert({ input: r4Questionnaire }));
   });
 
   it('preserves resourceType', function () {
@@ -170,6 +679,80 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
     assert.ok(output.meta.tag);
     assert.equal(output.meta.tag[0].code, 'born-r4');
   });
+
+  it('preserves primitive companions on copied, translated, and polymorphic fields', function () {
+    /**
+     * Build distinctive primitive metadata for one test field.
+     *
+     * @param {string} label Field label.
+     * @returns {Object} Primitive companion.
+     */
+    const primitiveMetadata = label => ({
+      id: `${label}-id`,
+      extension: [{
+        url: `http://example.org/fhir/StructureDefinition/${label}`,
+        valueString: label,
+      }],
+    });
+    const input = {
+      resourceType: 'Questionnaire',
+      language: 'en',
+      _language: primitiveMetadata('language'),
+      _implicitRules: primitiveMetadata('implicit-rules-only'),
+      status: 'active',
+      _status: primitiveMetadata('status'),
+      subjectType: ['Patient', null, 'Encounter'],
+      _subjectType: [
+        null,
+        primitiveMetadata('subject-type-only'),
+        primitiveMetadata('subject-type'),
+      ],
+      item: [{
+        linkId: 'q1',
+        _linkId: primitiveMetadata('link-id'),
+        type: 'choice',
+        _type: primitiveMetadata('type'),
+        answerOption: [{
+          valueString: 'option',
+          _valueString: primitiveMetadata('value-string'),
+        }, {
+          _valueString: primitiveMetadata('value-string-only'),
+        }],
+      }, {
+        _linkId: primitiveMetadata('link-id-only'),
+        type: 'string',
+      }, {
+        linkId: 'q3',
+        _type: primitiveMetadata('type-only'),
+      }],
+    };
+
+    const { resource: converted } = engine.convert({ input });
+
+    assert.equal(converted.language, input.language);
+    assert.deepEqual(converted._language, input._language);
+    assert.equal('implicitRules' in converted, false);
+    assert.deepEqual(converted._implicitRules, input._implicitRules);
+    assert.deepEqual(converted._status, input._status);
+    assert.deepEqual(converted.subjectType, input.subjectType);
+    assert.deepEqual(converted._subjectType, input._subjectType);
+    assert.deepEqual(converted.item[0]._linkId, input.item[0]._linkId);
+    assert.deepEqual(converted.item[0]._type, input.item[0]._type);
+    assert.deepEqual(
+      converted.item[0].answerOption[0]._valueString,
+      input.item[0].answerOption[0]._valueString,
+    );
+    assert.equal('valueString' in converted.item[0].answerOption[1], false);
+    assert.deepEqual(
+      converted.item[0].answerOption[1]._valueString,
+      input.item[0].answerOption[1]._valueString,
+    );
+    assert.equal('linkId' in converted.item[1], false);
+    assert.deepEqual(converted.item[1]._linkId, input.item[1]._linkId);
+    assert.equal('type' in converted.item[2], false);
+    assert.deepEqual(converted.item[2]._type, input.item[2]._type);
+    assert.equal('_answerConstraint' in converted.item[0], false);
+  });
 });
 
 // ---------- meta.profile update --------------------------------------------
@@ -177,7 +760,7 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
 describe('fml_base_conv: meta.profile handling', function () {
   it('updates standard R4 profile to R5', function () {
     const engine = createEngine('Questionnaire', 'R4', 'R5');
-    const out = engine.convert({ input: r4Questionnaire });
+    const { resource: out } = engine.convert({ input: r4Questionnaire });
     assert.ok(out.meta.profile.includes('http://hl7.org/fhir/5.0/StructureDefinition/Questionnaire'));
     assert.ok(!out.meta.profile.includes('http://hl7.org/fhir/4.0/StructureDefinition/Questionnaire'));
   });
@@ -185,7 +768,7 @@ describe('fml_base_conv: meta.profile handling', function () {
   it('adds target profile when source has no profile', function () {
     const input = { resourceType: 'Questionnaire', status: 'draft' };
     const engine = createEngine('Questionnaire', 'R4', 'R5');
-    const out = engine.convert({ input });
+    const { resource: out } = engine.convert({ input });
     assert.deepEqual(out.meta.profile, ['http://hl7.org/fhir/5.0/StructureDefinition/Questionnaire']);
   });
 
@@ -201,10 +784,113 @@ describe('fml_base_conv: meta.profile handling', function () {
       },
     };
     const engine = createEngine('Questionnaire', 'R4', 'R5');
-    const out = engine.convert({ input });
+    const { resource: out } = engine.convert({ input });
     assert.ok(out.meta.profile.includes('http://myorg.com/fhir/StructureDefinition/CustomQuestionnaire'));
     assert.ok(out.meta.profile.includes('http://hl7.org/fhir/5.0/StructureDefinition/Questionnaire'));
     assert.ok(!out.meta.profile.includes('http://hl7.org/fhir/4.0/StructureDefinition/Questionnaire'));
+  });
+
+  it('replaces a renamed source profile with the declared target profile', function () {
+    const input = {
+      resourceType: 'Sequence',
+      type: 'dna',
+      coordinateSystem: 0,
+      meta: {
+        profile: ['http://hl7.org/fhir/3.0/StructureDefinition/Sequence'],
+      },
+    };
+    const engine = createEngine('Sequence', 'R3', 'R4');
+    const { resource: out } = engine.convert({ input });
+
+    assert.deepEqual(
+      out.meta.profile,
+      ['http://hl7.org/fhir/4.0/StructureDefinition/MolecularSequence'],
+    );
+  });
+
+  it('keeps profile companions aligned through rewriting and filtering', function () {
+    const sourceMetadata = {
+      extension: [{ url: 'http://example.org/source-profile', valueString: 'source' }],
+    };
+    const filteredMetadata = {
+      extension: [{ url: 'http://example.org/filtered-profile', valueString: 'filtered' }],
+    };
+    const customMetadata = {
+      extension: [{ url: 'http://example.org/custom-profile', valueString: 'custom' }],
+    };
+    const input = {
+      resourceType: 'Questionnaire',
+      status: 'draft',
+      meta: {
+        profile: [
+          'http://hl7.org/fhir/4.0/StructureDefinition/Questionnaire',
+          'http://hl7.org/fhir/3.0/StructureDefinition/Questionnaire',
+          'http://example.org/fhir/StructureDefinition/CustomQuestionnaire',
+          'http://hl7.org/fhir/4.0/StructureDefinition/Questionnaire',
+        ],
+        _profile: [
+          sourceMetadata,
+          filteredMetadata,
+          customMetadata,
+          sourceMetadata,
+        ],
+      },
+    };
+    const engine = createEngine('Questionnaire', 'R4', 'R5');
+    const { resource: out } = engine.convert({ input });
+
+    assert.deepEqual(out.meta.profile, [
+      'http://hl7.org/fhir/5.0/StructureDefinition/Questionnaire',
+      'http://example.org/fhir/StructureDefinition/CustomQuestionnaire',
+    ]);
+    assert.deepEqual(out.meta._profile, [sourceMetadata, customMetadata]);
+  });
+
+  it('preserves distinct companions when rewritten profiles have the same URL', function () {
+    const firstMetadata = {
+      extension: [{ url: 'http://example.org/profile-note', valueString: 'first' }],
+    };
+    const secondMetadata = {
+      extension: [{ url: 'http://example.org/profile-note', valueString: 'second' }],
+    };
+    const input = {
+      resourceType: 'Questionnaire',
+      status: 'draft',
+      meta: {
+        profile: [
+          'http://hl7.org/fhir/4.0/StructureDefinition/Questionnaire',
+          'http://hl7.org/fhir/4.0/StructureDefinition/Questionnaire',
+        ],
+        _profile: [firstMetadata, secondMetadata],
+      },
+    };
+    const engine = createEngine('Questionnaire', 'R4', 'R5');
+    const { resource: out } = engine.convert({ input });
+
+    assert.deepEqual(out.meta.profile, [
+      'http://hl7.org/fhir/5.0/StructureDefinition/Questionnaire',
+      'http://hl7.org/fhir/5.0/StructureDefinition/Questionnaire',
+    ]);
+    assert.deepEqual(out.meta._profile, [firstMetadata, secondMetadata]);
+  });
+
+  it('keeps extension-only profile companions aligned when adding a profile', function () {
+    const extensionOnlyMetadata = {
+      extension: [{ url: 'http://example.org/profile-note', valueString: 'extension-only' }],
+    };
+    const input = {
+      resourceType: 'Questionnaire',
+      status: 'draft',
+      meta: { _profile: [extensionOnlyMetadata] },
+    };
+    const engine = createEngine('Questionnaire', 'R4', 'R5');
+    const { resource: out } = engine.convert({ input });
+
+    assert.deepEqual(out.meta.profile, [
+      'http://hl7.org/fhir/5.0/StructureDefinition/Questionnaire',
+      null,
+    ]);
+    assert.deepEqual(out.meta._profile, [null, extensionOnlyMetadata]);
   });
 });
 
@@ -284,8 +970,229 @@ group Test(source src, target tgt) extends DomainResource {
       }],
     };
     const engine = compileFmlXver({ fmlText: fml, conceptMaps: [cm] });
-    const out = engine.convert({ input: { resourceType: 'Test', status: 'active' } });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', status: 'active' },
+    });
     assert.equal(out.status, 'final');
+  });
+
+  it('honors every translate output selector for a Coding input', function () {
+    const fml = `
+group Test(source src, target tgt) {
+  src.value as v -> tgt.code = translate(v, 'http://test/cm-coded', 'code'),
+    tgt.system = translate(v, 'http://test/cm-coded', 'system'),
+    tgt.display = translate(v, 'http://test/cm-coded', 'display'),
+    tgt.coding = translate(v, 'http://test/cm-coded', 'Coding'),
+    tgt.concept = translate(v, 'http://test/cm-coded', 'CodeableConcept');
+}
+`;
+    const conceptMap = {
+      url: 'http://test/cm-coded',
+      group: [{
+        source: 'http://test/source-system',
+        target: 'http://test/target-system',
+        element: [{
+          code: 'active',
+          target: [{
+            code: 'final',
+            display: 'Final status',
+            relationship: 'equivalent',
+          }],
+        }],
+      }],
+    };
+    const engine = compileFmlXver({ fmlText: fml, conceptMaps: [conceptMap] });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        value: { system: 'http://test/source-system', code: 'active' },
+      },
+    });
+    const coding = {
+      system: 'http://test/target-system',
+      code: 'final',
+      display: 'Final status',
+    };
+
+    assert.equal(out.code, 'final');
+    assert.equal(out.system, 'http://test/target-system');
+    assert.equal(out.display, 'Final status');
+    assert.deepEqual(out.coding, coding);
+    assert.deepEqual(out.concept, { coding: [coding] });
+  });
+
+  it('finds a translatable Coding inside a CodeableConcept', function () {
+    const fml = `
+group Test(source src, target tgt) {
+  src.value as v -> tgt.value = translate(v, 'http://test/cm-concept', 'Coding');
+}
+`;
+    const conceptMap = {
+      url: 'http://test/cm-concept',
+      group: [{
+        source: 'http://test/source-system',
+        target: 'http://test/target-system',
+        element: [{
+          code: 'source-code',
+          target: [{ code: 'target-code', relationship: 'equivalent' }],
+        }],
+      }],
+    };
+    const engine = compileFmlXver({ fmlText: fml, conceptMaps: [conceptMap] });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        value: {
+          coding: [
+            { system: 'http://test/other-system', code: 'other-code' },
+            { system: 'http://test/source-system', code: 'source-code' },
+          ],
+        },
+      },
+    });
+
+    assert.deepEqual(out.value, {
+      system: 'http://test/target-system',
+      code: 'target-code',
+    });
+  });
+
+  it('honors duplicate entries, noMap, and excluded targets', function () {
+    const fml = `
+group Test(source src, target tgt) {
+  src.value as v -> tgt.value = translate(v, 'http://test/cm-edge', 'code');
+}
+`;
+    const warnings = [];
+    const conceptMap = {
+      url: 'http://test/cm-edge',
+      group: [{
+        source: 'http://test/source-system',
+        target: 'http://test/target-system',
+        element: [{
+          code: 'duplicate',
+          target: [{ code: 'exact', relationship: 'equivalent' }],
+        }, {
+          code: 'duplicate',
+          target: [{ code: 'lossy', relationship: 'related-to' }],
+        }, {
+          code: 'blocked',
+          noMap: true,
+        }, {
+          code: 'excluded',
+          target: [{ code: 'unrelated', relationship: 'not-related-to' }],
+        }],
+        unmapped: { mode: 'fixed', code: 'fallback' },
+      }],
+    };
+    const engine = compileFmlXver({
+      fmlText: fml,
+      conceptMaps: [conceptMap],
+      onWarning: message => warnings.push(message),
+    });
+
+    /** Convert one source code through the shared edge-case engine. */
+    const convertValue = value => engine.convert({
+      input: { resourceType: 'Test', value },
+    }).resource.value;
+
+    assert.equal(convertValue('duplicate'), 'exact');
+    assert.equal(convertValue('blocked'), 'blocked');
+    assert.equal(convertValue('excluded'), 'excluded');
+    assert.ok(warnings.some(message => /explicitly marked noMap/.test(message)));
+    assert.ok(warnings.some(message => /no related target/.test(message)));
+  });
+
+  it('supports current and legacy source-code fallback modes', function () {
+    const source = {
+      system: 'http://test/source-system',
+      code: 'same-code',
+      display: 'Source display',
+    };
+
+    for (const mode of ['use-source-code', 'provided']) {
+      const fml = `
+group Test(source src, target tgt) {
+  src.value as v -> tgt.value = translate(v, 'http://test/cm-${mode}', 'Coding');
+}
+`;
+      const conceptMap = {
+        url: `http://test/cm-${mode}`,
+        group: [{
+          source: 'http://test/source-system',
+          target: 'http://test/target-system',
+          element: [],
+          unmapped: { mode },
+        }],
+      };
+      const engine = compileFmlXver({ fmlText: fml, conceptMaps: [conceptMap] });
+      const { resource: out } = engine.convert({
+        input: { resourceType: 'Test', value: source },
+      });
+
+      assert.deepEqual(out.value, {
+        system: 'http://test/target-system',
+        code: 'same-code',
+      });
+    }
+  });
+
+  it('preserves a complete CodeableConcept when returning it unchanged', function () {
+    const fml = `
+group Test(source src, target tgt) {
+  src.value as v -> tgt.value = translate(v, 'http://test/cm-unmapped', 'CodeableConcept');
+}
+`;
+    const conceptMap = {
+      url: 'http://test/cm-unmapped',
+      group: [{
+        source: 'http://test/source-system',
+        target: 'http://test/target-system',
+        element: [],
+      }],
+    };
+    const source = {
+      coding: [{
+        system: 'http://test/source-system',
+        code: 'first',
+      }, {
+        system: 'http://test/alternate-system',
+        code: 'second',
+      }],
+      text: 'Original text',
+    };
+    const engine = compileFmlXver({ fmlText: fml, conceptMaps: [conceptMap] });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', value: source },
+    });
+
+    assert.deepEqual(out.value, source);
+    assert.notEqual(out.value, source);
+  });
+
+  it('converts Encounter class between code and Coding in both directions', function () {
+    const toR3 = createEngine('Encounter', 'R2', 'R3');
+    const { resource: r3 } = toR3.convert({
+      input: { resourceType: 'Encounter', class: 'inpatient' },
+    });
+
+    assert.deepEqual(r3.class, {
+      system: 'http://hl7.org/fhir/3.0/v3/ActCode',
+      code: 'IMP',
+    });
+
+    const toR2 = createEngine('Encounter', 'R3', 'R2');
+    const { resource: r2 } = toR2.convert({
+      input: {
+        resourceType: 'Encounter',
+        class: {
+          system: 'http://hl7.org/fhir/3.0/v3/ActCode',
+          code: 'IMP',
+        },
+      },
+    });
+
+    assert.equal(r2.class, 'inpatient');
   });
 
   it('copies polymorphic fields', function () {
@@ -303,13 +1210,208 @@ group Item(source src, target tgt) extends BackboneElement {
 }
 `;
     const engine = compileFmlXver({ fmlText: fml });
-    const out = engine.convert({
+    const { resource: out } = engine.convert({
       input: { resourceType: 'Test', item: [{ valueBoolean: true }, { valueString: 'hello' }] },
     });
     assert.equal(out.item[0].valueBoolean, true);
     assert.equal(out.item[1].valueString, 'hello');
   });
+
+  it('round-trips primitive companions through an explicit primitive group', function () {
+    const fml = `
+/// url = "http://test/Map4"
+/// name = "Test4"
+
+group Test(source src, target tgt) {
+  src.value : string as vs -> tgt.value = create('string') as vt then string(vs, vt) "valueString";
+}
+`;
+    const primitives = `
+uses "http://test/StructureDefinition/string-source" alias stringSource as source
+uses "http://test/StructureDefinition/string-target" alias stringTarget as target
+
+group string(source src : stringSource, target tgt : stringTarget) extends Element <<type+>> {
+  src.value -> tgt.value;
+}
+`;
+    const defs = {
+      polyPaths: { 'Test.value': ['string'] },
+      elementTypes: {},
+      arrayPaths: [],
+    };
+    const companion = {
+      id: 'value-id',
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/value-metadata',
+        valueString: 'kept',
+      }],
+    };
+    const engine = compileFmlXver({
+      fmlText: fml,
+      importedFmlTexts: [primitives],
+      srcDefs: defs,
+      tgtDefs: defs,
+    });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        valueString: 'hello',
+        _valueString: companion,
+      },
+    });
+
+    assert.equal(out.valueString, 'hello');
+    assert.deepEqual(out._valueString, companion);
+
+    const { resource: companionOnly } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        _valueString: companion,
+      },
+    });
+
+    assert.equal('valueString' in companionOnly, false);
+    assert.deepEqual(companionOnly._valueString, companion);
+  });
+
+  it('preserves primitive companions through type coercion groups', function () {
+    const fml = `
+/// url = "http://test/Map5"
+/// name = "Test5"
+
+group Test(source src, target tgt) {
+  src.value -> tgt.value;
+}
+`;
+    const coercion = `
+uses "http://test/StructureDefinition/string" alias stringSource as source
+uses "http://test/StructureDefinition/code" alias codeTarget as target
+
+group string2code(source src : stringSource, target tgt : codeTarget) extends Element <<types>> {
+  src.value -> tgt.value;
+}
+`;
+    const companion = {
+      id: 'coerced-id',
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/coercion-metadata',
+        valueString: 'kept',
+      }],
+    };
+    const engine = compileFmlXver({
+      fmlText: fml,
+      importedFmlTexts: [coercion],
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'string' },
+        arrayPaths: [],
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'code' },
+        arrayPaths: [],
+      },
+    });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        value: 'active',
+        _value: companion,
+      },
+    });
+
+    assert.equal(out.value, 'active');
+    assert.deepEqual(out._value, companion);
+
+    const { resource: companionOnly } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        _value: companion,
+      },
+    });
+
+    assert.equal('value' in companionOnly, false);
+    assert.deepEqual(companionOnly._value, companion);
+  });
+
+  it('keeps repeating primitive companions aligned through list modes', function () {
+    const fml = `
+/// url = "http://test/Map6"
+/// name = "Test6"
+
+group Test(source src, target tgt) {
+  src.code first as value -> tgt.code = value;
+}
+`;
+    const firstCompanion = {
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/first',
+        valueString: 'first',
+      }],
+    };
+    const secondCompanion = {
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/second',
+        valueString: 'second',
+      }],
+    };
+    const srcDefs = {
+      polyPaths: {},
+      elementTypes: { 'Test.code': 'code' },
+      arrayPaths: ['Test.code'],
+    };
+    const tgtDefs = {
+      polyPaths: {},
+      elementTypes: { 'Test.code': 'code' },
+      arrayPaths: [],
+    };
+    const engine = compileFmlXver({
+      fmlText: fml,
+      srcDefs,
+      tgtDefs,
+    });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        code: ['a', 'b'],
+        _code: [firstCompanion, secondCompanion],
+      },
+    });
+
+    assert.equal(out.code, 'a');
+    assert.deepEqual(out._code, firstCompanion);
+  });
+
+  it('selects the last scalar and its aligned primitive companion', function () {
+    const fml = `
+group Test(source src, target tgt) {
+  src.code last as value -> tgt.code = value;
+}
+`;
+    const firstCompanion = { id: 'first' };
+    const lastCompanion = { id: 'last' };
+    const engine = compileFmlXver({
+      fmlText: fml,
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.code': 'code' },
+        arrayPaths: ['Test.code'],
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.code': 'code' },
+        arrayPaths: [],
+      },
+    });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        code: ['a', 'b'],
+        _code: [firstCompanion, lastCompanion],
+      },
+    });
+
+    assert.equal(out.code, 'b');
+    assert.deepEqual(out._code, lastCompanion);
+  });
 });
-
-
-

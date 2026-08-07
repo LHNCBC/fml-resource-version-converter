@@ -6,6 +6,7 @@ import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { compileFmlXver } from '../../../src/fml_base_conv/fml_xver_engine.js';
+import { tokenise } from '../../../src/fml_base_conv/fml_parser.js';
 
 const FML_ROOT = path.resolve(import.meta.dirname, '../../../data/fhir-cross-version/input');
 
@@ -37,4 +38,29 @@ describe('FML parse: all cross-version files', function () {
       assert.deepEqual(failures, [], `${failures.length} file(s) failed:\n  ${failures.join('\n  ')}`);
     });
   }
+});
+// A standalone minus (e.g. the `- 1` in `where (v = ( - 1))`) must tokenise as
+// a MINUS token, not trigger an "unrecognised character" warning. Otherwise the
+// warning leaks into any conversion that merely imports the file (all sibling
+// FML files are loaded for wildcard imports).
+describe('FML tokeniser: standalone minus', function () {
+  it('tokenises a signed numeric guard cleanly (MINUS token, no warnings)', function () {
+    const warnings = [];
+    const tokens = tokenise(
+      'src.strand as v where (v = ( - 1)) -> tgt.strand = \'crick\';',
+      w => warnings.push(w),
+    );
+    assert.deepEqual(warnings, [], `unexpected tokenizer warnings: ${warnings.join(', ')}`);
+    assert.ok(tokens.some(t => t.kind === 'MINUS'), 'expected a MINUS token');
+  });
+
+  it('MolecularSequence R3toR4 compiles without a stray "-" warning', function () {
+    const fmlText = fs.readFileSync(
+      path.join(FML_ROOT, 'R3toR4', 'MolecularSequence.fml'), 'utf-8',
+    );
+    const warnings = [];
+    compileFmlXver({ fmlText, onWarning: w => warnings.push(w) });
+    const stray = warnings.filter(w => w.includes('unrecognised character "-"'));
+    assert.deepEqual(stray, [], `unexpected stray-minus warnings: ${stray.join(', ')}`);
+  });
 });

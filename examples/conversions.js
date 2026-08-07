@@ -180,4 +180,3 @@ summarize('chain (per-hop) R3 -> R5  (postprocessors keyed by type:hop)', perHop
 printHops(perHopChain);
 
 console.log();
-

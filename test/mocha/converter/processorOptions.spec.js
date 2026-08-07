@@ -34,9 +34,9 @@ describe('converter/processorOptions', function () {
       assert.equal(preLookup('Observation', 'R3', 'R4'), undefined);     // not primary type
     });
 
-    it('postproc matches the primary type on the last hop only', function () {
+    it('postproc matches the last hop regardless of resource-type renaming', function () {
       const { postLookup } = normalizeProcessorOptions({ postproc: [noop] }, MULTI);
-      const entry = postLookup('Questionnaire', 'R4', 'R5');
+      const entry = postLookup('RenamedQuestionnaire', 'R4', 'R5');
       assert.equal(entry.policy, 'append');
       assert.deepEqual(entry.processors.map(p => p.name), ['noop']);
       assert.equal(postLookup('Questionnaire', 'R3', 'R4'), undefined);  // not last hop

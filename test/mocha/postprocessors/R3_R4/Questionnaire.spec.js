@@ -152,6 +152,37 @@ describe('postprocessors/R3_R4 Questionnaire R3 -> R4', function () {
       assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /answerAttachment/.test(m.text)));
     });
 
+    it('drops enableWhen with an extension-only _answerUri (companion, no bare value)', function () {
+      const companion = { extension: [{ url: 'http://x/ext', valueString: 'meta' }] };
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string',
+          enableWhen: [
+            { question: 'q', _answerUri: companion },
+            { question: 'q', answerString: 'keep' },
+          ],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'string',
+          // The engine carries the companion through; there is no bare answerUri.
+          enableWhen: [
+            { question: 'q', operator: '=', _answerUri: companion },
+            { question: 'q', operator: '=', answerString: 'keep' },
+          ],
+        }],
+      };
+      const res = run(target, source);
+      assert.deepEqual(res.resource.item[0].enableWhen, [
+        { question: 'q', operator: '=', answerString: 'keep' },
+      ]);
+      assert.equal(res.status, STATUS.WARNING);
+      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /answerUri/.test(m.text)));
+    });
+
     it('leaves representable enableWhen untouched (no messages)', function () {
       const source = {
         resourceType: 'Questionnaire',
@@ -322,6 +353,33 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       const outputTags = (result.resource.meta?.tag ?? []).length;
       assert.equal(outputTags, inputTags);
     });
+
+    it('preserves an extension-only primitive answerOption', function () {
+      const companion = {
+        extension: [{
+          url: 'http://example.org/fhir/StructureDefinition/option-metadata',
+          valueString: 'kept',
+        }],
+      };
+      const input = {
+        resourceType: 'Questionnaire',
+        status: 'draft',
+        item: [{
+          linkId: 'extension-only-option',
+          type: 'string',
+          answerOption: [{ _valueString: companion }],
+        }],
+      };
+      const converted = singleHopConverter.convert(input, 'R4', 'R3');
+
+      assert.deepEqual(
+        converted.resource.item[0].option,
+        [{ _valueString: companion }],
+      );
+      assert.ok(!converted.postprocessors[0].messages.some(
+        message => /no STU3 equivalent/.test(message.text),
+      ));
+    });
   });
 
   // -------- direct unit coverage of the branch cases -----------------------
@@ -350,6 +408,38 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       assert.deepEqual(res.resource.item[0].options, { reference: 'vs' });
       assert.equal('answerValueSet' in res.resource.item[0], false);
       assert.equal(res.status, STATUS.OK);
+      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.INFO && /options\.reference/.test(m.text)));
+    });
+
+    it('carries the _answerValueSet companion onto options._reference', function () {
+      const companion = { id: 'avs', extension: [{ url: 'http://x/ext', valueString: 'meta' }] };
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'choice', answerValueSet: 'vs', _answerValueSet: companion }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'choice', options: 'vs' }],
+      };
+      const res = run(target, source);
+      assert.deepEqual(res.resource.item[0].options, { reference: 'vs', _reference: companion });
+      assert.equal('answerValueSet' in res.resource.item[0], false);
+      assert.equal('_answerValueSet' in res.resource.item[0], false);
+      assert.equal(res.status, STATUS.OK);
+    });
+
+    it('maps an extension-only _answerValueSet (companion, no bare value)', function () {
+      const companion = { extension: [{ url: 'http://x/ext', valueString: 'meta' }] };
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'choice', _answerValueSet: companion }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'choice' }],
+      };
+      const res = run(target, source);
+      assert.deepEqual(res.resource.item[0].options, { _reference: companion });
       assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.INFO && /options\.reference/.test(m.text)));
     });
 
@@ -686,5 +776,3 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
     });
   });
 });
-
-

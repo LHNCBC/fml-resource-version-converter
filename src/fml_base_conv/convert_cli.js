@@ -128,7 +128,7 @@ try {
     onInfo,
   });
 
-  const output     = engine.convert({ input });
+  const { resource: output } = engine.convert({ input });
   const outputJson = JSON.stringify(output, null, 2);
 
   if (opts.output) {
@@ -157,4 +157,3 @@ try {
   if (err.code === 'ENOENT') console.error(`File not found: ${resourceFile}`);
   process.exit(1);
 }
-
