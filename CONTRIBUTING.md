@@ -230,7 +230,7 @@ export const registry = {
   Questionnaire: {
     fml: {
       coverage: COVERAGE.COMPLETE,
-      description: 'FML fully covers R4->R5 for valid input; no postprocessor needed.',
+      description: 'FML fully covers R5->R4 for valid input; no postprocessor needed.',
     },
     processors: [],
   },

@@ -63,8 +63,8 @@
  * @property {GuardExpr|null} log       `log (...)` clause. Diagnostic only:
  *                                      per the FML spec its evaluated result
  *                                      is a log message; it does not affect
- *                                      the transformation. Parsed and stored
- *                                      but not executed.
+ *                                      the transformation. The engine emits
+ *                                      the evaluated value as an info message.
  * @property {'first'|'last'|'not_first'|'not_last'|'only_one'|null} listMode
  *
  * @typedef {Object} Target
@@ -541,8 +541,8 @@ export function parseFml(fmlText, onWarning) {
     if (atWord('as'))    { advance(); src.alias = expect(TK.WORD).value; }
     if (atWord('where')) { advance(); src.where = parseGuardExpr(); }
     if (atWord('check')) { advance(); src.check = parseGuardExpr(); }
-    // `log (...)` -- diagnostic only per the FML spec; parsed so it does not
-    // mis-terminate the source clause, but not executed (no output effect).
+    // `log (...)` -- diagnostic only per the FML spec. The engine evaluates
+    // the parsed expression and emits its value as an info message.
     if (atWord('log'))   { advance(); src.log = parseGuardExpr(); }
     return src;
   }
@@ -753,4 +753,3 @@ export function parseFml(fmlText, onWarning) {
     return { name, args };
   }
 }
-
