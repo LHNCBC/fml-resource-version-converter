@@ -93,7 +93,7 @@ directions for that pair. Each direction has a registry file named
 resource types, e.g., R4_R5/Questionnaire.js contains postprocessors for
 converting the Questionnaire resources from R4 to R5 and from R5 to R4.
 
-For example:
+The directory structure looks like this:
 
 ```text
 src/postprocessors/
@@ -112,10 +112,11 @@ src/postprocessors/
     Questionnaire.js
 ```
 
-The top-level registry, `src/postprocessors/registry.js` combines the
-direction-specific registries. If a resource type and direction has no explicit
-entry but an FML mapping exists, lookup returns the default entry with FML 
-coverage set to **not_reviewed** and no package postprocessors.
+The top-level registry, `src/postprocessors/registry.js`, automatically combines
+the direction-specific registries during initialization. If a resource type has
+no explicit entry in a specific registry (e.g., registry_R4_to_R5.js) but an FML
+mapping exists, the lookup returns the default entry with FML coverage set to
+**not_reviewed** and no package postprocessors.
 
 Let's walk through a hypothetical example before explaining the details. Suppose
 the FML mapping for ResourceTypeX from R4 to R5 drops the field someFieldFoo when
@@ -178,11 +179,11 @@ export { registry };
 
 ```
 
-The postprocessors in the registries are postprocessor descriptors,
+The postprocessor entries in the registries are postprocessor descriptors,
 which are objects with the following properties:
 
 - `name`: required stable name for reporting and diagnostics.
-- `execute`: required function that runs the postprocessor. It receives the
+- `execute`: required postprocessor function. It receives the
   FML-converted target resource and a conversion context, and returns
   `{ resource, status, messages }`.
 - `coverage`: optional coverage level after this postprocessor runs. Omit it or
@@ -282,9 +283,9 @@ npm test
 The package ships two kinds of FHIR data. They have different purposes and
 different update procedures.
 
-### `data/fhir-cross-version/`
+### Directory `data/fhir-cross-version/`
 
-`data/fhir-cross-version/` contains a checked-in snapshot of HL7's
+This directory contains a checked-in snapshot of HL7's
 `fhir-cross-version` project. The FML mapping files are required
 at runtime, so they are shipped with the package.
 
@@ -298,11 +299,13 @@ To update this snapshot:
 
 1. Update `data/fhir-cross-version/SOURCE.md` with the source URL, commit, and
    snapshot date.
-2. Run the data-integrity check (see below) and address anything it reports.
-3. Re-run the FML parser tests and conversion tests.
-4. Review behavior changes for any resource and version pair affected by the
+2. Update the snapshot files in `data/fhir-cross-version/input` with the new
+   files from the fhir-cross-version project.
+3. Run the data-integrity check (see below) and address anything it reports.
+4. Re-run the FML parser tests and conversion tests.
+5. Review behavior changes for any resource and version pair affected by the
    new mappings.
-5. Update postprocessors and `COVERAGE.md` if the reviewed coverage changes.
+6. Update postprocessors as needed and regenerate (no hand editing) `COVERAGE.md`.
 
 #### Checking the snapshot with `tools/check-data.js`
 
@@ -331,11 +334,17 @@ documented limitation changed. A new Type B ambiguity on an actively supported
 version pair is worth a closer look, since the converter cannot currently
 resolve one on its own.
 
-### `data/fhir-defs/` and `data/fhir-spec-downloads/`
+### Directories `data/fhir-defs/` and `data/fhir-spec-downloads/`
 
-#### `data/fhir-defs/` contains generated runtime tables derived from official HL7
-FHIR specification files. The FML engine uses these tables to understand
-FHIR JSON details that are not fully represented in the FML mappings, such as:
+The directory `data/fhir-spec-downloads/` contains the official FHIR spec zip
+files, which are themselves not shipped with the package but are needed to build
+the runtime files under `data/fhir-defs/`. The spec zip files may be downloaded
+into `data/fhir-spec-downloads/` using the provided build script.
+
+The files under `data/fhir-defs/` are runtime tables derived from the official
+HL7 FHIR specification files described above. The FML engine uses these tables
+to understand FHIR JSON details that are not explicitly represented in the FML
+mappings, such as:
 
 - polymorphic field names, for example `Observation.value[x]`
 - array/cardinality paths
@@ -344,25 +353,20 @@ FHIR JSON details that are not fully represented in the FML mappings, such as:
 Do not edit the generated JSON files by hand. The generated JSON files are
 shipped with the package because they are needed at runtime.
 
-#### Regenerate the data/fhir-defs/ tables
-The tables are extracted from the official FHIR spec zip files, which
-are themselves not shipped with the package but may be downloaded into
-`data/fhir-spec-downloads/` using the provided build script.
+#### Regenerate the `data/fhir-defs/` tables
 
-To download the missing archives and regenerate `data/fhir-defs/`, run:
+To download the FHIR spec files and regenerate `data/fhir-defs/`, run:
 
 ```bash
 npm run build:fhir-defs -- --download-missing
 ```
-If the archives are already present, you can simply run:
+If the FHIR spec files are already present, you can simply run:
 
 ```bash
 npm run build:fhir-defs
 ```
 
-## Code style
-- Keep changes focused and easy to review.
-- Add JSDoc to functions.
-- Prefer readable code over clever code.
-- Use ASCII text in comments and documentation.
-- Do not hide test failures or skip tests to make a change pass.
+Please feel free to reach out if you have any questions or need assistance -
+open an [issue](https://github.com/LHNCBC/fml-resource-version-converter/issues).
+
+Thank you for contributing!
