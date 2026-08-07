@@ -1,5 +1,17 @@
 # Agent Guidelines
 
+## Commands
+Run from the project root (Node >= 20.11.0):
+
+```bash
+npm test                            # run the full mocha suite
+node bin/convert.js R4 R5 in.json   # CLI conversion, result to stdout
+
+npm run build:coverage       # maintainer: regenerate COVERAGE.md (do not edit it by hand)
+npm run build:fhir-defs      # maintainer: regenerate data/fhir-defs/ from the spec zips
+node tools/check-data.js     # maintainer: check bundled cross-version data; report ambiguities
+```
+
 ## General
 - The .scratch/ directory is a work area for use to communicate between the
   developer and the AI.
