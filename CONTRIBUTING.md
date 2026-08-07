@@ -181,6 +181,9 @@ The directory structure looks like this:
 ```text
 src/postprocessors/
   registry.js
+  R2_R3/
+    registry_R2_to_R3.js
+    registry_R3_to_R2.js
   R3_R4/
     registry_R3_to_R4.js
     registry_R4_to_R3.js
@@ -193,6 +196,9 @@ src/postprocessors/
     registry_R4B_to_R5.js
     registry_R5_to_R4B.js
     Questionnaire.js
+  util/
+    elements.js
+    questionnaire.js
 ```
 
 The top-level registry, `src/postprocessors/registry.js`, automatically combines
@@ -371,6 +377,16 @@ Run:
 npm run build
 npm test
 ```
+
+## Submitting a pull request
+
+- Work on a branch and open the pull request against `master`.
+- Keep the change focused - one resource type and version pair per pull request
+  where practical.
+- Make sure `npm run build` and `npm test` both pass, and include the
+  regenerated `COVERAGE.md` if you changed a registry entry.
+- In the description, summarize what you reviewed and why you chose the
+  coverage level.
 
 ## Repository data
 
