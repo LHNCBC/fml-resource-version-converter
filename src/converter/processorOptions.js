@@ -285,10 +285,11 @@ function buildLookupFromUserFn(fn, { normalizeEntry, label }) {
  *
  * A local `build(kind, fromVer, toVer)` resolves one side: `kind` ('pre'|'post')
  * reconstructs the option field names and labels, `(fromVer, toVer)` is that
- * side's boundary hop (first for pre, last for post). A singular entry matches
- * the primary type at that boundary hop; a plural function or map is delegated to
- * buildLookupFromUserFn / buildLookupFromUserMap. Singular and plural are
- * mutually exclusive on a side.
+ * side's boundary hop (first for pre, last for post). A singular preprocessor
+ * applies to the primary type at the first hop. A singular postprocessor applies
+ * to the last hop even if an earlier hop may have renamed the resource type.
+ * A plural function or map is delegated to buildLookupFromUserFn /
+ * buildLookupFromUserMap. Singular and plural are mutually exclusive on a side.
  *
  * @param {Object} opts Conversion options.
  * @param {*} [opts.preproc]   PRP: a PRPE for the first-hop primary pre.
@@ -317,8 +318,10 @@ export function normalizeProcessorOptions(opts = {}, ctx) {
     }
     if (singular != null) {
       const entry = normalize(singular, `${kind}proc`);
-      return (type, v1, v2) =>
-        (type === primaryType && v1 === fromVer && v2 === toVer) ? entry : undefined;
+      return (type, v1, v2) => {
+        const typeMatches = kind === 'post' || type === primaryType;
+        return typeMatches && v1 === fromVer && v2 === toVer ? entry : undefined;
+      };
     }
     if (typeof plural === 'function') {
       return buildLookupFromUserFn(plural, { normalizeEntry: normalize, label: `${kind}procs` });

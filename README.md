@@ -140,6 +140,10 @@ following in mind:
   conversion of Bundle entries is planned for a future release.
 - **One-to-many conversion is not yet supported.** A future release will handle
   cases such as R2 -> R3 `CarePlan` -> `CarePlan` + `CareTeam` when needed.
+- **Ambiguous target selection with `targetResourceType` (or the CLI option
+  `--target-resource-type`) is supported only for a single hop.** Support for
+  selecting targets within a multi-hop conversion may be added in a future
+  release.
 - **Reviewed postprocessors are supplied only for Questionnaire.** Other resource
   types are converted by the FML mapping alone (see [COVERAGE.md](COVERAGE.md)),
   and more postprocessors may be added in future releases. You certainly can
@@ -251,6 +255,12 @@ const result = chainedConverter.convert(resource, 'R3', 'R5', {
   },
 });
 ```
+
+In a keyed `preprocs` or `postprocs` entry, the resource type is the type
+entering that hop. This also applies when a mapping renames the resource: for
+`Sequence` R3 -> `MolecularSequence` R4, use the postprocessor key
+`Sequence:R3->R4`, even though the postprocessor receives the converted
+`MolecularSequence`.
 
 For `singleHopConverter.convert()`, keyed maps may use either the full
 `'Questionnaire:R4->R5'` key or the type-only `'Questionnaire'` key.

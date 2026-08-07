@@ -15,10 +15,10 @@ This project follows [Semantic Versioning](http://semver.org/).
   `postproc` options.
 - The command-line runner (`bin/convert.js`) now handles multi-hop conversions
   and prints a per-hop diagnostics summary.
-- `opts.targetResourceType` (and the `--target-resource-type` CLI option) to
-  name the intended target type when there is ambiguity, such as
-  `ServiceRequest` R4 -> R3. See [CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md)
-  for the known ambiguous mappings.
+- `opts.targetResourceType` on `singleHopConverter.convert()` (and the
+  `--target-resource-type` CLI option for single-hop conversion) to select an
+  ambiguous target, such as `ServiceRequest` R4 -> R3. See
+  [CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md) for known ambiguities.
 - `CONVERSION-AMBIGUITY.md`, documenting the known mapping-selection
   ambiguities. One of them, `ProcedureRequest` R3 -> R2 targeting
   `DiagnosticOrder`, is served by two mapping files and cannot be run; it is

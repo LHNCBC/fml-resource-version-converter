@@ -24,14 +24,36 @@ describe('converter/singleHopConverter', function () {
 
   // -------- version validation ---------------------------------------------
   describe('version validation', function () {
-    // No FML mapping files ship for unsupported/non-adjacent version pairs,
-    // so the mapping gate rejects them before any conversion is attempted.
     it('rejects R4 <-> R4B (no mapping ships)', function () {
-      assert.throws(() => convert(r4Questionnaire, 'R4', 'R4B'), /no direct FML mapping/);
+      assert.throws(
+        () => convert(r4Questionnaire, 'R4', 'R4B'),
+        /R4 and R4B are near-equivalent/,
+      );
     });
 
-    it('rejects a non-adjacent pair (multi-hop)', function () {
-      assert.throws(() => convert(r4Questionnaire, 'R3', 'R5'), /no direct FML mapping/);
+    it('rejects unknown versions', function () {
+      assert.throws(
+        () => convert(r4Questionnaire, 'R6', 'R5'),
+        /Unknown FHIR version: R6/,
+      );
+      assert.throws(
+        () => convert(r4Questionnaire, 'R4', 'R6'),
+        /Unknown FHIR version: R6/,
+      );
+    });
+
+    it('rejects a same-version pair', function () {
+      assert.throws(
+        () => convert(r4Questionnaire, 'R4', 'R4'),
+        /source and target versions are the same/,
+      );
+    });
+
+    it('directs a non-adjacent pair to chainedConverter', function () {
+      assert.throws(
+        () => convert(r4Questionnaire, 'R3', 'R5'),
+        /requires an adjacent version pair; use chainedConverter\.convert for R3->R5/,
+      );
     });
   });
 

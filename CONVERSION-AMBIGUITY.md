@@ -37,9 +37,12 @@ type pair; see the details below.
 
 ## Resolution
 
-**Type A is handled for the main resource** with the `targetResourceType` option
-or the `--target-resource-type` command-line argument. Specify a target when
-there is ambiguity; the converter validates it against the bundled mappings.
+**Type A is handled for single-hop conversions** with the `targetResourceType`
+option or the `--target-resource-type` command-line argument. For a multi-hop
+path that crosses an ambiguous hop, run each hop with `singleHopConverter` and
+select the target on the ambiguous hop. Such support for multi-hop conversions
+may be added in the future.
+
 Contained resources and Bundle entries are not yet converted recursively. Their
 target-selection needs will be addressed when that support is added.
 

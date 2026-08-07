@@ -88,6 +88,34 @@ describe('converter/chainedConverter', function () {
       assert.equal(result.resource.language, 'de');
     });
 
+    it('keys each hop by the resource type entering that hop', function () {
+      const first = {
+        name: 'afterSequence',
+        execute: target => ({ resource: target, status: STATUS.OK }),
+      };
+      const second = {
+        name: 'afterMolecularSequence',
+        execute: target => ({ resource: target, status: STATUS.OK }),
+      };
+      const result = convert({
+        resourceType: 'Sequence',
+        id: 'sequence-r3',
+        type: 'dna',
+        coordinateSystem: 0,
+      }, 'R3', 'R5', {
+        postprocs: {
+          'Sequence:R3->R4': [first],
+          'MolecularSequence:R4->R5': [second],
+        },
+      });
+
+      assert.equal(result.hops[0].postprocessors.some(p => p.name === 'afterSequence'), true);
+      assert.equal(
+        result.hops[1].postprocessors.some(p => p.name === 'afterMolecularSequence'),
+        true,
+      );
+    });
+
     it('throws on a postprocs key that is not a planned hop', function () {
       assert.throws(
         () => convert(r3Questionnaire, 'R3', 'R5', {
@@ -125,6 +153,34 @@ describe('converter/chainedConverter', function () {
       // PSP lands in the last hop's postprocessors.
       assert.equal(result.hops[1].postprocessors.some(p => p.name === 'stampLast'), true);
       assert.equal((result.hops[0].postprocessors || []).some(p => p.name === 'stampLast'), false);
+    });
+
+    it('runs postproc after the last hop when an earlier hop renamed the resource', function () {
+      let receivedType;
+      const post = {
+        name: 'stampRenamedResource',
+        execute(target) {
+          receivedType = target.resourceType;
+          return { resource: { ...target, language: 'en' }, status: STATUS.OK };
+        },
+      };
+      const result = convert({
+        resourceType: 'Sequence',
+        id: 'sequence-r3',
+        type: 'dna',
+        coordinateSystem: 0,
+      }, 'R3', 'R5', { postproc: [post] });
+
+      assert.equal(receivedType, 'MolecularSequence');
+      assert.equal(result.resource.language, 'en');
+      assert.equal(
+        result.hops[1].postprocessors.some(p => p.name === 'stampRenamedResource'),
+        true,
+      );
+      assert.equal(
+        (result.hops[0].postprocessors || []).some(p => p.name === 'stampRenamedResource'),
+        false,
+      );
     });
   });
 });

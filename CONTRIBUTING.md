@@ -118,6 +118,10 @@ no explicit entry in a specific registry (e.g., registry_R4_to_R5.js) but an FML
 mapping exists, the lookup returns the default entry with FML coverage set to
 **not_reviewed** and no package postprocessors.
 
+Registry resource keys likewise use the type entering the conversion hop. If
+the mapping renames the resource, register the postprocessor under the source
+type; its `target` argument still contains the converted output resource.
+
 Let's walk through a hypothetical example before explaining the details. Suppose
 the FML mapping for ResourceTypeX from R4 to R5 drops the field someFieldFoo when
 its value is "foo", but it should really be mapped to "foobar". We add a

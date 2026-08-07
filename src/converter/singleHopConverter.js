@@ -20,6 +20,7 @@
 import { normalizeProcessorOptions, resolveSingleHopOptionKeys } from './processorOptions.js';
 import { runHop } from './runHop.js';
 import { rollupChainCoverage } from './coverage.js';
+import { planHops } from '../fml_base_conv/create_converter.js';
 
 /**
  * Convert a FHIR resource across one adjacent FHIR version hop.
@@ -40,12 +41,21 @@ import { rollupChainCoverage } from './coverage.js';
  *   ReferralRequest); optional for a one-to-one mapping. When supplied, it is
  *   checked against the target declared by the FML StructureMap.
  * @returns {Object} Flat result object; see the module overview for the shape.
- * @throws {Error} On unknown resource type / missing (non-adjacent) FML mapping,
- *   invalid processor options, decreasing coverage, a warning-invariant
- *   violation, or any hard error from a processor or the engine.
+ * @throws {Error} On unknown / same / unsupported / non-adjacent versions,
+ *   unknown resource type / missing FML mapping, invalid processor options,
+ *   decreasing coverage, a warning-invariant violation, or any hard error from
+ *   a processor or the engine.
  */
 function convert(resource, fromVer, toVer, opts = {}) {
   const { checkCoverage = true, targetResourceType } = opts;
+
+  const hops = planHops(fromVer, toVer);
+  if (hops.length !== 1) {
+    throw new Error(
+      `singleHopConverter.convert requires an adjacent version pair; ` +
+      `use chainedConverter.convert for ${fromVer}->${toVer}`,
+    );
+  }
 
   if (targetResourceType != null &&
       (typeof targetResourceType !== 'string' || targetResourceType.length === 0)) {
@@ -54,8 +64,6 @@ function convert(resource, fromVer, toVer, opts = {}) {
     );
   }
 
-  // A single hop is a one-element plan; the boundary hop is this hop.
-  const hops = [[fromVer, toVer]];
   // Single-hop convenience: accept type-only keyed map options by canonicalizing
   // them to "type:v1->v2" before the (single-/multi-hop-agnostic) normalizer.
   const resolvedOpts = resolveSingleHopOptionKeys(opts, hops[0]);
