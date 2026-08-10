@@ -273,11 +273,16 @@ describe('fml_base_conv: STU3->R4 polymorphic initial conversion', () => {
  *
  * @param {string} fmlText FML mapping source.
  * @param {object} input Source resource (its resourceType names the entry group).
+ * @param {object|undefined} [tgtDefs] Optional target definition metadata.
  * @returns {{ output: object, warnings: string[] }}
  */
-function runRawFml(fmlText, input) {
+function runRawFml(fmlText, input, tgtDefs = undefined) {
   const warnings = [];
-  const engine = compileFmlXver({ fmlText, onWarning: msg => warnings.push(msg) });
+  const engine = compileFmlXver({
+    fmlText,
+    tgtDefs,
+    onWarning: msg => warnings.push(msg),
+  });
   const { resource: output } = engine.convert({ input });
   return { output, warnings };
 }
@@ -486,8 +491,8 @@ describe('fml_base_conv: target list mode parsing', function () {
 
     // The second target still executes (was dropped by the old mis-parse).
     assert.equal(output.y, 'v');
-    // `first` on a non-then target is recognised but not applied (warned).
-    assert.ok(warnings.some(w => /list mode "first"/.test(w)));
+    // The mode is parsed, but provisional execution is explicitly diagnosed.
+    assert.ok(warnings.some(w => /list mode "first"/.test(w) && /not faithfully implemented/.test(w)));
   });
 });
 
@@ -667,7 +672,7 @@ describe('fml_base_conv: log clause and backtick identifiers', function () {
 
 
 describe('fml_base_conv: target list mode single', function () {
-  it('collapses a multi-item source to one target element and warns', function () {
+  it('preserves every source occurrence and warns about provisional behavior', function () {
     const fml = [
       'group TestRes(source src, target tgt) {',
       '  src.items as s -> tgt.out as t single then Fill(s, t);',
@@ -682,16 +687,19 @@ describe('fml_base_conv: target list mode single', function () {
       items: [{ text: 'A' }, { text: 'B' }],
     });
 
-    // Only the first item becomes a target element.
-    assert.equal(output.out.length, 1);
+    // Provisional fallback preserves both occurrences instead of truncating.
+    assert.equal(output.out.length, 2);
     assert.equal(output.out[0].text, 'A');
-    // The count violation is reported...
-    assert.ok(warnings.some(w => /"single"/.test(w) && /2/.test(w)));
-    // ...but not the generic "not yet applied" diagnostic (single is applied).
-    assert.deepEqual(warnings.filter(w => /not yet applied/.test(w)), []);
+    assert.equal(output.out[1].text, 'B');
+    assert.equal(warnings.filter(w => /list mode "single"/.test(w)).length, 1);
+    assert.ok(warnings.some(w =>
+      /not faithfully implemented/.test(w) &&
+      /produced values are not truncated/.test(w) &&
+      /may exceed target cardinality/.test(w),
+    ));
   });
 
-  it('passes a single-item source through without warning', function () {
+  it('warns even when one source occurrence makes the fallback look harmless', function () {
     const fml = [
       'group TestRes(source src, target tgt) {',
       '  src.items as s -> tgt.out as t single then Fill(s, t);',
@@ -708,46 +716,66 @@ describe('fml_base_conv: target list mode single', function () {
 
     assert.equal(output.out.length, 1);
     assert.equal(output.out[0].text, 'A');
-    assert.deepEqual(warnings, []);
+    assert.equal(warnings.filter(w => /list mode "single"/.test(w)).length, 1);
+    assert.ok(warnings.some(w => /instance sharing/.test(w)));
   });
 });
 
 
-describe('fml_base_conv: target list mode first/last reuse', function () {
-  it('merges every item into the first existing list element (first)', function () {
-    // Mirrors R3->R2 HealthcareService: one rule builds `list` entries, a
-    // second rule (`first`) merges into the first existing entry rather than
-    // appending new ones.
-    const fml = [
-      'group TestRes(source src, target tgt) {',
-      '  src.a as s -> tgt.list as t, t.x as v then Fill(s, v);',
-      '  src.b as s -> tgt.list as t first, t.y as v then Fill(s, v);',
-      '}',
-      'group Fill(source src, target tgt) {',
-      '  src.text -> tgt.text;',
-      '}',
-    ].join('\n');
+describe('fml_base_conv: target list mode first/last provisional fallback', function () {
+  for (const mode of ['first', 'last']) {
+    it(`appends every source occurrence and warns for ${mode}`, function () {
+      const fml = [
+        'group TestRes(source src, target tgt) {',
+        '  src.a as s -> tgt.list as t, t.x as v then Fill(s, v);',
+        `  src.b as s -> tgt.list as t ${mode}, t.y as v then Fill(s, v);`,
+        '}',
+        'group Fill(source src, target tgt) {',
+        '  src.text -> tgt.text;',
+        '}',
+      ].join('\n');
 
-    const { output, warnings } = runRawFml(fml, {
-      resourceType: 'TestRes',
-      a: [{ text: 'A1' }, { text: 'A2' }],
-      b: [{ text: 'B1' }, { text: 'B2' }],
+      const { output, warnings } = runRawFml(fml, {
+        resourceType: 'TestRes',
+        a: [{ text: 'A1' }, { text: 'A2' }],
+        b: [{ text: 'B1' }, { text: 'B2' }],
+      }, {
+        arrayPaths: ['TestRes.list'],
+      });
+
+      assert.equal(output.list.length, 4);
+      assert.equal(output.list[0].x.text, 'A1');
+      assert.equal(output.list[1].x.text, 'A2');
+      assert.equal(output.list[2].y.text, 'B1');
+      assert.equal(output.list[3].y.text, 'B2');
+      assert.equal(warnings.filter(w => new RegExp(`list mode "${mode}"`).test(w)).length, 1);
+      assert.ok(warnings.some(w => /target ordering is not honored/.test(w)));
     });
-
-    // No new elements appended by the `first` rule: still 2 entries.
-    assert.equal(output.list.length, 2);
-    // First entry gains `y` from both `b` items; second is untouched.
-    assert.equal(output.list[0].x.text, 'A1');
-    assert.equal(output.list[0].y.text, 'B2'); // last write wins into shared slot
-    assert.equal(output.list[1].x.text, 'A2');
-    assert.ok(output.list[1].y === undefined);
-    // first-mode reuse is implemented, so no unhandled-list-mode warning.
-    assert.deepEqual(warnings.filter(w => /list mode/.test(w)), []);
-  });
+  }
 });
 
 
-describe('fml_base_conv: unsupported target list mode diagnostics', function () {
+describe('fml_base_conv: provisional target list mode diagnostics', function () {
+  it('warns for every parsed target mode without changing source values', function () {
+    for (const mode of ['first', 'last', 'single', 'share', 'collate']) {
+      const fml = [
+        'group TestRes(source src, target tgt) {',
+        `  src.value as s -> tgt.out = s ${mode};`,
+        '}',
+      ].join('\n');
+
+      const { output, warnings } = runRawFml(fml, {
+        resourceType: 'TestRes',
+        value: 'kept',
+      });
+
+      assert.equal(output.out, 'kept');
+      assert.equal(warnings.filter(w => new RegExp(`list mode "${mode}"`).test(w)).length, 1);
+      assert.ok(warnings.some(w => /not faithfully implemented/.test(w)));
+      assert.ok(warnings.some(w => /target ordering/.test(w)));
+    }
+  });
+
   it('warns once per conversion when a compiled engine is reused', function () {
     const fml = [
       'group TestRes(source src, target tgt) {',
@@ -770,5 +798,21 @@ describe('fml_base_conv: unsupported target list mode diagnostics', function () 
       input: { resourceType: 'TestRes', items: ['c', 'd'] },
     });
     assert.equal(warnings.filter(w => /list mode "share"/.test(w)).length, 1);
+  });
+
+  it('does not warn for a source-side list mode', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.items first as s -> tgt.out = s;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      items: ['A', 'B'],
+    });
+
+    assert.equal(output.out, 'A');
+    assert.deepEqual(warnings.filter(w => /target list mode/.test(w)), []);
   });
 });

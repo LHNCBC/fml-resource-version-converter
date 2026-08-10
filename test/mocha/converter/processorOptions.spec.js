@@ -113,6 +113,59 @@ describe('converter/processorOptions', function () {
     });
   });
 
+  describe('assertTypeForHop (eager per-hop key validation)', function () {
+    it('does not throw when the hop key type matches the entering type', function () {
+      const { postLookup } = normalizeProcessorOptions(
+        { postprocs: { 'Questionnaire:R4->R5': [noop], 'Observation:R3->R4': [other] } }, MULTI,
+      );
+      assert.doesNotThrow(() => postLookup.assertTypeForHop('Observation', 'R3', 'R4'));
+      assert.doesNotThrow(() => postLookup.assertTypeForHop('Questionnaire', 'R4', 'R5'));
+    });
+
+    it('throws, naming both types, when a hop key names a different type (typo)', function () {
+      const { postLookup } = normalizeProcessorOptions(
+        { postprocs: { 'Questionaire:R4->R5': [noop] } }, SINGLE,   // note the typo
+      );
+      assert.throws(
+        () => postLookup.assertTypeForHop('Questionnaire', 'R4', 'R5'),
+        /no resource of type "Questionaire" enters the R4->R5 hop.*entering type: "Questionnaire"/,
+      );
+    });
+
+    it('only validates the hop it is asked about', function () {
+      const { postLookup } = normalizeProcessorOptions(
+        { postprocs: { 'Observation:R3->R4': [noop] } }, MULTI,
+      );
+      // The Observation key is on R3->R4, so validating R4->R5 is a no-op.
+      assert.doesNotThrow(() => postLookup.assertTypeForHop('Questionnaire', 'R4', 'R5'));
+      // On its own hop the key must match the entering type.
+      assert.throws(
+        () => postLookup.assertTypeForHop('Questionnaire', 'R3', 'R4'),
+        /no resource of type "Observation" enters the R3->R4 hop/,
+      );
+    });
+
+    it('validates preprocs maps too', function () {
+      const { preLookup } = normalizeProcessorOptions(
+        { preprocs: { 'Observation:R4->R5': [noop] } }, SINGLE,
+      );
+      assert.throws(
+        () => preLookup.assertTypeForHop('Questionnaire', 'R4', 'R5'),
+        /preprocs: no resource of type "Observation" enters the R4->R5 hop/,
+      );
+    });
+
+    it('is absent on function and singular forms (nothing to validate)', function () {
+      const { postLookup: fnLookup } = normalizeProcessorOptions(
+        { postprocs: (type, v1) => (v1 === 'R4' ? [noop] : undefined) }, SINGLE,
+      );
+      assert.equal(typeof fnLookup.assertTypeForHop, 'undefined');
+
+      const { postLookup: singularLookup } = normalizeProcessorOptions({ postproc: [noop] }, SINGLE);
+      assert.equal(typeof singularLookup.assertTypeForHop, 'undefined');
+    });
+  });
+
   describe('function wrapping', function () {
     it('wraps a named post function with its name and neutral coverage', function () {
       function tagIt(r) { return { resource: r, status: 'ok' }; }

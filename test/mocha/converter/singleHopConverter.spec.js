@@ -452,6 +452,34 @@ describe('converter/singleHopConverter', function () {
       });
       assert.equal(result.postprocessors.some(p => p.name === 'tag'), true);
     });
+
+    it('throws when a keyed postprocs resource type never matches (typo)', function () {
+      const post = { name: 'tag', execute: t => ({ resource: t, status: STATUS.OK }) };
+      assert.throws(
+        () => convert(r4Questionnaire, 'R4', 'R5', { postprocs: { Questionaire: [post] } }),
+        /postprocs: no resource of type "Questionaire" enters the R4->R5 hop/,
+      );
+    });
+
+    it('throws when a keyed preprocs resource type never matches (typo)', function () {
+      const pre = { name: 'pre', execute: r => ({ resource: r, status: STATUS.OK }) };
+      assert.throws(
+        () => convert(r4Questionnaire, 'R4', 'R5', { preprocs: { Observation: [pre] } }),
+        /preprocs: no resource of type "Observation" enters the R4->R5 hop/,
+      );
+    });
+
+    it('runs a correctly-typed keyed entry and does not flag it as unused', function () {
+      const post = {
+        name: 'tag',
+        execute: t => ({ resource: { ...t, language: 'de' }, status: STATUS.OK }),
+      };
+      const result = convert(r4Questionnaire, 'R4', 'R5', {
+        postprocs: { 'Questionnaire:R4->R5': [post] },
+      });
+      assert.equal(result.resource.language, 'de');
+      assert.equal(result.postprocessors.some(p => p.name === 'tag'), true);
+    });
   });
 
   // -------- processor contract enforcement ---------------------------------

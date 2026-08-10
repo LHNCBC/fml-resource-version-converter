@@ -81,6 +81,7 @@ function convert(resource, fromVer, toVer, opts = {}) {
     targetResourceType,
   });
 
+
   const result = {
     resource: hop.resource,
     coverage: rollupChainCoverage([hop.hopCoverage]),

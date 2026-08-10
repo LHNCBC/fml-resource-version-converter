@@ -96,6 +96,7 @@ function convert(resource, fromVer, toVer, opts = {}) {
     statuses.push(hop.status);
   }
 
+
   return {
     resource: working,
     coverage: rollupChainCoverage(hopCoverages),

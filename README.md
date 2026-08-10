@@ -149,11 +149,13 @@ following in mind:
   and more postprocessors may be added in future releases. You certainly can
   supply your own postprocessors as needed - and better yet, contribute
   them back to the project.
-- **A few FML language features are not yet implemented:** `let` constants,
-  inline `conceptmap` declarations, and the `share`/`collate` target list
-  modes. These are not used by the current HL7 cross-version mapping files,
-  and current conversions are not affected. The engine will emit a warning
-  message if it sees one. The features will be implemented in a future release.
+- **A few FML language features are not yet implemented:** `let` constants and
+  inline `conceptmap` declarations. Bundled mappings do not use them; the engine
+  emits a warning if it sees one.
+- **Target list-mode semantics are provisional.** The engine emits a warning and
+  uses an append fallback. The only known bundled case is HealthcareService
+  R3 -> R2: each specialty may become a separate `serviceType` without its
+  required `type`, producing invalid DSTU2 output.
 - **`ProcedureRequest` R3 -> R2 with target type `DiagnosticOrder` is not handled.**
   Two bundled FML StructureMaps declare that same source/target pair
   (`DiagnosticOrder.fml` and `ProcedureRequestDO.fml`), and choosing between
