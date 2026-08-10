@@ -138,6 +138,33 @@ describe('converter/chainedConverter', function () {
       );
     });
 
+    it('rejects a misspelled renamed-hop type before that hop processor runs', function () {
+      let processorRan = false;
+      const shouldNotRun = {
+        name: 'shouldNotRun',
+        execute: target => {
+          processorRan = true;
+          return { resource: target, status: STATUS.OK };
+        },
+      };
+
+      assert.throws(
+        () => convert({
+          resourceType: 'Sequence',
+          id: 'sequence-r3',
+          type: 'dna',
+          coordinateSystem: 0,
+        }, 'R3', 'R5', {
+          postprocs: {
+            'MolecularSequence:R4->R5': [shouldNotRun],
+            'MolecularSequnce:R4->R5': [],
+          },
+        }),
+        /no resource of type "MolecularSequnce" enters the R4->R5 hop.*entering type: "MolecularSequence"/,
+      );
+      assert.equal(processorRan, false);
+    });
+
     it('throws on a postprocs key that is not a planned hop', function () {
       assert.throws(
         () => convert(r3Questionnaire, 'R3', 'R5', {

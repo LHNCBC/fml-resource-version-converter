@@ -270,7 +270,11 @@ try {
   const fmlEngine = createFmlEngineFactory().createEngine(resourceType, fromVer, toVer, {
     onWarning: msg => fmlWarnings.push(msg),
   });
-  fmlOutput = fmlEngine.convert({ input });
+  // The engine returns an envelope ({ resource, spinOffResources? }). Compare
+  // and serialize only the primary resource so it lines up with the full
+  // pipeline's fullResult.resource (otherwise every field is a false diff).
+  const { resource: fmlResource } = fmlEngine.convert({ input });
+  fmlOutput = fmlResource;
   console.log(`Raw FML: OK (${fmlWarnings.length} warning(s))`);
   for (const warning of fmlWarnings) {
     console.log(`  warning: ${warning}`);
@@ -342,4 +346,6 @@ else {
 }
 
 
-process.exit(exitCode);
+// Set process.exitCode (rather than calling process.exit) so buffered stdout is
+// flushed before the process exits; process.exit() can truncate piped output.
+process.exitCode = exitCode;

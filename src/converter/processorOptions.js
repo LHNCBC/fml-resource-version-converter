@@ -240,16 +240,25 @@ export function resolveSingleHopOptionKeys(opts = {}, [v1, v2]) {
  * upstream by the single-hop entry point (see resolveSingleHopOptionKeys), so
  * this deals only with canonical keys.
  *
+ * The returned lookup also carries `label` and an `assertTypeForHop(actualType,
+ * v1, v2)` method. The entry points call it before each hop runs to reject a
+ * keyed entry whose resource type does not enter that hop (typically a
+ * resource-type typo). The hop is validated eagerly here; the resource type can
+ * only be checked once the actual type reaching each hop is known at runtime.
+ *
  * @param {Object} map Canonical caller map (keys: "resType:v1->v2").
  * @param {Object} args
  * @param {Array<[string, string]>} args.hops Planned hops (for key validation).
  * @param {Function} args.normalizeEntry Entry normalizer (normalizePRPE/normalizePSPE).
  * @param {string} args.label Human-readable label for errors.
- * @returns {Function} A `(type, v1, v2) -> normalizedEntry | undefined` lookup.
+ * @returns {Function} A `(type, v1, v2) -> normalizedEntry | undefined` lookup,
+ *   augmented with `label` and `assertTypeForHop(actualType, v1, v2)`.
  * @throws {Error} If a key is malformed or names a pair that is not a planned hop.
  */
 function buildLookupFromUserMap(map, { hops, normalizeEntry, label }) {
   const store = new Map();
+  // Parsed key parts, kept for eager per-hop resource-type validation.
+  const parsedKeys = [];
   for (const [key, rawEntry] of Object.entries(map)) {
     const { type, v1, v2 } = parseLookupKey(key);
     if (!hopInPlan(v1, v2, hops)) {
@@ -257,8 +266,34 @@ function buildLookupFromUserMap(map, { hops, normalizeEntry, label }) {
       throw new Error(`${label}: key "${key}" is not a hop in this conversion (hops: ${plan})`);
     }
     store.set(createLookupKey(type, v1, v2), normalizeEntry(rawEntry, `${label}["${key}"]`));
+    parsedKeys.push({ type, v1, v2 });
   }
-  return (type, v1, v2) => store.get(createLookupKey(type, v1, v2));
+
+  const lookup = (type, v1, v2) => store.get(createLookupKey(type, v1, v2));
+
+  lookup.label = label;
+
+  /**
+   * Assert that every keyed entry for the (v1 -> v2) hop names the resource type
+   * actually entering it. Only one resource type enters a hop today, so a key
+   * with a different type on that hop can never match and is almost always a
+   * typo; fail rather than silently skip the caller's processor.
+   *
+   * @param {string} actualType Resource type entering this hop.
+   * @param {string} v1 Source version of the hop.
+   * @param {string} v2 Target version of the hop.
+   * @throws {Error} If any keyed entry for this hop names a different type.
+   */
+  lookup.assertTypeForHop = (actualType, v1, v2) => {
+    const dead = parsedKeys.filter(k => k.v1 === v1 && k.v2 === v2 && k.type !== actualType);
+    if (dead.length === 0) return;
+    const types = dead.map(k => `"${k.type}"`).join(', ');
+    throw new Error(
+      `${label}: no resource of type ${types} enters the ${v1}->${v2} hop `
+      + `(entering type: "${actualType}"). Check the resource type spelling.`,
+    );
+  };
+  return lookup;
 }
 
 /**
@@ -300,7 +335,9 @@ function buildLookupFromUserFn(fn, { normalizeEntry, label }) {
  * @param {Array<[string, string]>} ctx.hops Planned hops (>= 1).
  * @param {string} ctx.primaryType The input resource's type.
  * @returns {{preLookup: Function, postLookup: Function}} Canonical lookups, each
- *   `(type, v1, v2) -> normalizedEntry | undefined`.
+ *   `(type, v1, v2) -> normalizedEntry | undefined`. Map-form lookups also carry
+ *   `assertTypeForHop(actualType, v1, v2)`, which the hop runner calls before
+ *   each hop to reject a keyed entry whose type does not enter that hop.
  * @throws {Error} On conflicting/invalid options.
  */
 export function normalizeProcessorOptions(opts = {}, ctx) {

@@ -85,6 +85,11 @@ export function runHop(resource, fromVer, toVer, opts = {}) {
     targetResourceType,
   });
 
+  // Reject keyed processor entries whose resource type does not enter this hop
+  // (typically a resource-type typo) before doing any work for the hop.
+  preLookup?.assertTypeForHop?.(resType, fromVer, toVer);
+  postLookup?.assertTypeForHop?.(resType, fromVer, toVer);
+
   let working = resource;
 
   // ---- 2. Preprocessors for this hop ------------------------------------

@@ -2168,56 +2168,34 @@ export function compileFmlXver({
   const _listModeWarned = new Set();
 
   /**
-   * Warn (once per mode) when a target carries a list mode that the engine
-   * recognises syntactically but does not yet apply. `first`/`last` (reuse an
-   * existing element) and `single` (collapse to one) are implemented; only
-   * `share`/`collate` currently fall through to the default behavior of
-   * appending a fresh element, so we surface that gap rather than silently
-   * diverging from FML semantics.
+   * Warn (once per mode) when a target carries a list mode. Target list modes
+   * are parsed, but their ordering, sharing, and collation semantics are not
+   * yet faithfully implemented. The provisional fallback appends every
+   * produced value in ordinary rule-execution order so it does not invent
+   * sharing relationships or silently discard source occurrences.
+   * The only known bundled case is HealthcareService R3 -> R2, where the
+   * fallback may create a serviceType without its required type for each
+   * specialty.
    *
    * @param {Target} tgtSpec
    */
-  function warnUnhandledTargetListMode(tgtSpec) {
+  function warnProvisionalTargetListMode(tgtSpec) {
     const m = tgtSpec?.listMode;
     if (!m || _listModeWarned.has(m)) return;
     _listModeWarned.add(m);
-    onWarning?.(`target list mode "${m}" is recognised but not yet applied; appending a new element instead`);
-  }
 
-  /**
-   * Resolve the target list element that a `first` / `last` target list
-   * mode refers to, so a `then`-rule reuses an existing element instead of
-   * appending a new one.
-   *
-   * FML `first` / `last` mean "write into the first / last element already
-   * present in the target list" (e.g. R3->R2 HealthcareService merges each
-   * `specialty` into the first `serviceType` created from `type`, rather
-   * than creating standalone `serviceType` entries that would be missing
-   * the required `.type`). When the list is empty or absent, a fresh
-   * element is created and appended so there is something to write into;
-   * this preserves data when the reused-from rule produced nothing.
-   *
-   * @param {Object} tctx     Target context object holding the list.
-   * @param {string} path     Dot-path of the list field on `tctx`.
-   * @param {'first'|'last'} mode
-   * @param {string|null} absPath  Absolute FHIR path to tag on a fresh element.
-   * @returns {Object|null}   The reused element, or null when `path` is empty.
-   */
-  function resolveListModeSlot(tctx, path, mode, absPath) {
-    if (!path) return null;
-    const { parent, key } = ensurePath(tctx, path);
-    let arr = parent[key];
-    if (!Array.isArray(arr)) {
-      arr = arr === undefined ? [] : [arr];
-      parent[key] = arr;
+    let detail = 'provisional fallback appends every produced value; target ordering is not honored';
+    if (m === 'single' || m === 'share') {
+      detail = 'provisional fallback appends every produced value; target ordering and instance sharing are not honored';
+    } else if (m === 'collate') {
+      detail = 'provisional fallback appends every produced value; target ordering and collation are not honored';
     }
-    if (arr.length === 0) {
-      const fresh = {};
-      setObjectPath(fresh, absPath);
-      arr.push(fresh);
-      return fresh;
+
+    if (m === 'single') {
+      detail += '; produced values are not truncated; output may exceed target cardinality';
     }
-    return mode === 'last' ? arr[arr.length - 1] : arr[0];
+
+    onWarning?.(`target list mode "${m}" is parsed but not faithfully implemented; ${detail}`);
   }
 
   /**
@@ -2302,6 +2280,10 @@ export function compileFmlXver({
       onWarning?.(`check failed (${primary.spec.alias || primary.spec.path})`);
     }
     if (primary.spec.log) emitLog(primary.spec.log, ruleScope);
+
+    for (const target of targets) {
+      warnProvisionalTargetListMode(target);
+    }
 
     if (thenGroup || thenRules) {
       // Category 3: source-level then without targets (e.g. `src.field as v then Group(v, tgt)`)
@@ -2401,25 +2383,14 @@ export function compileFmlXver({
         return;
       }
 
-      // Target list mode `first`/`last`: reuse an existing element of the
-      // target list rather than appending a fresh child (see
-      // resolveListModeSlot). Other modes are still only recognised, not
-      // applied (warnUnhandledTargetListMode).
-      const reuseSlot = tgtSpec.listMode === 'first' || tgtSpec.listMode === 'last';
-      let child;
-      if (reuseSlot && writePath) {
-        child = resolveListModeSlot(tctx, writePath, tgtSpec.listMode, composeChildPath(tctx, writePath));
-      } else {
-        // single is trivially satisfied in scalar context (one value); warn
-        // only for genuinely unhandled modes here.
-        if (tgtSpec.listMode && tgtSpec.listMode !== 'single') warnUnhandledTargetListMode(tgtSpec);
-        child = tgtSpec.transform?.fn === 'create'
-          ? evalTransform(tgtSpec.transform, ruleScope)
-          : {};
-        // Record the child's absolute FHIR path so deeper writes (and the
-        // final slot write below) can consult target-version cardinality.
-        setObjectPath(child, composeChildPath(tctx, writePath));
-      }
+      // Target list modes currently use the same provisional append fallback:
+      // build a fresh child for every rule execution and preserve it.
+      const child = tgtSpec.transform?.fn === 'create'
+        ? evalTransform(tgtSpec.transform, ruleScope)
+        : {};
+      // Record the child's absolute FHIR path so deeper writes (and the
+      // final slot write below) can consult target-version cardinality.
+      setObjectPath(child, composeChildPath(tctx, writePath));
       if (tgtSpec.alias) ruleScope.set(tgtSpec.alias, child);
 
       // Multi-target then-rule: intermediate targets (targets[1..]) build
@@ -2449,15 +2420,11 @@ export function compileFmlXver({
         for (const sr of thenRules) execRule(sr, subScope);
       }
 
-      // Reused slots are already in the target list; only fresh children
-      // need to be written.
-      if (!reuseSlot) {
-        if (writePath) {
-          const { parent, key } = ensurePath(tctx, writePath);
-          writeToSlot(parent, key, child, composeChildPath(tctx, writePath));
-        } else {
-          Object.assign(tctx, child);
-        }
+      if (writePath) {
+        const { parent, key } = ensurePath(tctx, writePath);
+        writeToSlot(parent, key, child, composeChildPath(tctx, writePath));
+      } else {
+        Object.assign(tctx, child);
       }
       return;
     }
@@ -2572,40 +2539,8 @@ export function compileFmlXver({
       return;
     }
 
-    // Target list mode `single`: the target must receive exactly one value.
-    // If the source produced more than one item, warn and keep the first
-    // (the target-side counterpart of the source `only_one` mode).
-    let iterItems = items;
-    if (tgtSpec.listMode === 'single' && items.length > 1) {
-      onWarning?.(`target list mode "single" expects a single item but source produced ${items.length}; using the first`);
-      iterItems = [items[0]];
-    }
-
-    // Target list mode `first`/`last`: every iterated item merges into the
-    // same existing element of the target list (resolved once), rather than
-    // each producing its own appended element. Only meaningful for
-    // then-rules (which build child objects).
-    const reuseSlot = (tgtSpec.listMode === 'first' || tgtSpec.listMode === 'last') &&
-                      (thenGroup || thenRules) && !!tgtSpec.path;
-    const sharedWritePath = reuseSlot
-      ? resolveWritePath(tgtSpec, primary, bindings, tctx)
-      : null;
-    // Resolve (and, if absent, create) the reused slot lazily - only on the
-    // first item that passes its guard - so an all-filtered rule leaves no
-    // empty element behind.
-    let sharedSlot = null;
-    const getSharedSlot = () => {
-      if (sharedSlot == null && reuseSlot) {
-        sharedSlot = resolveListModeSlot(
-          tctx, sharedWritePath, tgtSpec.listMode, composeChildPath(tctx, sharedWritePath),
-        );
-      }
-      return sharedSlot;
-    };
-    // first/last are applied via reuseSlot and single via the collapse above;
-    // warn only for the still-unimplemented modes (share/collate).
-    if (!reuseSlot && tgtSpec.listMode && tgtSpec.listMode !== 'single') {
-      warnUnhandledTargetListMode(tgtSpec);
+    for (const target of targets) {
+      warnProvisionalTargetListMode(target);
     }
 
     const results = [];
@@ -2616,8 +2551,8 @@ export function compileFmlXver({
       targets.slice(1).some(target => target.context === tgtSpec.alias)
       ? tgtSpec.alias
       : null;
-    for (let itemIndex = 0; itemIndex < iterItems.length; itemIndex++) {
-      const item = iterItems[itemIndex];
+    for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+      const item = items[itemIndex];
       const itemCompanion = Array.isArray(itemCompanions)
         ? itemCompanions[itemIndex]
         : undefined;
@@ -2712,27 +2647,20 @@ export function compileFmlXver({
           continue;
         }
 
-        let child;
-        const slot = reuseSlot ? getSharedSlot() : null;
-        if (slot) {
-          // Merge every item into the shared reused element.
-          child = slot;
-        } else {
-          child = tgtSpec.transform?.fn === 'create'
-            ? evalTransform(tgtSpec.transform, iterScope)
-            : {};
-          // Record the child's absolute FHIR path so writes into it (and
-          // any group invoked on it) can consult target-version cardinality.
-          // FHIR paths are array-blind: an item at index i still has the
-          // parent path (no [i] segment).
-          const writePath = resolveWritePath(
-            tgtSpec,
-            iterationPrimary,
-            iterationBindings,
-            tctx,
-          );
-          setObjectPath(child, composeChildPath(tctx, writePath));
-        }
+        const child = tgtSpec.transform?.fn === 'create'
+          ? evalTransform(tgtSpec.transform, iterScope)
+          : {};
+        // Record the child's absolute FHIR path so writes into it (and
+        // any group invoked on it) can consult target-version cardinality.
+        // FHIR paths are array-blind: an item at index i still has the
+        // parent path (no [i] segment).
+        const writePath = resolveWritePath(
+          tgtSpec,
+          iterationPrimary,
+          iterationBindings,
+          tctx,
+        );
+        setObjectPath(child, composeChildPath(tctx, writePath));
         if (tgtSpec.alias) iterScope.set(tgtSpec.alias, child);
 
         // Multi-target then-rule (array context): apply intermediate
@@ -2758,11 +2686,8 @@ export function compileFmlXver({
           subScope.set(tgtSpec.context, child);
           for (const sr of thenRules) execRule(sr, subScope);
         }
-        // Reused slots are already in the target list; do not re-append.
-        if (!reuseSlot) {
-          results.push(child);
-          resultCompanions.push(null);
-        }
+        results.push(child);
+        resultCompanions.push(null);
       } else {
         // No then-clause: each iteration produces one value. Apply the
         // applicable default group just as applyTarget() does for a scalar
@@ -2793,8 +2718,6 @@ export function compileFmlXver({
       }
     }
 
-    // Reused-slot rules have already written into the existing list element.
-    if (reuseSlot) return;
     if (results.length === 0) return;
     let targetPath = resolveWritePath(tgtSpec, primary, bindings, tctx);
     if (defaultPolySuffix && tgtSpec.path && targetPolyTypes(
@@ -3034,9 +2957,7 @@ export function compileFmlXver({
    * the target path (see writeTarget docs).
    */
   function applyTarget(tgt, primary, bindings, scope) {
-    // A plain (non-then) target inherently produces a single value, so
-    // `single` is satisfied; warn only for the other unhandled modes here.
-    if (tgt.listMode && tgt.listMode !== 'single') warnUnhandledTargetListMode(tgt);
+    warnProvisionalTargetListMode(tgt);
     // FML simple rules invoke the applicable <<types>> / <<type+>> default
     // group instead of copying the source value directly.
     const defaultResult = tryDefaultGroup(tgt, primary, scope);

@@ -48,13 +48,19 @@ This project follows [Semantic Versioning](http://semver.org/).
 - A single (unkeyed) `postproc` was silently skipped on the last hop when an
   earlier hop renamed the resource type (for example `Sequence` R3 ->
   `MolecularSequence` R4); it now runs as documented.
+- A keyed `preprocs` / `postprocs` entry whose resource type does not enter its
+  hop (typically a misspelled type such as `Questionaire:R4->R5`) was silently
+  ignored; it is now rejected with an error before that hop runs, naming the
+  resource type entering the hop.
 - FML engine: multi-target `then` rules now process the intermediate
   targets (e.g. `tgt.A as t, t.B as tc then Group(s, tc)`) correctly.
-- FML parser and engine: target list modes are now recognized:
-  - `first`, `last`, and `single` are now handled correctly.
-  - `share` and `collate` are not handled currently and diagnostic
-    messages will be emitted if used - these modes have not been seen
-    in the known mapping files and have no negative impact at this point.
+- FML parser: target list modes (`first`, `last`, `single`, `share`, and
+  `collate`) are now recognized. Their semantics are not yet faithfully
+  supported by the engine; it preserves produced values using a provisional
+  append fallback and emits a diagnostic when a target list mode is used. The
+  only known bundled case is HealthcareService R3 -> R2, where each specialty
+  may become a separate `serviceType` without its required `type`, producing
+  invalid DSTU2 output.
 - "log" clause is now fully supported.
 - Backtick-delimited identifiers in bare paths are now supported.
 - `create('X')` no longer adds a spurious `resourceType` to primitives and
