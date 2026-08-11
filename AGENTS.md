@@ -27,8 +27,12 @@ node tools/check-data.js     # maintainer: check bundled cross-version data; rep
   "Completed" with a green checkmark or similar.
 
 ## Workflow
-- Questions: Answer, but do NOT make changes until instructed.
-- Tasks: Propose a plan, wait for approval, and then execute.
+- Questions: If I'm asking you a question, answer that question but do NOT make
+  changes until explicitly instructed.
+- Tasks: If I'm asking you to propose a plan, just respond with a proposal,
+  do NOT execute without explicit approval.
+- If I said 'go ahead and do ...', then you may execute the task and don't ask
+  for approval unless you see a reason to do so.
 - Edits: Use IDE editor tools (not from terminal) whenever
   possible to avoid causing content out of sync.
   Always prompt for my approval (keep/decline) for each change.
