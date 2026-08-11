@@ -8,11 +8,11 @@ mapping files, which handle most, and sometimes all, data elements in
 a conversion. When a mapping is incomplete, postprocessors may be used
 to refine the converted resource.
 
-The initial release includes postprocessors for **Questionnaire** only. For the
-other resource types, the FML mappings have not been reviewed and no
-package postprocessors have been provided. However, the converter can
-still handle most of the data elements (via FML mapping), and
-you can pass in a postprocessor as needed to make the conversion complete.
+Reviewed conversions currently cover **Questionnaire** and **ValueSet (R4 <->
+R5 and R4B <-> R5)**. For other resource types, the FML mappings have not been
+reviewed and no package postprocessors have been provided. However, the
+converter can still handle most data elements through FML, and callers can
+supply postprocessors as needed.
 
 This project is designed as a general, extensible framework to support all
 FHIR resource types and versions for which FML mapping files exist.
@@ -144,11 +144,9 @@ following in mind:
   `--target-resource-type`) is supported only for a single hop.** Support for
   selecting targets within a multi-hop conversion may be added in a future
   release.
-- **Reviewed postprocessors are supplied only for Questionnaire.** Other resource
-  types are converted by the FML mapping alone (see [COVERAGE.md](COVERAGE.md)),
-  and more postprocessors may be added in future releases. You certainly can
-  supply your own postprocessors as needed - and better yet, contribute
-  them back to the project.
+- **Reviewed conversions currently cover Questionnaire, and ValueSet for
+  R4 <-> R5 and R4B <-> R5.** Other resource types use unreviewed FML mappings
+  (see [COVERAGE.md](COVERAGE.md)); callers may supply their own postprocessors.
 - **A few FML language features are not yet implemented:** `let` constants and
   inline `conceptmap` declarations. Bundled mappings do not use them; the engine
   emits a warning if it sees one.
@@ -345,8 +343,9 @@ Due to the sheer number of resource type and version pair combinations, this pac
 grow incrementally: review one resource type and version pair at a time, add a
 postprocessor if needed, test, and then regenerate the coverage report.
 
-In this initial release, reviewed postprocessors are supplied only for
-**Questionnaire**. Contributions for other resource types are welcome.
+Reviewed conversions currently cover **Questionnaire** and **ValueSet (R4 <->
+R5 and R4B <-> R5)**. Contributions for other resource types and version pairs
+are welcome.
 
 See [COVERAGE.md](COVERAGE.md) for current coverage status.
 See [CONTRIBUTING.md](CONTRIBUTING.md) on how to contribute.

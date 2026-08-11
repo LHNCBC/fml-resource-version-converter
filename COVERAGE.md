@@ -58,6 +58,7 @@ This report uses **not_reviewed**, **known_gaps**, **best_effort**, and **comple
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
 | Questionnaire | complete | - | complete | **FML:** FML fully covers R4->R5 for valid input; no postprocessor needed. |
+| ValueSet | complete | - | complete | **FML:** FML fully covers R4->R5 ValueSet conversion; no postprocessor needed. |
 | _All other resource types_ | not_reviewed | - | not_reviewed | _Default: FML mapping not yet reviewed; no postprocessors._ |
 
 ## R5 -> R4
@@ -65,6 +66,7 @@ This report uses **not_reviewed**, **known_gaps**, **best_effort**, and **comple
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
 | Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML mis-narrows item.type (over-produces open-choice) and emits a malformed type object; corrected by the Questionnaire_R5_to_R4 postprocessor.<br>**Questionnaire_R5_to_R4:** Corrects Questionnaire item.type for R5->R4 (coding/answerConstraint -> choice/open-choice) from the R5 source, fixing the FML step's malformed and over-widened narrowing. Also reused verbatim by R5->R4B (R4B is identical to R4 for Questionnaire.item). Does not handle inter-version extensions. |
+| ValueSet | known_gaps | best_effort | best_effort | **FML:** FML maps shared ValueSet content but drops R5-only elements and retains R5-only filter operators that do not conform to the R4 binding.<br>**ValueSet_R5_to_R4:** Reports R5-only ValueSet content dropped during R5->R4 conversion and approximates R5-only filter operators as descendent-of with warnings. Does not handle inter-version extensions. |
 | _All other resource types_ | not_reviewed | - | not_reviewed | _Default: FML mapping not yet reviewed; no postprocessors._ |
 
 ## R4B -> R5
@@ -72,6 +74,7 @@ This report uses **not_reviewed**, **known_gaps**, **best_effort**, and **comple
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
 | Questionnaire | complete | - | complete | **FML:** FML fully covers R4B->R5 for valid input; no postprocessor needed. |
+| ValueSet | complete | - | complete | **FML:** FML fully covers R4B->R5 ValueSet conversion; no postprocessor needed. |
 | _All other resource types_ | not_reviewed | - | not_reviewed | _Default: FML mapping not yet reviewed; no postprocessors._ |
 
 ## R5 -> R4B
@@ -79,4 +82,5 @@ This report uses **not_reviewed**, **known_gaps**, **best_effort**, and **comple
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
 | Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML mis-narrows item.type (malformed wrapped primitive and over-widened open-choice); corrected by the Questionnaire_R5_to_R4B postprocessor.<br>**Questionnaire_R5_to_R4B:** Corrects Questionnaire item.type for R5->R4B (coding/answerConstraint -> choice/open-choice) from the R5 source, fixing the FML step's malformed and over-widened narrowing. Reuses the R5->R4 transform. Does not handle inter-version extensions. |
+| ValueSet | known_gaps | best_effort | best_effort | **FML:** FML maps shared ValueSet content but drops R5-only elements and retains R5-only filter operators that do not conform to the R4B binding.<br>**ValueSet_R5_to_R4B:** Reports R5-only ValueSet content dropped during R5->R4B conversion and approximates R5-only filter operators as descendent-of with warnings. Reuses the R5->R4 transform. Does not handle inter-version extensions. |
 | _All other resource types_ | not_reviewed | - | not_reviewed | _Default: FML mapping not yet reviewed; no postprocessors._ |

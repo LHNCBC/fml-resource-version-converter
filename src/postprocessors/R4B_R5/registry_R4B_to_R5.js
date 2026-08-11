@@ -21,5 +21,18 @@ export const registry = {
     },
     processors: [],
   },
+
+  // Reviewed against the FHIR spec. R5 is a superset of R4B for ValueSet: no
+  // R4B element was removed or restructured in R5, so the FML carries every
+  // element over without loss and no value has to be invented. The
+  // version-specific meta.profile is rewritten from 4.3 to 5.0 by the mapping.
+  // No postprocessor needed.
+  ValueSet: {
+    fml: {
+      coverage: COVERAGE.COMPLETE,
+      description: 'FML fully covers R4B->R5 ValueSet conversion; no postprocessor needed.',
+    },
+    processors: [],
+  },
 };
 

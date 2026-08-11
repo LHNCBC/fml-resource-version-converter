@@ -173,6 +173,20 @@ Typical gap categories to look for:
     and update the registry entry accordingly. See the Questionnaire entry in
     registry_R4_to_R3.js for an example.
 
+### Shared R4 and R4B logic for conversions to and from R5
+
+- R4 and R4B are often similar enough to share most or all conversion logic.
+  Confirm equivalence for the elements and semantics being handled; do not
+  assume the complete specifications are identical.
+- Place the shared implementation under `R4_R5`. Add one file-level note that
+  R4B reuses some or all of the logic, and reference the corresponding
+  `R4B_R5` file for the exact scope.
+- Within the R4 implementation, functions, variables, JSDoc, and comments may
+  refer simply to R4. Mention R4B locally only when handling a difference
+  between the versions.
+- User-facing diagnostics must use `ctx.fromVer` and `ctx.toVer` so they report
+  the versions of the actual conversion hop.
+
 
 ## Adding or updating a postprocessor
 

@@ -71,6 +71,25 @@ describe('postprocessors/R4B_R5 Questionnaire R5 -> R4B', function () {
     const warnings = result.postprocessors[0].messages.filter(m => m.type === MESSAGE_TYPE.WARNING);
     assert.ok(warnings.some(m => /\/X-010/.test(m.text) && /options-only/.test(m.text)));
   });
+
+  it('names R5 and R4B in a version-specific narrowing warning', function () {
+    const source = {
+      resourceType: 'Questionnaire',
+      status: 'active',
+      item: [{
+        linkId: 'coding-options',
+        type: 'coding',
+        answerConstraint: 'optionsOrType',
+        answerOption: [{ valueCoding: { code: 'x' } }],
+      }],
+    };
+    const converted = singleHopConverter.convert(source, 'R5', 'R4B');
+    const text = converted.postprocessors[0].messages
+      .map(message => message.text)
+      .join('\n');
+
+    assert.match(text, /R5 allows any coding but R4B open-choice/);
+  });
 });
 
 
@@ -94,4 +113,3 @@ describe('postprocessors/R4B_R5 Questionnaire R4B -> R5 (FML-only)', function ()
     assert.equal(item(result.resource, '/X-010').answerConstraint, 'optionsOrString');
   });
 });
-

@@ -8,6 +8,7 @@
  */
 import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R5_to_R4B } from './Questionnaire.js';
+import { conv_R5_to_R4B as convValueSet_R5_to_R4B } from './ValueSet.js';
 
 export const registry = {
   // Reviewed against the FHIR spec. R4B is identical to R4 for Questionnaire.item
@@ -24,5 +25,21 @@ export const registry = {
     },
     processors: [conv_R5_to_R4B],
   },
-};
 
+  // Reviewed against the FHIR spec. R4B and R4 have the same ValueSet element
+  // set, and filter.op binds to the same nine FilterOperator codes, so the FML
+  // has the same gaps as R5->R4: it maps every shared element and drops
+  // R5-only content silently, but preserves the R5-only filter operators
+  // child-of and descendent-leaf, which are not valid in R4B. The postprocessor
+  // approximates those as descendent-of and reports the dropped content,
+  // bringing the conversion to BEST_EFFORT.
+  ValueSet: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML maps shared ValueSet content but drops R5-only elements and retains '
+        + 'R5-only filter operators that do not conform to the R4B binding.',
+    },
+    processors: [convValueSet_R5_to_R4B],
+  },
+};

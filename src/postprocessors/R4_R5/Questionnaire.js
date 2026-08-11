@@ -44,9 +44,11 @@ function hasAnswerOptions(item) {
  *
  * @param {Object} sItem R5 source item (read-only).
  * @param {Array<Object>} messages Diagnostic messages to append to.
+ * @param {string} sourceVersion Source FHIR version named in diagnostics.
+ * @param {string} targetVersion Target FHIR version named in diagnostics.
  * @returns {string} The R4 `item.type` code.
  */
-function deriveR4ItemType(sItem, messages) {
+function deriveR4ItemType(sItem, messages, sourceVersion, targetVersion) {
   const sType = sItem.type;
   const ac = sItem.answerConstraint;
   const linkId = sItem.linkId;
@@ -55,12 +57,13 @@ function deriveR4ItemType(sItem, messages) {
     if (sType === 'coding') {
       if (ac === 'optionsOrType') {
         // Lossy narrowing: R5 optionsOrType on a coding item permits any coding
-        // of the item's type, whereas R4 open-choice permits only a listed
+        // of the item's type, whereas R4/R4B open-choice permits only a listed
         // coding or free-text string. The permitted answer space shrinks, so
         // this is a warning (unlike optionsOrString, which maps exactly).
         messages.push(warningMessage(
           `item "${linkId}": optionsOrType with type coding narrowed to open-choice; `
-          + 'R5 allows any coding but R4 open-choice allows only listed codings or free text',
+          + `${sourceVersion} allows any coding but ${targetVersion} open-choice allows `
+          + 'only listed codings or free text',
         ));
         return 'open-choice';
       }
@@ -102,13 +105,15 @@ function deriveR4ItemType(sItem, messages) {
  * @param {Object} tItem Target (FML-converted) item, mutated in place.
  * @param {Object|undefined} sItem Aligned R5 source item.
  * @param {Array<Object>} messages Diagnostic messages to append to.
+ * @param {string} sourceVersion Source FHIR version named in diagnostics.
+ * @param {string} targetVersion Target FHIR version named in diagnostics.
  */
-function fixItemType(tItem, sItem, messages) {
+function fixItemType(tItem, sItem, messages, sourceVersion, targetVersion) {
   // R4/R4B have no item.answerConstraint; drop anything the FML step left behind.
   if ('answerConstraint' in tItem) delete tItem.answerConstraint;
 
   if (sItem && typeof sItem === 'object' && sItem.type != null) {
-    tItem.type = deriveR4ItemType(sItem, messages);
+    tItem.type = deriveR4ItemType(sItem, messages, sourceVersion, targetVersion);
     return;
   }
 
@@ -125,14 +130,16 @@ function fixItemType(tItem, sItem, messages) {
  * @param {Array<Object>|undefined} targetItems Target items to correct.
  * @param {Map<string, Object>} sourceByLinkId R5 source items by linkId.
  * @param {Array<Object>} messages Diagnostic messages to append to.
+ * @param {string} sourceVersion Source FHIR version named in diagnostics.
+ * @param {string} targetVersion Target FHIR version named in diagnostics.
  */
-function convertItems(targetItems, sourceByLinkId, messages) {
+function convertItems(targetItems, sourceByLinkId, messages, sourceVersion, targetVersion) {
   if (!Array.isArray(targetItems)) return;
   for (const tItem of targetItems) {
     if (!tItem || typeof tItem !== 'object') continue;
     const sItem = typeof tItem.linkId === 'string' ? sourceByLinkId.get(tItem.linkId) : undefined;
-    fixItemType(tItem, sItem, messages);
-    convertItems(tItem.item, sourceByLinkId, messages);
+    fixItemType(tItem, sItem, messages, sourceVersion, targetVersion);
+    convertItems(tItem.item, sourceByLinkId, messages, sourceVersion, targetVersion);
   }
 }
 
@@ -166,14 +173,15 @@ export const conv_R5_to_R4 = {
 
   /**
    * @param {Object} target FML-converted R4 Questionnaire (mutated in place).
-   * @param {Object} ctx Hop context; ctx.sourceResource is the R5 source.
+   * @param {Object} ctx Hop context with sourceResource, fromVer, and toVer.
    * @returns {{resource: Object, status: string, messages: Array<Object>}} Result.
    */
   execute(target, ctx) {
     const messages = [];
     const sourceByLinkId = indexSourceItemsByLinkId(ctx?.sourceResource?.item, new Map());
-    convertItems(target.item, sourceByLinkId, messages);
+    const sourceVersion = ctx?.fromVer || 'R5';
+    const targetVersion = ctx?.toVer || 'target version';
+    convertItems(target.item, sourceByLinkId, messages, sourceVersion, targetVersion);
     return { resource: target, status: statusFromMessages(messages), messages };
   },
 };
-

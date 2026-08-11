@@ -21,5 +21,14 @@ export const registry = {
     },
     processors: [],
   },
-};
 
+  // The R4->R5 FML maps every shared ValueSet element. R5-only additions do
+  // not require values to be invented, and no resource postprocessor is needed.
+  ValueSet: {
+    fml: {
+      coverage: COVERAGE.COMPLETE,
+      description: 'FML fully covers R4->R5 ValueSet conversion; no postprocessor needed.',
+    },
+    processors: [],
+  },
+};

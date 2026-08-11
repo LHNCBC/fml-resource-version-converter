@@ -7,6 +7,12 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 ### Added
 
+- Reviewed ValueSet conversion support for R4 <-> R5 and R4B <-> R5. The
+  R4 -> R5 and R4B -> R5 directions are complete; R5 -> R4 and R5 -> R4B report
+  dropped R5-only content and approximate unsupported filter operators as
+  `descendent-of`, warning about the resulting semantic broadening. R4B and R4
+  have the same relevant ValueSet structure and filter operator codes, so the
+  R5 -> R4B postprocessor reuses the R5 -> R4 transform.
 - `chainedConverter.convert(resource, fromVer, toVer, opts?)`: a multi-hop
   conversion entry point that chains adjacent FML hops as needed (for example,
   R3 -> R5 runs as R3 -> R4 -> R5) and returns a per-hop `hops[]` report.

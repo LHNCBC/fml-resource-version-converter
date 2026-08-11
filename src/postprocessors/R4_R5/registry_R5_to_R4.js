@@ -8,6 +8,7 @@
  */
 import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R5_to_R4 } from './Questionnaire.js';
+import { conv_R5_to_R4 as convValueSet_R5_to_R4 } from './ValueSet.js';
 
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
@@ -27,5 +28,18 @@ export const registry = {
     },
     processors: [conv_R5_to_R4],
   },
-};
 
+  // The FML maps all shared ValueSet elements, but silently drops R5-only
+  // content. It also preserves R5-only filter operators that have no R4
+  // equivalent. The postprocessor approximates those operators as
+  // descendent-of and emits a warning.
+  ValueSet: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML maps shared ValueSet content but drops R5-only elements and retains '
+        + 'R5-only filter operators that do not conform to the R4 binding.',
+    },
+    processors: [convValueSet_R5_to_R4],
+  },
+};

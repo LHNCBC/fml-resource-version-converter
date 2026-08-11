@@ -111,7 +111,10 @@ describe('postprocessors/R4_R5 Questionnaire R5 -> R4', function () {
       assert.equal(res.resource.item[0].type, 'open-choice');
       assert.equal('answerConstraint' in res.resource.item[0], false);
       assert.equal(res.status, STATUS.WARNING);
-      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /optionsOrType/.test(m.text)));
+      assert.ok(res.messages.some(m =>
+        m.type === MESSAGE_TYPE.WARNING
+        && /optionsOrType/.test(m.text)
+        && /R5 allows any coding but R4 open-choice/.test(m.text)));
     });
 
     it('recurses into nested items', function () {
@@ -134,4 +137,3 @@ describe('postprocessors/R4_R5 Questionnaire R5 -> R4', function () {
     });
   });
 });
-
