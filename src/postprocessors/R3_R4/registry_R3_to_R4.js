@@ -8,6 +8,7 @@
  */
 import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R3_to_R4 } from './Questionnaire.js';
+import { conv_R3_to_R4 as convValueSet_R3_to_R4 } from './ValueSet.js';
 
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
@@ -25,6 +26,25 @@ export const registry = {
         + 'Questionnaire_R3_to_R4 postprocessor.',
     },
     processors: [conv_R3_to_R4],
+  },
+
+  // Reviewed against the FHIR spec and the bundled mapping. STU3 and R4 share
+  // every ValueSet element except STU3's `extensible`. The FML does not discard
+  // it outright - it parks it in the inter-version extension
+  // .../3.0/StructureDefinition/extension-ValueSet.extensible - but general R4
+  // tools are not required to understand inter-version extensions, so a value
+  // surviving only there counts as lost. The FML reports nothing about it, so
+  // the postprocessor warns, bringing the conversion to BEST_EFFORT.
+  ValueSet: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML maps all shared ValueSet content correctly but relegates STU3 '
+        + 'extensible to an inter-version extension without a diagnostic, which '
+        + 'general R4 tools need not understand; reported by the '
+        + 'ValueSet_R3_to_R4 postprocessor.',
+    },
+    processors: [convValueSet_R3_to_R4],
   },
 };
 

@@ -173,6 +173,16 @@ Typical gap categories to look for:
     and update the registry entry accordingly. See the Questionnaire entry in
     registry_R4_to_R3.js for an example.
 
+### Inter-version extension
+
+In some cases the FML mappings carry source content that the target version has
+no element for into an inter-version extension on the target resource. This is
+not done consistently across versions or across resource types, so do not assume
+it is available for the conversion you are reviewing - check the mapping file.
+At this point, inter-version extension management is optional. If you choose to
+implement support for it, please document what you did in the postprocessor and
+its registry entry so the behavior is clear from the coverage report.
+
 ### Shared R4 and R4B logic for conversions to and from R5
 
 - R4 and R4B are often similar enough to share most or all conversion logic.

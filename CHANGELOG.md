@@ -7,6 +7,16 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 ### Added
 
+- Reviewed ValueSet conversion support for STU3 <-> R4. R3 -> R4 reports STU3
+  `extensible`, which R4 can hold only as an inter-version extension that
+  general R4 tools need not understand, and flags names that do not satisfy
+  R4's `vsd-0` invariant. R4 -> R3 normalizes `compose.include.filter.value`
+  into a valid STU3 `code` (removing a filter whose value cannot be one),
+  strips canonical `|version` suffixes from `compose.include.valueSet` while
+  preserving any fragment, generates the `expansion.identifier` STU3 requires,
+  generates an empty expansion when the source satisfies neither half of
+  `vsd-5`, and reports `expansion.parameter.valueDateTime`, which STU3 cannot
+  represent.
 - Reviewed ValueSet conversion support for R4 <-> R5 and R4B <-> R5. The
   R4 -> R5 and R4B -> R5 directions are complete; R5 -> R4 and R5 -> R4B report
   dropped R5-only content and approximate unsupported filter operators as

@@ -8,6 +8,7 @@
  */
 import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R4_to_R3 } from './Questionnaire.js';
+import { conv_R4_to_R3 as convValueSet_R4_to_R3 } from './ValueSet.js';
 
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
@@ -32,6 +33,30 @@ export const registry = {
         + '(e.g. derivedFrom, enableBehavior) have no R3 mapping and are dropped.',
     },
     processors: [conv_R4_to_R3],
+  },
+
+  // Reviewed against the FHIR spec. No R4 ValueSet element was added relative
+  // to STU3, but four narrowings pass through the FML unreported: filter.value
+  // (string -> code) can carry whitespace that is invalid as an STU3 code,
+  // compose.include.valueSet (canonical -> uri) can pin a |version that STU3
+  // cannot resolve, expansion.identifier is 0..1 in R4 but 1..1 in STU3, and
+  // expansion.parameter valueDateTime has no STU3 type (the mapping comments
+  // that rule out). STU3 also adds vsd-5 (a ValueSet needs a compose or an
+  // expansion), which a metadata-only R4 source would violate. The
+  // postprocessor repairs everything except the dropped dateTime, which it
+  // reports. BEST_EFFORT.
+  ValueSet: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML copies filter.value and compose valueSet verbatim, so R4-valid '
+        + 'values can land in STU3 as an invalid code or an unresolvable '
+        + 'versioned reference; it does not supply the expansion identifier '
+        + 'STU3 requires, leaves a metadata-only ValueSet in breach of vsd-5, '
+        + 'and drops expansion parameter dateTime values without a diagnostic; '
+        + 'corrected and reported by the ValueSet_R4_to_R3 postprocessor.',
+    },
+    processors: [convValueSet_R4_to_R3],
   },
 };
 

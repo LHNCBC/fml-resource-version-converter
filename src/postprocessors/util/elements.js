@@ -1,19 +1,47 @@
 /**
  * @fileoverview Generic, resource-agnostic helpers for FHIR element shapes.
  *
- * Two concerns live here, both independent of any resource type or version:
+ * Three concerns live here, all independent of any resource type or version:
  *   - Primitive companion mechanics: a FHIR primitive keeps its id/extension in
  *     a sibling `_<name>` object, so relocating/removing a primitive must carry
  *     that companion too. copyPrimitive / renamePrimitive / deletePrimitive
  *     encapsulate that rule so callers never strand a `_`-companion.
  *   - Choice-type detection: findValueKey locates the single `value[x]` choice
  *     carried on an element object (the payload may be primitive or complex).
+ *   - Content probing: hasAnyContent reports whether an element carries
+ *     meaningful content under any of a set of candidate property names, so a
+ *     caller can decide whether unrepresentable source content was present.
  *
  * These are pure mechanics with no diagnostics or business logic; callers decide
  * what any loss means and how to report it.
  *
  * @module postprocessors/util/elements
  */
+
+/**
+ * Return whether an object has meaningful content in any named property.
+ *
+ * "Meaningful" means present and non-null, and - for the container types - not
+ * empty: an empty array or an object with no keys carries nothing worth
+ * reporting. Listing a primitive together with its `_`-companion (for example
+ * `['status', '_status']`) detects an extension-only primitive as content.
+ *
+ * @param {Object|undefined} object Object to inspect.
+ * @param {string[]} names Property names.
+ * @returns {boolean} True when a named property has content.
+ */
+export function hasAnyContent(object, names) {
+  if (!object || typeof object !== 'object') return false;
+
+  return names.some(name => {
+    if (!Object.hasOwn(object, name)) return false;
+    const value = object[name];
+    if (value == null) return false;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'object') return Object.keys(value).length > 0;
+    return true;
+  });
+}
 
 /**
  * Copy a FHIR primitive value and its `_`-companion (id/extension) from a source

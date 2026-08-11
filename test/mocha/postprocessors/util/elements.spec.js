@@ -6,8 +6,44 @@ import {
   copyPrimitive,
   deletePrimitive,
   findValueKey,
+  hasAnyContent,
   renamePrimitive,
 } from '../../../../src/postprocessors/util/elements.js';
+
+
+describe('postprocessors/util/elements hasAnyContent', function () {
+  it('detects a plain value under any of the named properties', function () {
+    assert.equal(hasAnyContent({ extensible: true }, ['extensible']), true);
+    assert.equal(hasAnyContent({ extensible: false }, ['extensible']), true);
+    assert.equal(hasAnyContent({ a: 1 }, ['b', 'a']), true);
+  });
+
+  it('detects an extension-only primitive via its _companion', function () {
+    const object = { _extensible: { extension: [{ url: 'u' }] } };
+    assert.equal(hasAnyContent(object, ['extensible', '_extensible']), true);
+  });
+
+  it('treats absent, null, and unnamed properties as no content', function () {
+    assert.equal(hasAnyContent({}, ['a']), false);
+    assert.equal(hasAnyContent({ a: null }, ['a']), false);
+    assert.equal(hasAnyContent({ a: undefined }, ['a']), false);
+    assert.equal(hasAnyContent({ b: 'x' }, ['a']), false);
+  });
+
+  it('treats empty arrays and empty objects as no content', function () {
+    assert.equal(hasAnyContent({ a: [] }, ['a']), false);
+    assert.equal(hasAnyContent({ a: {} }, ['a']), false);
+    assert.equal(hasAnyContent({ a: [1] }, ['a']), true);
+    assert.equal(hasAnyContent({ a: { k: 1 } }, ['a']), true);
+  });
+
+  it('returns false for a non-object or empty name list', function () {
+    assert.equal(hasAnyContent(undefined, ['a']), false);
+    assert.equal(hasAnyContent(null, ['a']), false);
+    assert.equal(hasAnyContent('str', ['a']), false);
+    assert.equal(hasAnyContent({ a: 1 }, []), false);
+  });
+});
 
 
 describe('postprocessors/util/elements copyPrimitive', function () {

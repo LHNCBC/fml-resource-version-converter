@@ -13,6 +13,7 @@ import {
   statusFromMessages,
   warningMessage,
 } from '../../converter/diagnostics.js';
+import { hasAnyContent } from '../util/elements.js';
 
 // Keep this reviewed conversion policy explicit so regenerated FHIR definitions
 // cannot silently change which source content is reported as unrepresentable.
@@ -37,25 +38,6 @@ const FILTER_APPROXIMATION_EFFECTS = Object.freeze({
 });
 const R4_FILTER_APPROXIMATION = 'descendent-of';
 
-/**
- * Return whether an object has meaningful content in any named property.
- *
- * @param {Object|undefined} object Object to inspect.
- * @param {string[]} names Property names.
- * @returns {boolean} True when a named property has content.
- */
-function hasAnyContent(object, names) {
-  if (!object || typeof object !== 'object') return false;
-
-  return names.some(name => {
-    if (!Object.hasOwn(object, name)) return false;
-    const value = object[name];
-    if (value == null) return false;
-    if (Array.isArray(value)) return value.length > 0;
-    if (typeof value === 'object') return Object.keys(value).length > 0;
-    return true;
-  });
-}
 
 /**
  * Add a path once when the supplied value has content.

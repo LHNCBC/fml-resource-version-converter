@@ -4,15 +4,15 @@ This FML-based FHIR Resource Version Converter is a JavaScript package
 for converting FHIR resources between FHIR versions.
 
 The conversion starts with HL7's FHIR cross-version FML (FHIR Mapping Language)
-mapping files, which handle most, and sometimes all, data elements in
-a conversion. When a mapping is incomplete, postprocessors may be used
-to refine the converted resource.
+mapping files. At this point, the FML mapping files handle most, and sometimes
+all, data elements in a conversion. When a mapping is incomplete, postprocessors
+may be used to refine the converted resource.
 
-Reviewed conversions currently cover **Questionnaire** and **ValueSet (R4 <->
-R5 and R4B <-> R5)**. For other resource types, the FML mappings have not been
-reviewed and no package postprocessors have been provided. However, the
-converter can still handle most data elements through FML, and callers can
-supply postprocessors as needed.
+Reviewed conversions currently cover **Questionnaire** and **ValueSet (STU3 <->
+R4, R4 <-> R5, and R4B <-> R5)**. For other resource types, the FML mappings
+have not been reviewed and no package postprocessors have been provided.
+However, the converter can still handle most data elements through FML, and
+callers can supply postprocessors as needed.
 
 This project is designed as a general, extensible framework to support all
 FHIR resource types and versions for which FML mapping files exist.
@@ -145,8 +145,9 @@ following in mind:
   selecting targets within a multi-hop conversion may be added in a future
   release.
 - **Reviewed conversions currently cover Questionnaire, and ValueSet for
-  R4 <-> R5 and R4B <-> R5.** Other resource types use unreviewed FML mappings
-  (see [COVERAGE.md](COVERAGE.md)); callers may supply their own postprocessors.
+  STU3 <-> R4, R4 <-> R5, and R4B <-> R5.** Other resource types use unreviewed
+  FML mappings (see [COVERAGE.md](COVERAGE.md)); callers may supply their own
+  postprocessors.
 - **A few FML language features are not yet implemented:** `let` constants and
   inline `conceptmap` declarations. Bundled mappings do not use them; the engine
   emits a warning if it sees one.
@@ -160,6 +161,12 @@ following in mind:
   them requires clinical knowledge this converter does not have. See
   [CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md) for the full list of
   known mapping ambiguities.
+- Inter-version extension: in some cases the FML mappings add inter-version
+  extensions to the target resources, but it's not being done consistently
+  across versions and across resource types. At this point, this package
+  does not make a general statement on where things stand with regard to
+  inter-version extensions.
+
 
 ## Understanding the result
 
@@ -216,6 +223,12 @@ The top-level `result.coverage` is normally one of the ordered levels:
 **not_reviewed**, **known_gaps**, **best_effort**, or **complete**.
 The **neutral** level is mostly seen on individual processor reports,
 especially for caller-provided processors.
+
+Specifically, inter-version extension is not a factor in determining the coverage
+level. A data element preserved solely via an inter-version extension is still
+considered "loss" for coverage purposes, because the target version's tools may
+not be able to interpret it.
+
 
 See [COVERAGE.md](COVERAGE.md) for the current coverage level report.
 
@@ -343,9 +356,9 @@ Due to the sheer number of resource type and version pair combinations, this pac
 grow incrementally: review one resource type and version pair at a time, add a
 postprocessor if needed, test, and then regenerate the coverage report.
 
-Reviewed conversions currently cover **Questionnaire** and **ValueSet (R4 <->
-R5 and R4B <-> R5)**. Contributions for other resource types and version pairs
-are welcome.
+Reviewed conversions currently cover **Questionnaire** and **ValueSet (STU3 <->
+R4, R4 <-> R5, and R4B <-> R5)**. Contributions for other resource types and
+version pairs are welcome.
 
 See [COVERAGE.md](COVERAGE.md) for current coverage status.
 See [CONTRIBUTING.md](CONTRIBUTING.md) on how to contribute.
