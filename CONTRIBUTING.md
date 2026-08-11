@@ -95,6 +95,24 @@ When you assign a coverage level:
   conventionally best_effort, not complete.
 - A postprocessor must never lower the running coverage level.
 
+### Target validity and best-effort conversion
+
+- For valid source input, a reviewed conversion should produce a resource valid
+  in the target version.
+- When source semantics cannot be represented exactly, the converter should
+  return the best valid approximation rather than fail solely because of that
+  incompatibility.
+- Whenever an input incurs data loss, semantic narrowing, or approximation, the
+  conversion must emit a warning describing the change.
+- A conversion with unavoidable incompatibilities is classified as
+  **best_effort**, even though individual inputs that do not encounter them may
+  complete without warnings.
+- At the instance level:
+  - **best_effort + no warning** means the input was converted compatibly within
+    the reviewed scope.
+  - **best_effort + warning** means the input encountered an unavoidable semantic
+    change.
+
 
 ## Onboarding a resource type
 
