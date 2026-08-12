@@ -133,12 +133,19 @@ target-version resource.
    previous version. For example, if you are looking at converting Questionnaire
    from R3 to R4, the [R4 spec page](https://hl7.org/fhir/R4/questionnaire.html)
    has a "R3 Diff" tab that shows the changes from R3.
-2. Review the FML mapping to identify the gaps. If you are comfortable with FML,
-   you can review the mapping file directly and see whether/where it falls short.
-   Otherwise, you can create one or more representative source resources under
-   `test/data/` to cover the fields you expect to be risky, run the conversion,
-   and inspect the output. Such tests are recommended even if you've reviewed
-   the FML mappings, and the sample resources are handy for writing mocha tests.
+2. Review the FML mapping to identify the gaps. There are two complementary ways
+   to achieve this and it's recommended to do both:
+   - Review the FML mapping file for the specific conversion (resource type and
+     to/from version pair). The mapping files can be found under
+     `data/fhir-cross-version/input/`, and they come from the
+     [fhir-cross-version project](https://github.com/HL7/fhir-cross-version).
+     The FML syntax itself is documented in the FHIR specification's
+     [FHIR Mapping Language](https://hl7.org/fhir/R5/mapping-language.html) page.
+   - You can also create one or more representative source resources under
+     `test/data/` to cover the fields you expect to be risky, run the conversion,
+     and inspect the output; those sample resources are handy for writing mocha
+     tests later.
+
    A quick harness:
 
    ```js
@@ -152,9 +159,22 @@ Typical gap categories to look for:
 
 - Elements valid in the source with no target equivalent (dropped -> lossy).
 - Elements renamed or restructured across versions (FML leaves the old shape).
-- Cardinality changes, e.g. target 0..1 vs source 0..*, or vice versa.
+- Collection cardinality changes, e.g. target 0..1 vs source 0..*, or vice versa.
 - Choice type `[x]` mismatches and value-set/enum changes.
 - Invalid output: the FML emitted a field the target schema does not allow.
+- Elements required in the target that the source does not always supply, e.g.
+  target 1..1 where the source is 0..1. The FML cannot invent a value, so a
+  postprocessor must supply one, such as a generated `urn:uuid:` identifier.
+- Primitive type narrowing, where the target type is lexically stricter, e.g.
+  `string` -> `code` or `canonical` -> `uri`. The value is often copied over
+  unchanged, so it must be reshaped to the target's rules - for example
+  stripping a `|version` suffix from a `canonical` - or, when no valid form
+  exists, the containing element may need to be dropped; either way, emit a
+  warning.
+- Target invariants, not just element definitions, e.g. a rule requiring one of
+  two elements to be present. A resource can satisfy the target schema element
+  by element and still violate a constraint, and the postprocessor must repair
+  it rather than produce invalid output.
 
 ### Step 2 - Decide what to do based on the review
 
