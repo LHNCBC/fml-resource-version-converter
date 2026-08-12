@@ -152,16 +152,18 @@ following in mind:
 - **A few FML language features are not yet implemented:** `let` constants and
   inline `conceptmap` declarations. Bundled mappings do not use them; the engine
   emits a warning if it sees one.
-- **Target list-mode semantics are provisional.** The engine emits a warning and
-  uses an append fallback. The only known bundled case is HealthcareService
-  R3 -> R2: each specialty may become a separate `serviceType` without its
-  required `type`, producing invalid DSTU2 output.
-- **`ProcedureRequest` R3 -> R2 with target type `DiagnosticOrder` is not handled.**
-  Two bundled FML StructureMaps declare that same source/target pair
-  (`DiagnosticOrder.fml` and `ProcedureRequestDO.fml`), and choosing between
-  them requires clinical knowledge this converter does not have. See
-  [CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md) for the full list of
-  known mapping ambiguities.
+- **Target list-mode semantics are not fully supported.** The engine recognizes
+  these modes but currently uses an append fallback and emits a warning. The
+  only bundled conversion currently impacted is HealthcareService R3 -> R2:
+  each specialty may become a separate `serviceType` without its required
+  `type`, producing invalid DSTU2 output.
+- **Automatic resolution of ambiguous StructureMap selection is not supported.**
+  The only bundled conversion currently impacted is `ProcedureRequest` R3 -> R2
+  with target type `DiagnosticOrder`: two StructureMaps declare that same
+  source/target pair (`DiagnosticOrder.fml` and `ProcedureRequestDO.fml`), and
+  choosing between them requires clinical knowledge this converter does not
+  have. See [CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md) for the full list
+  of known mapping ambiguities.
 
 ## Understanding the result
 
