@@ -15,10 +15,24 @@ data/fhir-spec-downloads/
   R4/definitions.json.zip
   R4B/definitions.json.zip
   R5/definitions.json.zip
+  unzipped/
+    DSTU2/                       # Extracted fhir-spec.zip tree
+    STU3/                        # Extracted definitions.json.zip files
+    R4/
+    R4B/
+    R5/
 ```
 
-No extraction is needed; the build script reads the bundles straight out
-of the zips. Disk usage: about 125MB once populated.
+The build script reads the bundles straight out of the zip archives. Disk usage
+for the archives is about 125MB once populated.
+
+## AI and development reference files
+
+For AI-assisted development and manual specification review, the archives are
+extracted once under `unzipped/`, preserving the version directories shown
+above. Consult the extracted files directly; do not repeatedly inspect or
+extract the zip archives. The extracted tree is read-only reference material,
+is gitignored, and is not included in the package.
 
 ## How to populate
 
