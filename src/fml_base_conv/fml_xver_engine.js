@@ -114,6 +114,16 @@ const FHIR_PRIMITIVES = new Set([
   'integer64',
 ]);
 
+/** Signed 64-bit bounds used by the FHIR integer64 primitive. */
+const INTEGER64_MIN = -9223372036854775808n;
+const INTEGER64_MAX = 9223372036854775807n;
+
+/** Unsigned 32-bit upper bound used by the FHIR unsignedInt primitive. */
+const UNSIGNED_INT_MAX = 4294967295n;
+
+/** Lexical form accepted when an integer value crosses the engine as a string. */
+const INTEGER_STRING_RE = /^[+-]?[0-9]+$/;
+
 /**
  * Capitalise the first letter of a string. Used to construct polymorphic
  * FHIR field names: `cap('boolean')` -> `'Boolean'`, so a source declared
@@ -936,6 +946,57 @@ export function compileFmlXver({
   }
 
   /**
+   * Normalize an integer-like value to the target FHIR JSON representation.
+   *
+   * R5 integer64 values are JSON strings because JavaScript numbers cannot
+   * reliably represent the full signed 64-bit range. unsignedInt values are
+   * JSON numbers and fit safely within JavaScript's exact integer range.
+   * Invalid and out-of-range values are omitted with a warning; values are
+   * never clamped.
+   *
+   * @param {*} value Candidate primitive value.
+   * @param {string} primitiveType Target FHIR primitive type.
+   * @param {string|null} absolutePath Absolute target FHIR path.
+   * @returns {*} Normalized JSON value, or undefined when it must be omitted.
+   */
+  function normalizeTargetPrimitive(value, primitiveType, absolutePath) {
+    if (value == null) return undefined;
+    if (primitiveType !== 'integer64' && primitiveType !== 'unsignedInt') {
+      return value;
+    }
+
+    let integerValue;
+    if (typeof value === 'bigint') {
+      integerValue = value;
+    } else if (typeof value === 'number' && Number.isSafeInteger(value)) {
+      integerValue = BigInt(value);
+    } else if (typeof value === 'string' && INTEGER_STRING_RE.test(value)) {
+      integerValue = BigInt(value);
+    } else {
+      onWarning?.(
+        `writeToSlot: ${String(value)} is not an exact integer for `
+        + `${primitiveType} at ${absolutePath || '<unknown path>'}; omitting value`,
+      );
+      return undefined;
+    }
+
+    const inRange = primitiveType === 'integer64'
+      ? integerValue >= INTEGER64_MIN && integerValue <= INTEGER64_MAX
+      : integerValue >= 0n && integerValue <= UNSIGNED_INT_MAX;
+    if (!inRange) {
+      onWarning?.(
+        `writeToSlot: ${integerValue} is out of range for ${primitiveType} at `
+        + `${absolutePath || '<unknown path>'}; omitting value`,
+      );
+      return undefined;
+    }
+
+    return primitiveType === 'integer64'
+      ? integerValue.toString()
+      : Number(integerValue);
+  }
+
+  /**
    * Return the schema path used for target cardinality checks.
    *
    * Concrete polymorphic JSON names are absent from `arrayPaths`, whose keys
@@ -1147,7 +1208,10 @@ export function compileFmlXver({
        */
       const splitPrimitive = (item, suppliedCompanion) => {
         if (!isObject(item)) {
-          return { value: item, companion: suppliedCompanion };
+          return {
+            value: normalizeTargetPrimitive(item, primitiveType, absolutePath),
+            companion: suppliedCompanion,
+          };
         }
         const keys = Object.keys(item);
         if (!keys.every(k => k === 'value' || k === 'id' || k === 'extension')) {
@@ -1159,7 +1223,7 @@ export function compileFmlXver({
           wrapperCompanion.extension = deepClone(item.extension);
         }
         return {
-          value: item.value,
+          value: normalizeTargetPrimitive(item.value, primitiveType, absolutePath),
           companion: suppliedCompanion ?? (
             Object.keys(wrapperCompanion).length > 0 ? wrapperCompanion : undefined
           ),
@@ -1449,10 +1513,12 @@ export function compileFmlXver({
   /**
    * Read a value from one source clause's context + path.
    *
-   * For polymorphic sources (`src.value : boolean`), reads from the typed
-   * variant of the polymorphic field (`src.valueBoolean`). The variant
-   * name is taken from the rule's `trailingString` when present (FML's
-   * authoritative hint), otherwise computed as `root + Cap(typeHint)`.
+   * For a type-hinted source (`src.value : boolean`), source schema metadata
+   * determines whether the path is polymorphic. A polymorphic path is read from
+   * its typed JSON variant (`valueBoolean`); a fixed path such as
+   * `Attachment.size : unsignedInt` is read from its original JSON field
+   * (`size`). When source schema metadata cannot resolve the path, the legacy
+   * polymorphic-name heuristic is retained for defs-less/custom mappings.
    *
    * Bare polymorphic reference (no `: Type` hint): when the path resolves
    * to undefined AND its leaf is a known polymorphic field name in the
@@ -1541,7 +1607,53 @@ export function compileFmlXver({
       const segs   = srcSpec.path.split('.');
       const parent = segs.length > 1 ? getPath(ctx, segs.slice(0, -1).join('.')) : ctx;
       const root   = segs[segs.length - 1];
-      const polyName   = trailingString || (root + cap(srcSpec.typeHint));
+      const absolutePath = composeChildPath(ctx, srcSpec.path);
+      const polyTypes = sourcePolyTypes(absolutePath);
+      const fixedType = sourceElementType(absolutePath);
+
+      // A type hint constrains the declared type; it does not by itself make a
+      // fixed FHIR element polymorphic. The source schema is authoritative when
+      // it identifies a fixed path, so read the original JSON name and preserve
+      // its primitive companion. This is the common pattern in rules such as
+      // `src.size : unsignedInt -> tgt.size`.
+      if (!polyTypes && fixedType) {
+        if (fixedType !== srcSpec.typeHint) {
+          onInfo?.(
+            `readSource: fixed field "${srcSpec.path}" has type ${fixedType}, `
+            + `which does not match typeHint=${srcSpec.typeHint}`,
+          );
+          return {
+            ctx,
+            value: undefined,
+            companion: undefined,
+            present: false,
+            polyName: null,
+            polySuffix: null,
+            sourceLeaf: root,
+          };
+        }
+
+        const value = parent ? parent[root] : undefined;
+        const companion = readCompanion(ctx, srcSpec.path, root, fixedType);
+        tagSourcePath(value, absolutePath);
+        return {
+          ctx,
+          value,
+          companion,
+          present: value != null || companion != null,
+          polyName: null,
+          polySuffix: null,
+          sourceLeaf: root,
+        };
+      }
+
+      // With an explicitly polymorphic schema path, derive the concrete JSON
+      // name from the path and type. A trailing string is a rule label, not a
+      // source property name. If schema metadata is unavailable, retain the old
+      // label/name fallback for raw custom mappings compiled without defs.
+      const polyName = polyTypes
+        ? root + cap(srcSpec.typeHint)
+        : trailingString || (root + cap(srcSpec.typeHint));
       const polySuffix = cap(srcSpec.typeHint);
       let value         = parent ? parent[polyName] : undefined;
       const companion   = readCompanion(ctx, srcSpec.path, polyName, srcSpec.typeHint);
@@ -2868,8 +2980,21 @@ export function compileFmlXver({
       const wrapped = isObject(value)
         ? value
         : expandPrimitive(value, companion);
+      // The called default group operates on the selected datatype itself.
+      // Re-root its source argument at that datatype so rules inside the group
+      // resolve schema paths such as `Attachment.size`, even when the value came
+      // from a polymorphic resource path such as
+      // `Questionnaire.item.initial.valueAttachment`.
+      setObjectPath(wrapped, srcType);
       const child = {};
-      setObjectPath(child, targetValuePath);
+      // Complex datatype groups likewise need the target rooted at the
+      // datatype definition. Otherwise nested target fields below a concrete
+      // polymorphic JSON name cannot be resolved against schema metadata.
+      const targetContextPath = selectedTargetType
+        && selectedTargetType[0] === selectedTargetType[0].toUpperCase()
+        ? selectedTargetType
+        : targetValuePath;
+      setObjectPath(child, targetContextPath);
       execGroup(groupName, [wrapped, child], scope);
       return child;
     }

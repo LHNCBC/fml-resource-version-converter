@@ -64,6 +64,11 @@ This project follows [Semantic Versioning](http://semver.org/).
 - "log" clause is now fully supported.
 - Source-only array `then` rules now emit their per-item `check` warnings and
   `log` diagnostics consistently with other rule forms.
+- Source type hints on fixed fields no longer make the engine look for a
+  nonexistent polymorphic JSON name (for example, `Attachment.size :
+  unsignedInt` now reads `size`, not `sizeUnsignedInt`).
+- Target `integer64` and `unsignedInt` primitives are now converted to their
+  required FHIR JSON representations and range-checked without clamping.
 - Backtick-delimited identifiers in bare paths are now supported.
 - `create('X')` no longer adds a spurious `resourceType` to primitives and
   datatypes (e.g. `create('CodeableConcept')`).
