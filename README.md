@@ -265,7 +265,10 @@ entering that hop. This also applies when a mapping renames the resource: for
 `MolecularSequence`.
 
 For `singleHopConverter.convert()`, keyed maps may use either the full
-`'Questionnaire:R4->R5'` key or the type-only `'Questionnaire'` key.
+`'Questionnaire:R4->R5'` key or the type-only `'Questionnaire'` key. These are
+two spellings of the same entry. If both occur in one map, the later property in
+the map takes precedence; their processor lists are not merged, just as if you
+specify two entries with the same key.
 
 The package also exports helpers for authoring processors - `makeProcessor`,
 `validateProcessorDescriptor`, `makeMessage`, `infoMessage`, `warningMessage`,

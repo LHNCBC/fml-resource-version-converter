@@ -209,6 +209,10 @@ function createLookupKey(type, v1, v2) {
  * in the one hop's versions so the shared normalizer (which requires canonical
  * keys) treats single- and multi-hop uniformly. Already-canonical keys, function
  * (non-map) values, and the singular preproc/postproc options are left untouched.
+ * If a map contains both forms for the same resource and hop, entries are
+ * processed in property iteration order and the later entry replaces the
+ * earlier one; their processor lists are not merged, just as if you specify
+ * two entries with the same key.
  *
  * Called by the single-hop entry point before normalizeProcessorOptions; the
  * multi-hop entry point does not use it (it requires canonical keys).

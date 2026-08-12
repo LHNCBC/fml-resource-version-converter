@@ -258,6 +258,22 @@ describe('converter/processorOptions', function () {
       assert.deepEqual(Object.keys(out.postprocs), ['Questionnaire:R4->R5']);
     });
 
+    it('uses the later entry when type-only and canonical keys identify the same hop', function () {
+      const canonicalLast = resolveSingleHopOptionKeys({
+        preprocs: { Questionnaire: [noop], 'Questionnaire:R4->R5': [other] },
+        postprocs: { Questionnaire: [noop], 'Questionnaire:R4->R5': [other] },
+      }, hop);
+      assert.deepEqual(canonicalLast.preprocs['Questionnaire:R4->R5'], [other]);
+      assert.deepEqual(canonicalLast.postprocs['Questionnaire:R4->R5'], [other]);
+
+      const typeOnlyLast = resolveSingleHopOptionKeys({
+        preprocs: { 'Questionnaire:R4->R5': [other], Questionnaire: [noop] },
+        postprocs: { 'Questionnaire:R4->R5': [other], Questionnaire: [noop] },
+      }, hop);
+      assert.deepEqual(typeOnlyLast.preprocs['Questionnaire:R4->R5'], [noop]);
+      assert.deepEqual(typeOnlyLast.postprocs['Questionnaire:R4->R5'], [noop]);
+    });
+
     it('leaves function (non-map) values untouched', function () {
       const fn = type => (type === 'Questionnaire' ? [noop] : undefined);
       const out = resolveSingleHopOptionKeys({ postprocs: fn }, hop);

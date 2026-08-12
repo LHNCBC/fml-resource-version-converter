@@ -2512,6 +2512,10 @@ export function compileFmlXver({
           if (b.spec.alias) iterScope.set(b.spec.alias, b.value);
         }
         if (!evalGuard(primary.spec.where, iterScope)) continue;
+        if (primary.spec.check && !evalGuard(primary.spec.check, iterScope)) {
+          onWarning?.(`check failed in iteration (${primary.spec.alias})`);
+        }
+        if (primary.spec.log) emitLog(primary.spec.log, iterScope);
         if (thenGroup) {
           const fallbackSource = itemCompanion != null
             ? expandPrimitive(item, itemCompanion)

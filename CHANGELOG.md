@@ -62,6 +62,8 @@ This project follows [Semantic Versioning](http://semver.org/).
   may become a separate `serviceType` without its required `type`, producing
   invalid DSTU2 output.
 - "log" clause is now fully supported.
+- Source-only array `then` rules now emit their per-item `check` warnings and
+  `log` diagnostics consistently with other rule forms.
 - Backtick-delimited identifiers in bare paths are now supported.
 - `create('X')` no longer adds a spurious `resourceType` to primitives and
   datatypes (e.g. `create('CodeableConcept')`).
