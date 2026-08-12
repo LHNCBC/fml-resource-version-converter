@@ -6,6 +6,10 @@
  *     a sibling `_<name>` object, so relocating/removing a primitive must carry
  *     that companion too. copyPrimitive / renamePrimitive / deletePrimitive
  *     encapsulate that rule so callers never strand a `_`-companion.
+ *     removePrimitiveArrayEntries applies the same rule to a repeating
+ *     primitive, where the companion is a position-aligned array, and
+ *     addDataAbsentReasonExtension uses the companion to mark a primitive as
+ *     present-but-valueless.
  *   - Choice-type detection: findValueKey locates the single `value[x]` choice
  *     carried on an element object (the payload may be primitive or complex).
  *   - Content probing: hasAnyContent reports whether an element carries
@@ -106,6 +110,105 @@ export function deletePrimitive(obj, key) {
   if (hadCompanion) delete obj[meta];
 
   return { hadValue, hadCompanion };
+}
+
+/**
+ * Remove entries from a repeating FHIR primitive, keeping its `_`-companion
+ * array aligned.
+ *
+ * A repeating primitive stores id/extension in a parallel `_<name>` array, where
+ * position matters and absent metadata is `null`. Splicing the value array alone
+ * would silently re-associate every companion after the removal point, so both
+ * arrays are rebuilt together. When every entry is removed, or when no companion
+ * entry carries content any more, the affected key is deleted rather than left
+ * as an empty array.
+ *
+ * @param {Object} obj Object holding the repeating primitive, mutated in place.
+ * @param {string} key Primitive array key (e.g. "operator").
+ * @param {function(*, number): boolean} shouldRemove Predicate receiving the
+ *   value and its index; return true to drop that entry.
+ * @returns {{removed: Array<{index: number, value: *}>, remaining: number}}
+ *   Entries removed (in original order, with their original indexes) and the
+ *   number of entries left.
+ */
+export function removePrimitiveArrayEntries(obj, key, shouldRemove) {
+  const values = obj?.[key];
+  if (!Array.isArray(values)) return { removed: [], remaining: 0 };
+
+  const companionKey = `_${key}`;
+  const companion = Array.isArray(obj[companionKey]) ? obj[companionKey] : null;
+  const removed = [];
+  const keptValues = [];
+  const keptCompanion = [];
+
+  values.forEach((value, index) => {
+    if (shouldRemove(value, index)) {
+      removed.push({ index, value });
+      return;
+    }
+    keptValues.push(value);
+    if (companion) keptCompanion.push(companion[index] ?? null);
+  });
+
+  if (removed.length === 0) return { removed, remaining: values.length };
+
+  if (keptValues.length === 0) {
+    delete obj[key];
+    delete obj[companionKey];
+    return { removed, remaining: 0 };
+  }
+
+  obj[key] = keptValues;
+  if (companion) {
+    if (keptCompanion.some(entry => entry != null)) obj[companionKey] = keptCompanion;
+    else delete obj[companionKey];
+  }
+
+  return { removed, remaining: keptValues.length };
+}
+
+/**
+ * Canonical URL of the standard FHIR data-absent-reason extension.
+ *
+ * @type {string}
+ */
+export const DATA_ABSENT_REASON_URL = 'http://hl7.org/fhir/StructureDefinition/data-absent-reason';
+
+/**
+ * Mark a FHIR primitive as present-but-valueless by attaching the standard
+ * data-absent-reason extension to its `_`-companion.
+ *
+ * FHIR allows an extension to stand in place of a primitive's value; R5 added
+ * `ElementDefinition.mustHaveValue` precisely so a profile can forbid that,
+ * and its own documentation names data-absent-reason as the typical extension
+ * used this way. The element then exists for invariant purposes while
+ * asserting nothing about the value it does not have.
+ *
+ * The caller is responsible for only applying this where the value really is
+ * absent; this function is pure mechanics and does not inspect `obj[key]`.
+ * It is idempotent: a companion that already carries a data-absent-reason
+ * extension is left untouched, and any unrelated extensions are preserved.
+ *
+ * @param {Object} obj Object holding the primitive, mutated in place.
+ * @param {string} key Primitive key (e.g. "supplements").
+ * @param {string} [reason='unknown'] Code from the data-absent-reason value set.
+ * @returns {boolean} True when the extension was added, false when one was
+ *   already present or the target was not an object.
+ */
+export function addDataAbsentReasonExtension(obj, key, reason = 'unknown') {
+  if (!obj || typeof obj !== 'object') return false;
+
+  const companionKey = `_${key}`;
+  if (obj[companionKey] == null || typeof obj[companionKey] !== 'object') {
+    obj[companionKey] = {};
+  }
+  const companion = obj[companionKey];
+
+  if (!Array.isArray(companion.extension)) companion.extension = [];
+  if (companion.extension.some(entry => entry?.url === DATA_ABSENT_REASON_URL)) return false;
+
+  companion.extension.push({ url: DATA_ABSENT_REASON_URL, valueCode: reason });
+  return true;
 }
 
 /**

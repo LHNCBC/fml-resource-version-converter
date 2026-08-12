@@ -8,11 +8,13 @@ mapping files. At this point, the FML mapping files handle most, and sometimes
 all, data elements in a conversion. When a mapping is incomplete, postprocessors
 may be used to refine the converted resource.
 
-Reviewed conversions currently cover **Questionnaire** and **ValueSet (STU3 <->
-R4, R4 <-> R5, and R4B <-> R5)**. For other resource types, the FML mappings
-have not been reviewed and no package postprocessors have been provided.
-However, the converter can still handle most data elements through FML, and
-callers can supply postprocessors as needed.
+Reviewed conversions currently cover
+  **Questionnaire (STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**,
+  **ValueSet (STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**, and
+  **CodeSystem (R4 <-> R5 and R4B <-> R5)**.
+For other resource types, the FML mappings have not been reviewed and no package
+postprocessors have been provided. However, the converter can still handle most
+data elements through FML, and callers can supply postprocessors as needed.
 
 This project is designed as a general, extensible framework to support all
 FHIR resource types and versions for which FML mapping files exist.
@@ -144,10 +146,9 @@ following in mind:
   `--target-resource-type`) is supported only for a single hop.** Support for
   selecting targets within a multi-hop conversion may be added in a future
   release.
-- **Reviewed conversions currently cover Questionnaire, and ValueSet for
-  STU3 <-> R4, R4 <-> R5, and R4B <-> R5.** Other resource types use unreviewed
-  FML mappings (see [COVERAGE.md](COVERAGE.md)); callers may supply their own
-  postprocessors.
+- **Reviewed conversions** currently cover a few resource types and versions.
+  The FML conversions for other resource types and versions have not been
+  reviewed (see [COVERAGE.md](COVERAGE.md)).
 - **A few FML language features are not yet implemented:** `let` constants and
   inline `conceptmap` declarations. Bundled mappings do not use them; the engine
   emits a warning if it sees one.
@@ -352,13 +353,12 @@ node bin/convert.js R4 R3 service-request-r4.json \
 
 ## Coverage and contributions
 
-Due to the sheer number of resource type and version pair combinations, this package is meant to
-grow incrementally: review one resource type and version pair at a time, add a
-postprocessor if needed, test, and then regenerate the coverage report.
+Due to the sheer number of resource type and version pair combinations, this package
+is meant to grow incrementally: review one resource type and version pair at a time,
+add a postprocessor if needed, test, and then regenerate the coverage report.
 
-Reviewed conversions currently cover **Questionnaire** and **ValueSet (STU3 <->
-R4, R4 <-> R5, and R4B <-> R5)**. Contributions for other resource types and
-version pairs are welcome.
+Reviewed conversions currently cover only a few resource types and versions.
+Contributions for other resource types and version pairs are welcome.
 
 See [COVERAGE.md](COVERAGE.md) for current coverage status.
 See [CONTRIBUTING.md](CONTRIBUTING.md) on how to contribute.

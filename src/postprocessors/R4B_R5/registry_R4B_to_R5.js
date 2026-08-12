@@ -7,6 +7,7 @@
  * @module postprocessors/R4B_R5/registry_R4B_to_R5
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { conv_R4B_to_R5 as convCodeSystem_R4B_to_R5 } from './CodeSystem.js';
 
 export const registry = {
   // Reviewed against the FHIR spec. The FML maps R4B choice/open-choice ->
@@ -33,6 +34,24 @@ export const registry = {
       description: 'FML fully covers R4B->R5 ValueSet conversion; no postprocessor needed.',
     },
     processors: [],
+  },
+
+  // Reviewed against the FHIR spec. R4B declares the same 66 CodeSystem element
+  // paths as R4 and, like R4, has no invariant tying content = "supplement" to
+  // CodeSystem.supplements, while R5 requires it (csd-4). The gap and its
+  // handling are therefore identical to R4->R5 - supplements is marked absent
+  // with the standard data-absent-reason extension rather than invented - and
+  // the R4->R5 transform is reused. The version-specific meta.profile is
+  // rewritten from 4.3 to 5.0 by the mapping.
+  CodeSystem: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML maps every shared CodeSystem element but silently emits R4B supplements '
+        + 'that omit CodeSystem.supplements, which R5 invariant csd-4 rejects; repaired '
+        + 'by the CodeSystem_R4B_to_R5 postprocessor.',
+    },
+    processors: [convCodeSystem_R4B_to_R5],
   },
 };
 

@@ -9,6 +9,7 @@
 import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R5_to_R4 } from './Questionnaire.js';
 import { conv_R5_to_R4 as convValueSet_R5_to_R4 } from './ValueSet.js';
+import { conv_R5_to_R4 as convCodeSystem_R5_to_R4 } from './CodeSystem.js';
 
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
@@ -41,5 +42,25 @@ export const registry = {
         + 'R5-only filter operators that do not conform to the R4 binding.',
     },
     processors: [convValueSet_R5_to_R4],
+  },
+
+  // Reviewed against the FHIR spec. The FML maps every element R4 and R5 share
+  // and drops the 11 R5-only metadata elements plus
+  // concept.designation.additionalUse silently. It also preserves the R5-only
+  // filter operators child-of and descendent-leaf, because csd.fi.operator-5to4
+  // marks them noMap and the engine passes unmapped codes through unchanged;
+  // neither is in the R4 FilterOperator binding. The postprocessor reports the
+  // dropped content and removes those operator codes - CodeSystem.filter.operator
+  // is 1..* and declares supported filter capability, so removal leaves a
+  // truthful declaration where substituting a near operator would claim support
+  // the terminology does not have.
+  CodeSystem: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML maps shared CodeSystem content but drops R5-only elements and retains '
+        + 'R5-only filter operators that do not conform to the R4 binding.',
+    },
+    processors: [convCodeSystem_R5_to_R4],
   },
 };

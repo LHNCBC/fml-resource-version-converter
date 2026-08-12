@@ -174,7 +174,9 @@ Typical gap categories to look for:
 - Target invariants, not just element definitions, e.g. a rule requiring one of
   two elements to be present. A resource can satisfy the target schema element
   by element and still violate a constraint, and the postprocessor must repair
-  it rather than produce invalid output.
+  it rather than produce invalid output. See "When the target adds a constraint
+  the source never enforced" below for the case where the source never captured
+  the information the new constraint demands.
 
 ### Step 2 - Decide what to do based on the review
 
@@ -192,6 +194,25 @@ Typical gap categories to look for:
     improve the conversion output, please follow the guidance in the next section
     and update the registry entry accordingly. See the Questionnaire entry in
     registry_R4_to_R3.js for an example.
+
+### When the target adds a constraint the source never enforced
+
+Occasionally the target version is stricter than the source in a way that has
+nothing to do with elements: same fields, same cardinalities, same bindings, but
+a new invariant. Source instances that were perfectly valid then convert into
+target instances that fail validation, and no amount of better mapping fixes it,
+because the information the new rule demands was never recorded in the source.
+
+The worked example is CodeSystem R4 -> R5. R4 allows `content = "supplement"`
+with no `CodeSystem.supplements`, and R5 invariant `csd-4` requires the two
+together. Which code system is being supplemented is simply absent from such an
+R4 resource.
+
+There may not be a general solution to this problem, but here are a few possible
+approaches:
+- Rewrite/repair the target resource if there is a meaningful way to do so.
+- Remove the offending element(s) if applicable, and use data-absent-reason
+  extension to satisfy missing required fields.
 
 ### Inter-version extension
 

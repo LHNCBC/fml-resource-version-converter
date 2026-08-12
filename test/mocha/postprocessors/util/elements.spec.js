@@ -3,12 +3,140 @@
  */
 import { strict as assert } from 'node:assert';
 import {
+  DATA_ABSENT_REASON_URL,
+  addDataAbsentReasonExtension,
   copyPrimitive,
   deletePrimitive,
   findValueKey,
   hasAnyContent,
+  removePrimitiveArrayEntries,
   renamePrimitive,
 } from '../../../../src/postprocessors/util/elements.js';
+
+
+describe('postprocessors/util/elements addDataAbsentReasonExtension', function () {
+  it('creates the _companion and attaches the extension', function () {
+    const object = { content: 'supplement' };
+    const added = addDataAbsentReasonExtension(object, 'supplements');
+
+    assert.equal(added, true);
+    assert.deepEqual(object._supplements, {
+      extension: [{ url: DATA_ABSENT_REASON_URL, valueCode: 'unknown' }],
+    });
+    assert.equal('supplements' in object, false);
+  });
+
+  it('uses the standard extension URL', function () {
+    assert.equal(
+      DATA_ABSENT_REASON_URL,
+      'http://hl7.org/fhir/StructureDefinition/data-absent-reason',
+    );
+  });
+
+  it('accepts an explicit reason code', function () {
+    const object = {};
+    addDataAbsentReasonExtension(object, 'supplements', 'not-applicable');
+
+    assert.equal(object._supplements.extension[0].valueCode, 'not-applicable');
+  });
+
+  it('preserves unrelated extensions already on the companion', function () {
+    const other = { url: 'http://example.org/fhir/StructureDefinition/note', valueString: 'x' };
+    const object = { _supplements: { id: 'sup', extension: [other] } };
+    const added = addDataAbsentReasonExtension(object, 'supplements');
+
+    assert.equal(added, true);
+    assert.equal(object._supplements.id, 'sup');
+    assert.deepEqual(object._supplements.extension[0], other);
+    assert.equal(object._supplements.extension[1].url, DATA_ABSENT_REASON_URL);
+  });
+
+  it('is idempotent', function () {
+    const object = {};
+    assert.equal(addDataAbsentReasonExtension(object, 'supplements'), true);
+    assert.equal(addDataAbsentReasonExtension(object, 'supplements'), false);
+    assert.equal(object._supplements.extension.length, 1);
+  });
+
+  it('returns false for a non-object target', function () {
+    assert.equal(addDataAbsentReasonExtension(null, 'supplements'), false);
+    assert.equal(addDataAbsentReasonExtension(undefined, 'supplements'), false);
+  });
+});
+
+
+describe('postprocessors/util/elements removePrimitiveArrayEntries', function () {
+  it('removes matching entries and reports what was removed', function () {
+    const object = { operator: ['is-a', 'child-of', 'regex'] };
+    const result = removePrimitiveArrayEntries(object, 'operator', v => v === 'child-of');
+
+    assert.deepEqual(object.operator, ['is-a', 'regex']);
+    assert.deepEqual(result.removed, [{ index: 1, value: 'child-of' }]);
+    assert.equal(result.remaining, 2);
+  });
+
+  it('keeps the _companion array aligned with the surviving values', function () {
+    const object = {
+      operator: ['is-a', 'child-of', 'regex'],
+      _operator: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+    };
+    removePrimitiveArrayEntries(object, 'operator', v => v === 'child-of');
+
+    assert.deepEqual(object.operator, ['is-a', 'regex']);
+    assert.deepEqual(object._operator, [{ id: 'a' }, { id: 'c' }]);
+  });
+
+  it('pads a short _companion array with null so positions stay correct', function () {
+    const object = { operator: ['a', 'b', 'c'], _operator: [{ id: 'a' }] };
+    removePrimitiveArrayEntries(object, 'operator', v => v === 'b');
+
+    assert.deepEqual(object._operator, [{ id: 'a' }, null]);
+  });
+
+  it('deletes both keys when every entry is removed', function () {
+    const object = { operator: ['child-of'], _operator: [{ id: 'a' }], code: 'concept' };
+    const result = removePrimitiveArrayEntries(object, 'operator', () => true);
+
+    assert.equal('operator' in object, false);
+    assert.equal('_operator' in object, false);
+    assert.equal(object.code, 'concept');
+    assert.equal(result.remaining, 0);
+    assert.equal(result.removed.length, 1);
+  });
+
+  it('drops an all-null _companion array rather than leaving it behind', function () {
+    const object = { operator: ['a', 'b'], _operator: [null, { id: 'b' }] };
+    removePrimitiveArrayEntries(object, 'operator', v => v === 'b');
+
+    assert.deepEqual(object.operator, ['a']);
+    assert.equal('_operator' in object, false);
+  });
+
+  it('leaves the object untouched when nothing matches', function () {
+    const object = { operator: ['is-a'], _operator: [{ id: 'a' }] };
+    const result = removePrimitiveArrayEntries(object, 'operator', () => false);
+
+    assert.deepEqual(object.operator, ['is-a']);
+    assert.deepEqual(object._operator, [{ id: 'a' }]);
+    assert.deepEqual(result.removed, []);
+    assert.equal(result.remaining, 1);
+  });
+
+  it('tolerates a missing or non-array primitive', function () {
+    assert.deepEqual(
+      removePrimitiveArrayEntries({}, 'operator', () => true),
+      { removed: [], remaining: 0 },
+    );
+    assert.deepEqual(
+      removePrimitiveArrayEntries({ operator: 'is-a' }, 'operator', () => true),
+      { removed: [], remaining: 0 },
+    );
+    assert.deepEqual(
+      removePrimitiveArrayEntries(undefined, 'operator', () => true),
+      { removed: [], remaining: 0 },
+    );
+  });
+});
 
 
 describe('postprocessors/util/elements hasAnyContent', function () {

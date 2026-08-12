@@ -9,6 +9,7 @@
 import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R5_to_R4B } from './Questionnaire.js';
 import { conv_R5_to_R4B as convValueSet_R5_to_R4B } from './ValueSet.js';
+import { conv_R5_to_R4B as convCodeSystem_R5_to_R4B } from './CodeSystem.js';
 
 export const registry = {
   // Reviewed against the FHIR spec. R4B is identical to R4 for Questionnaire.item
@@ -41,5 +42,22 @@ export const registry = {
         + 'R5-only filter operators that do not conform to the R4B binding.',
     },
     processors: [convValueSet_R5_to_R4B],
+  },
+
+  // Reviewed against the FHIR spec. R4B and R4 declare the same CodeSystem
+  // element set, and filter.operator binds to the same nine FilterOperator
+  // codes, so the FML has the same gaps as R5->R4: it drops the R5-only
+  // metadata elements and concept.designation.additionalUse silently, and
+  // preserves the R5-only operators child-of and descendent-leaf, which are not
+  // valid in R4B. The postprocessor reports the dropped content and removes
+  // those operator codes, bringing the conversion to BEST_EFFORT.
+  CodeSystem: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML maps shared CodeSystem content but drops R5-only elements and retains '
+        + 'R5-only filter operators that do not conform to the R4B binding.',
+    },
+    processors: [convCodeSystem_R5_to_R4B],
   },
 };

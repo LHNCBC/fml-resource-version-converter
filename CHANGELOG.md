@@ -3,6 +3,16 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Completed CodeSystem conversion onboarding for R4 <-> R5 and R4B <-> R5.
+- Added reusable functions `removePrimitiveArrayEntries()` and
+  `addDataAbsentReasonExtension()` in `postprocessors/util/elements.js`.
+- `CONTRIBUTING.md` guidance on handling a target version that adds a constraint
+  the source does not have.
+
 ## [0.2.0] - 2026-08-07
 
 ### Added

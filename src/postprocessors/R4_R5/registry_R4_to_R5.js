@@ -7,6 +7,7 @@
  * @module postprocessors/R4_R5/registry_R4_to_R5
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { conv_R4_to_R5 as convCodeSystem_R4_to_R5 } from './CodeSystem.js';
 
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
@@ -30,5 +31,27 @@ export const registry = {
       description: 'FML fully covers R4->R5 ValueSet conversion; no postprocessor needed.',
     },
     processors: [],
+  },
+
+  // Reviewed against the FHIR spec. R5 is an element-wise superset of R4 for
+  // CodeSystem (66 of 77 paths shared, none removed or restructured), so the FML
+  // carries everything over. One incompatibility is not element-level: R4 allows
+  // content = "supplement" without CodeSystem.supplements, which R5 rejects via
+  // invariant csd-4, so the FML step alone emits invalid R5. The supplemented
+  // code system is not identified anywhere in the source, so the postprocessor
+  // marks supplements absent with the standard data-absent-reason extension -
+  // FHIR lets an extension stand in place of a primitive value, so the element
+  // exists for csd-4 without asserting a canonical the source never carried.
+  // That keeps the output valid and truthful, so the conversion is COMPLETE;
+  // the accompanying warning tells the caller to substitute the real canonical.
+  CodeSystem: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML maps every shared CodeSystem element but silently emits R4 supplements '
+        + 'that omit CodeSystem.supplements, which R5 invariant csd-4 rejects; repaired '
+        + 'by the CodeSystem_R4_to_R5 postprocessor.',
+    },
+    processors: [convCodeSystem_R4_to_R5],
   },
 };
