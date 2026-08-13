@@ -2277,7 +2277,7 @@ export function compileFmlXver({
     const targetLeaf = segs[segs.length - 1];
     const targetAbsPath = composeChildPath(tctx, tgtSpec.path);
     const tgtIsPoly = targetAbsPath
-      ? tgtPolyTypeLists.has(targetAbsPath)
+      ? targetPolyTypes(targetAbsPath) != null
       : false;
     // Append the source's polymorphic suffix only when the TARGET leaf is
     // itself polymorphic in the target version. A matching leaf name alone is
