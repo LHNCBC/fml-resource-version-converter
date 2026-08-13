@@ -3,7 +3,7 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
-## [0.2.0] - 2026-08-07
+## [0.2.0] - 2026-08-13
 
 ### Added
 

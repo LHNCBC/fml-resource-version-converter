@@ -56,4 +56,3 @@ describe('tools/comp-fml-vs-full.js FML-vs-Full comparison', function () {
     assert.doesNotMatch(res.stdout, /\$\.resourceType: missing in FML output/);
   });
 });
-
