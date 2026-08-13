@@ -809,12 +809,14 @@ export function compileFmlXver({
   const hasTgtPolyInfo = tgtDefs?.polyPaths != null;
 
   /**
-   * Set of absolute dotted paths whose target field is an array
+   * Map of absolute dotted paths whose target field is an array
    * (`max > 1`) in the target FHIR version. Consumed by writeToSlot()
    * (called from every write site) to decide whether to push (or
    * initialize an array) rather than overwrite a slot.
    */
-  const tgtArrayPaths = new Set(tgtDefs?.arrayPaths || []);
+  const tgtArrayPathIndex = new Map(
+    (tgtDefs?.arrayPaths || []).map(path => [path, true]),
+  );
 
   /**
    * Set of FHIR resource type names (kind === 'resource') across the source
@@ -840,31 +842,67 @@ export function compileFmlXver({
   const srcElementTypes = new Map(Object.entries(srcDefs?.elementTypes || {}));
   const tgtElementTypes = new Map(Object.entries(tgtDefs?.elementTypes || {}));
 
+  /** Referencing element path -> referenced element path for each version. */
+  const srcContentReferences = new Map(Object.entries(srcDefs?.contentReferences || {}));
+  const tgtContentReferences = new Map(Object.entries(tgtDefs?.contentReferences || {}));
+
   /**
-   * Look up schema metadata for an absolute FHIR path, re-rooting at complex
-   * datatype boundaries when the resource snapshot does not expand datatype
-   * internals. For example, `Patient.name.family` resolves by first finding
-   * `Patient.name -> HumanName`, then looking up `HumanName.family`.
+   * Look up schema metadata for an absolute FHIR path, resolving recursive
+   * content references and re-rooting at complex datatype boundaries. For
+   * example, `Questionnaire.item.item.initial.value` resolves through
+   * `Questionnaire.item.item -> Questionnaire.item`, while
+   * `Patient.name.family` resolves through `Patient.name -> HumanName`.
    *
    * @param {Map<string, *>} index Schema metadata keyed by FHIR path.
    * @param {Map<string, string>} elementTypes Element-type table for the same version.
+   * @param {Map<string, string>} contentReferences Content-reference table
+   *                                                 for the same version.
    * @param {string|null} absolutePath Resource- or datatype-rooted FHIR path.
    * @param {Set<string>} [visited] Re-rooted paths already inspected.
    * @returns {*|undefined} The indexed value, or undefined when unresolved.
    */
-  function lookupSchemaEntry(index, elementTypes, absolutePath, visited = new Set()) {
+  function lookupSchemaEntry(
+    index,
+    elementTypes,
+    contentReferences,
+    absolutePath,
+    visited = new Set(),
+  ) {
     if (!absolutePath || visited.has(absolutePath)) return undefined;
     visited.add(absolutePath);
 
     if (index.has(absolutePath)) return index.get(absolutePath);
 
     const segs = absolutePath.split('.');
+    // Only descendants inherit referenced metadata. The referencing element
+    // keeps its own cardinality and other constraints.
+    for (let i = segs.length - 1; i >= 1; i--) {
+      const referencedPath = contentReferences.get(segs.slice(0, i).join('.'));
+      if (!referencedPath) continue;
+
+      const rerootedPath = `${referencedPath}.${segs.slice(i).join('.')}`;
+      const value = lookupSchemaEntry(
+        index,
+        elementTypes,
+        contentReferences,
+        rerootedPath,
+        visited,
+      );
+      if (value !== undefined) return value;
+    }
+
     for (let i = segs.length - 1; i >= 1; i--) {
       const parentType = elementTypes.get(segs.slice(0, i).join('.'));
       if (!parentType || parentType[0] !== parentType[0].toUpperCase()) continue;
 
       const rerootedPath = `${parentType}.${segs.slice(i).join('.')}`;
-      const value = lookupSchemaEntry(index, elementTypes, rerootedPath, visited);
+      const value = lookupSchemaEntry(
+        index,
+        elementTypes,
+        contentReferences,
+        rerootedPath,
+        visited,
+      );
       if (value !== undefined) return value;
     }
 
@@ -873,12 +911,22 @@ export function compileFmlXver({
 
   /** Return the source element type at an absolute, possibly nested path. */
   function sourceElementType(absolutePath) {
-    return lookupSchemaEntry(srcElementTypes, srcElementTypes, absolutePath) || null;
+    return lookupSchemaEntry(
+      srcElementTypes,
+      srcElementTypes,
+      srcContentReferences,
+      absolutePath,
+    ) || null;
   }
 
   /** Return the target element type at an absolute, possibly nested path. */
   function targetElementType(absolutePath) {
-    return lookupSchemaEntry(tgtElementTypes, tgtElementTypes, absolutePath) || null;
+    return lookupSchemaEntry(
+      tgtElementTypes,
+      tgtElementTypes,
+      tgtContentReferences,
+      absolutePath,
+    ) || null;
   }
 
   const srcPolyTypeLists = new Map(Object.entries(srcDefs?.polyPaths || {}));
@@ -901,12 +949,22 @@ export function compileFmlXver({
 
   /** Return source polymorphic choices at an absolute, possibly nested path. */
   function sourcePolyTypes(absolutePath) {
-    return lookupSchemaEntry(srcPolyTypeLists, srcElementTypes, absolutePath) || null;
+    return lookupSchemaEntry(
+      srcPolyTypeLists,
+      srcElementTypes,
+      srcContentReferences,
+      absolutePath,
+    ) || null;
   }
 
   /** Return target polymorphic choices at an absolute, possibly nested path. */
   function targetPolyTypes(absolutePath) {
-    return lookupSchemaEntry(tgtPolyTypeLists, tgtElementTypes, absolutePath) || null;
+    return lookupSchemaEntry(
+      tgtPolyTypeLists,
+      tgtElementTypes,
+      tgtContentReferences,
+      absolutePath,
+    ) || null;
   }
 
   /**
@@ -941,7 +999,12 @@ export function compileFmlXver({
     if (!absolutePath) return null;
     const directType = targetElementType(absolutePath);
     if (FHIR_PRIMITIVES.has(directType)) return directType;
-    const typed = lookupSchemaEntry(tgtTypedPolyPaths, tgtElementTypes, absolutePath);
+    const typed = lookupSchemaEntry(
+      tgtTypedPolyPaths,
+      tgtElementTypes,
+      tgtContentReferences,
+      absolutePath,
+    );
     return typed && FHIR_PRIMITIVES.has(typed.type) ? typed.type : null;
   }
 
@@ -1006,7 +1069,12 @@ export function compileFmlXver({
    * @returns {string|null} Schema path.
    */
   function targetSchemaPath(absolutePath) {
-    return lookupSchemaEntry(tgtTypedPolyPaths, tgtElementTypes, absolutePath)?.path || absolutePath;
+    return lookupSchemaEntry(
+      tgtTypedPolyPaths,
+      tgtElementTypes,
+      tgtContentReferences,
+      absolutePath,
+    )?.path || absolutePath;
   }
 
   /**
@@ -1151,17 +1219,28 @@ export function compileFmlXver({
   function isTgtArrayPath(absPath) {
     if (!absPath) return false;
     const schemaPath = targetSchemaPath(absPath);
-    if (tgtArrayPaths.has(schemaPath)) return true;
-    const segs = schemaPath.split('.');
-    for (let i = segs.length - 1; i >= 1; i--) {
-      const t = tgtElementTypes.get(segs.slice(0, i).join('.'));
-      // Only complex types (upper-camel) have sub-paths worth re-rooting;
-      // primitives never do.
-      if (t && t[0] === t[0].toUpperCase()) {
-        if (isTgtArrayPath(t + '.' + segs.slice(i).join('.'))) return true;
-      }
-    }
-    return false;
+    return lookupSchemaEntry(
+      tgtArrayPathIndex,
+      tgtElementTypes,
+      tgtContentReferences,
+      schemaPath,
+    ) === true;
+  }
+
+  /**
+   * Return whether a primitive companion contains extension content that can
+   * represent an element without a primitive value. An id alone does not
+   * satisfy the FHIR ele-1 invariant.
+   *
+   * @param {*} companion Candidate primitive companion object.
+   * @returns {boolean} True when at least one non-empty extension is present.
+   */
+  function hasPrimitiveExtension(companion) {
+    return isObject(companion)
+      && Array.isArray(companion.extension)
+      && companion.extension.some(extension => (
+        isObject(extension) && Object.keys(extension).length > 0
+      ));
   }
 
   /**
@@ -1235,11 +1314,18 @@ export function compileFmlXver({
         const rawCompanions = Array.isArray(companion) ? companion : [companion];
         const values = [];
         const companions = [];
-        for (let i = 0; i < rawValues.length; i++) {
+        const occurrenceCount = Math.max(rawValues.length, rawCompanions.length);
+        for (let i = 0; i < occurrenceCount; i++) {
           const split = splitPrimitive(rawValues[i], rawCompanions[i]);
-          values.push(split.value === undefined ? null : split.value);
+          if (split.value === undefined && !hasPrimitiveExtension(split.companion)) {
+            continue;
+          }
+
+          values.push(split.value ?? null);
           companions.push(split.companion ?? null);
         }
+
+        if (values.length === 0) return;
 
         const existingCount = Array.isArray(parent[key])
           ? parent[key].length
@@ -1264,7 +1350,8 @@ export function compileFmlXver({
 
       const split = splitPrimitive(value, companion);
       if (split.value !== undefined) parent[key] = split.value;
-      if (split.companion != null) {
+      if (split.companion != null
+          && (split.value !== undefined || hasPrimitiveExtension(split.companion))) {
         parent[`_${key}`] = deepClone(split.companion);
       }
       return;
