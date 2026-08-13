@@ -664,6 +664,35 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
     assert.deepEqual(item.initial, [{ valueString: 'Mint' }]);
   });
 
+  it('converts Attachment.size between unsignedInt and integer64 JSON forms', function () {
+    const input = {
+      resourceType: 'Questionnaire',
+      status: 'active',
+      item: [{
+        linkId: 'attachment',
+        type: 'attachment',
+        initial: [{
+          valueAttachment: {
+            size: 123,
+            _size: { id: 'size-metadata' },
+          },
+        }],
+      }],
+    };
+    const { resource: converted } = engine.convert({ input });
+
+    const r5Attachment = converted.item[0].initial[0].valueAttachment;
+    assert.equal(r5Attachment.size, '123');
+    assert.deepEqual(r5Attachment._size, { id: 'size-metadata' });
+
+    const reverseEngine = createEngine('Questionnaire', 'R5', 'R4');
+    const { resource: reversed } = reverseEngine.convert({ input: converted });
+    const r4Attachment = reversed.item[0].initial[0].valueAttachment;
+
+    assert.equal(r4Attachment.size, 123);
+    assert.deepEqual(r4Attachment._size, { id: 'size-metadata' });
+  });
+
   it('preserves answerOption with valueCoding', function () {
     const item = output.item.find(i => i.linkId === '/X-003');
     assert.ok(item.answerOption);
@@ -1215,6 +1244,155 @@ group Item(source src, target tgt) extends BackboneElement {
     });
     assert.equal(out.item[0].valueBoolean, true);
     assert.equal(out.item[1].valueString, 'hello');
+  });
+
+  it('uses source schema metadata to distinguish fixed type hints from polymorphic fields', function () {
+    const fixedFml = `
+group TestRes(source src, target tgt) {
+  src.size : unsignedInt -> tgt.size "sizeUnsignedInt";
+}
+`;
+    const fixedDefs = {
+      polyPaths: {},
+      elementTypes: { 'TestRes.size': 'unsignedInt' },
+    };
+    const fixedEngine = compileFmlXver({
+      fmlText: fixedFml,
+      srcDefs: fixedDefs,
+      tgtDefs: fixedDefs,
+    });
+    const { resource: fixedOut } = fixedEngine.convert({
+      input: { resourceType: 'TestRes', size: 123 },
+    });
+
+    // The trailing string is a rule label. It must not redirect the read to a
+    // nonexistent `sizeUnsignedInt` property when the schema declares `size`
+    // as a fixed unsignedInt field.
+    assert.equal(fixedOut.size, 123);
+
+    const polyFml = `
+group TestRes(source src, target tgt) {
+  src.value : boolean -> tgt.value "descriptive-rule-label";
+}
+`;
+    const polyDefs = {
+      polyPaths: { 'TestRes.value': ['boolean', 'string'] },
+      elementTypes: {},
+    };
+    const polyEngine = compileFmlXver({
+      fmlText: polyFml,
+      srcDefs: polyDefs,
+      tgtDefs: polyDefs,
+    });
+    const { resource: polyOut } = polyEngine.convert({
+      input: { resourceType: 'TestRes', valueBoolean: true },
+    });
+
+    assert.equal(polyOut.valueBoolean, true);
+    assert.equal('descriptive-rule-label' in polyOut, false);
+  });
+
+  it('normalizes integer64 and unsignedInt values at primitive serialization', function () {
+    const fml = `
+group TestRes(source src, target tgt) {
+  src.size -> tgt.size;
+}
+`;
+    const warnings = [];
+    const integer64Engine = compileFmlXver({
+      fmlText: fml,
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'TestRes.size': 'unsignedInt' },
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'TestRes.size': 'integer64' },
+      },
+      onWarning: message => warnings.push(message),
+    });
+    const { resource: integer64Out } = integer64Engine.convert({
+      input: {
+        resourceType: 'TestRes',
+        size: 4294967295,
+        _size: { id: 'size-metadata' },
+      },
+    });
+
+    assert.equal(integer64Out.size, '4294967295');
+    assert.deepEqual(integer64Out._size, { id: 'size-metadata' });
+
+    const unsignedIntEngine = compileFmlXver({
+      fmlText: fml,
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'TestRes.size': 'integer64' },
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'TestRes.size': 'unsignedInt' },
+      },
+      onWarning: message => warnings.push(message),
+    });
+    const { resource: unsignedIntOut } = unsignedIntEngine.convert({
+      input: {
+        resourceType: 'TestRes',
+        size: '4294967295',
+        _size: { id: 'size-metadata' },
+      },
+    });
+
+    assert.equal(unsignedIntOut.size, 4294967295);
+    assert.deepEqual(unsignedIntOut._size, { id: 'size-metadata' });
+    assert.deepEqual(warnings, []);
+  });
+
+  it('omits invalid integer64 and unsignedInt values without clamping', function () {
+    const fml = `
+group TestRes(source src, target tgt) {
+  src.size -> tgt.size;
+}
+`;
+    const warnings = [];
+    /** Compile the shared mapping for one target primitive type. */
+    const makeEngine = targetType => compileFmlXver({
+      fmlText: fml,
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'TestRes.size': 'integer64' },
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'TestRes.size': targetType },
+      },
+      onWarning: message => warnings.push(message),
+    });
+    const unsignedIntEngine = makeEngine('unsignedInt');
+    const { resource: negative } = unsignedIntEngine.convert({
+      input: { resourceType: 'TestRes', size: '-1' },
+    });
+    const { resource: tooLarge } = unsignedIntEngine.convert({
+      input: {
+        resourceType: 'TestRes',
+        size: '4294967296',
+        _size: { id: 'preserved-metadata' },
+      },
+    });
+    const { resource: fractional } = unsignedIntEngine.convert({
+      input: { resourceType: 'TestRes', size: '1.5' },
+    });
+    const integer64Engine = makeEngine('integer64');
+    const { resource: integer64Overflow } = integer64Engine.convert({
+      input: { resourceType: 'TestRes', size: '9223372036854775808' },
+    });
+
+    assert.equal(negative.size, undefined);
+    assert.equal(tooLarge.size, undefined);
+    assert.deepEqual(tooLarge._size, { id: 'preserved-metadata' });
+    assert.equal(fractional.size, undefined);
+    assert.equal(integer64Overflow.size, undefined);
+    assert.equal(warnings.filter(message => /out of range/.test(message)).length, 3);
+    assert.equal(warnings.filter(message => /not an exact integer/.test(message)).length, 1);
   });
 
   it('round-trips primitive companions through an explicit primitive group', function () {
