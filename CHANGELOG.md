@@ -75,6 +75,10 @@ This project follows [Semantic Versioning](http://semver.org/).
 - FML engine: datatype-internal array fields written through a type/`then`
   conversion (e.g. `Encounter.class.coding`, `PractitionerRole.contact.telecom`)
   are now correctly wrapped as arrays.
+- FML engine: schema metadata now resolves through StructureDefinition
+  `contentReference` paths, preserving typed polymorphic names, primitive
+  companions, scalar types, and cardinality below recursive backbone elements
+  such as nested `Questionnaire.item` nodes.
 - Companion fields (the `_name` object that carries the `id` and extensions of a
   primitive value, such as `_status` for `status`) are now carried over
   correctly in a number of cases where they were previously dropped or

@@ -1,6 +1,6 @@
 {
   "fhirVersion": "DSTU2",
-  "generated": "2026-07-23",
+  "generated": "2026-08-13",
   "sourceArchive": "fhir-spec.zip",
   "sourceBundles": [
     "profiles-resources.json",
@@ -9,7 +9,8 @@
   "pathCounts": {
     "poly": 180,
     "array": 1397,
-    "elementTypes": 3601
+    "elementTypes": 3601,
+    "contentReferences": 0
   },
   "polyPaths": {
     "Account.subject": [
@@ -5945,6 +5946,7 @@
     "uri.extension": "Extension",
     "uri.id": "id"
   },
+  "contentReferences": {},
   "resourceTypes": [
     "Account",
     "AllergyIntolerance",

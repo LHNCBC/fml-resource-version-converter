@@ -33,7 +33,7 @@ field.
 
 ## File format
 
-Each generated file contains three sibling tables produced by one pass over the
+Each generated file contains four sibling tables produced by one pass over the
 FHIR StructureDefinition bundles.
 
 ```json
@@ -45,7 +45,8 @@ FHIR StructureDefinition bundles.
   "pathCounts": {
     "poly": 186,
     "array": 3153,
-    "elementTypes": 3300
+    "elementTypes": 7245,
+    "contentReferences": 55
   },
   "polyPaths": {
     "Observation.value": ["CodeableConcept", "Quantity", "..."]
@@ -58,6 +59,10 @@ FHIR StructureDefinition bundles.
   "elementTypes": {
     "Patient.gender": "code",
     "Questionnaire.item.answerValueSet": "canonical"
+  },
+  "contentReferences": {
+    "Parameters.parameter.part": "Parameters.parameter",
+    "Questionnaire.item.item": "Questionnaire.item"
   }
 }
 ```
@@ -77,6 +82,12 @@ consults `arrayPaths` to decide when a target write must be wrapped in an array.
 The `elementTypes` table records scalar element types. The engine uses it when a
 source and target element have different FHIR types and a shared type-conversion
 group may need to run.
+
+The `contentReferences` table records elements whose child definitions come
+from another path in the same StructureDefinition. The engine follows these
+references when looking up polymorphic types, scalar types, and cardinality
+below recursive backbone elements. For example, metadata below
+`Questionnaire.item.item` is resolved through `Questionnaire.item`.
 
 ## Provenance
 
@@ -119,4 +130,3 @@ The underlying extractor is `tools/fhir-spec-parser.js`.
 Raw spec zip archives live under `data/fhir-spec-downloads/` and are gitignored.
 The extractor reads the StructureDefinition bundles directly out of each zip; no
 manual extraction is needed.
-

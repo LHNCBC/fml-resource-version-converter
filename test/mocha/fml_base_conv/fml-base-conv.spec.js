@@ -664,6 +664,56 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
     assert.deepEqual(item.initial, [{ valueString: 'Mint' }]);
   });
 
+  it('preserves polymorphic fields below recursively nested items', function () {
+    const companion = {
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/nested-value-metadata',
+        valueString: 'kept',
+      }],
+    };
+    const input = {
+      resourceType: 'Questionnaire',
+      status: 'active',
+      item: [{
+        linkId: 'parent',
+        type: 'group',
+        item: [{
+          linkId: 'nested',
+          type: 'string',
+          enableWhen: [{
+            question: 'trigger',
+            operator: '=',
+            answerBoolean: true,
+            _answerBoolean: companion,
+          }],
+          answerOption: [{
+            valueString: 'option',
+            _valueString: companion,
+          }],
+          initial: [{
+            valueString: 'initial',
+            _valueString: companion,
+          }],
+        }],
+      }],
+    };
+    const { resource: converted } = engine.convert({ input });
+    const nested = converted.item[0].item[0];
+
+    assert.equal(nested.enableWhen[0].answerBoolean, true);
+    assert.deepEqual(nested.enableWhen[0]._answerBoolean, companion);
+    assert.equal(nested.answerOption[0].valueString, 'option');
+    assert.deepEqual(nested.answerOption[0]._valueString, companion);
+    assert.equal(nested.initial[0].valueString, 'initial');
+    assert.deepEqual(nested.initial[0]._valueString, companion);
+
+    const reverseEngine = createEngine('Questionnaire', 'R5', 'R4');
+    const { resource: reversed } = reverseEngine.convert({ input: converted });
+    assert.deepEqual(reversed.item[0].item[0].enableWhen, nested.enableWhen);
+    assert.deepEqual(reversed.item[0].item[0].answerOption, nested.answerOption);
+    assert.deepEqual(reversed.item[0].item[0].initial, nested.initial);
+  });
+
   it('converts Attachment.size between unsignedInt and integer64 JSON forms', function () {
     const input = {
       resourceType: 'Questionnaire',
@@ -1244,6 +1294,70 @@ group Item(source src, target tgt) extends BackboneElement {
     });
     assert.equal(out.item[0].valueBoolean, true);
     assert.equal(out.item[1].valueString, 'hello');
+  });
+
+  it('resolves schema metadata below recursive content references', function () {
+    const fml = `
+group Test(source src, target tgt) {
+  src.parameter as s -> tgt.parameter as t then Parameter(s, t);
+}
+
+group Parameter(source src, target tgt) {
+  src.value : boolean as v -> tgt.value = v "valueBoolean";
+  src.tag as v -> tgt.tag = v;
+  src.part as s -> tgt.part as t then Parameter(s, t);
+}
+`;
+    const srcDefs = {
+      polyPaths: { 'Test.parameter.value': ['boolean'] },
+      elementTypes: { 'Test.parameter.tag': 'string' },
+      arrayPaths: ['Test.parameter', 'Test.parameter.part'],
+      contentReferences: { 'Test.parameter.part': 'Test.parameter' },
+    };
+    const tgtDefs = {
+      ...srcDefs,
+      arrayPaths: ['Test.parameter', 'Test.parameter.part', 'Test.parameter.tag'],
+    };
+    const companion = {
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/value-metadata',
+        valueString: 'kept',
+      }],
+    };
+    const engine = compileFmlXver({
+      fmlText: fml,
+      srcDefs,
+      tgtDefs,
+    });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        parameter: [{
+          valueBoolean: true,
+          _valueBoolean: companion,
+          part: [{
+            valueBoolean: false,
+            _valueBoolean: companion,
+            tag: 'a',
+            part: [{ valueBoolean: true, _valueBoolean: companion }],
+          }, {
+            valueBoolean: true,
+          }],
+        }],
+      },
+    });
+
+    assert.equal(out.parameter[0].valueBoolean, true);
+    assert.deepEqual(out.parameter[0]._valueBoolean, companion);
+    assert.deepEqual(out.parameter[0].part, [
+      {
+        valueBoolean: false,
+        _valueBoolean: companion,
+        tag: ['a'],
+        part: [{ valueBoolean: true, _valueBoolean: companion }],
+      },
+      { valueBoolean: true },
+    ]);
   });
 
   it('uses source schema metadata to distinguish fixed type hints from polymorphic fields', function () {

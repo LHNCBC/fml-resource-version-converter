@@ -31,6 +31,8 @@ export const BUNDLE_ENTRY_RE = /(^|[\\/])profiles-(resources|types)\.json$/i;
  *   - missingTypeCodes: counts el.type entries that lack a usable `code`
  *     string (older spec versions sometimes encode the type via an
  *     extension instead of a code).
+ *   - contentReference: normalized local element path referenced by the
+ *     element, with the leading "#" removed. Null when absent or invalid.
  *
  * @param {Object} el  A StructureDefinition.snapshot.element (or
  *                     .differential.element) entry.
@@ -39,14 +41,26 @@ export const BUNDLE_ENTRY_RE = /(^|[\\/])profiles-(resources|types)\.json$/i;
  *   array:      boolean,
  *   poly:       ({types: string[]}|null),
  *   scalarType: (string|null),
- *   missingTypeCodes: number
+ *   missingTypeCodes: number,
+ *   contentReference: (string|null)
  * }}
  */
 export function classifyElement(el) {
-  const result = { pathKey: null, array: false, poly: null, scalarType: null, missingTypeCodes: 0 };
+  const result = {
+    pathKey: null,
+    array: false,
+    poly: null,
+    scalarType: null,
+    missingTypeCodes: 0,
+    contentReference: null,
+  };
   if (!el || typeof el.path !== 'string' || el.path.length === 0) return result;
 
   result.pathKey = el.path.endsWith('[x]') ? el.path.slice(0, -3) : el.path;
+  if (typeof el.contentReference === 'string'
+      && /^#[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)*$/.test(el.contentReference)) {
+    result.contentReference = el.contentReference.slice(1);
+  }
 
   if (el.max && el.max !== '0' && el.max !== '1') {
     result.array = true;
@@ -80,9 +94,9 @@ export function classifyElement(el) {
 }
 
 /**
- * Accumulate poly-paths, array-paths, and element-types info across one
- * element list. Mutates `polyMap`, `arraySet`, and `elementTypesMap` in
- * place; this matches the way the CLI script aggregates across many
+ * Accumulate poly-paths, array-paths, element-types, and content-reference
+ * info across one element list. Mutates the supplied collections in place;
+ * this matches the way the CLI script aggregates across many
  * StructureDefinitions.
  *
  * Conflict resolution for `elementTypesMap`: when a key is seen more than
@@ -102,9 +116,24 @@ export function classifyElement(el) {
  *                                        fired once per missing type.code.
  * @param {string}   [sdId]               StructureDefinition id; passed
  *                                        through to the callback.
+ * @param {Map<string, string>|null} [contentReferencesMap] Referencing path
+ *                                        -> referenced path; mutated when
+ *                                        provided.
+ * @param {Function} [onContentReferenceIssue] Optional callback receiving
+ *                                        `(path, reference, existing, sdId)`
+ *                                        for invalid references or conflicts.
  * @returns {number}  Number of elements scanned.
  */
-export function processElements(elements, polyMap, arraySet, elementTypesMap, onMissingTypeCode, sdId) {
+export function processElements(
+  elements,
+  polyMap,
+  arraySet,
+  elementTypesMap,
+  onMissingTypeCode,
+  sdId,
+  contentReferencesMap,
+  onContentReferenceIssue,
+) {
   let count = 0;
   for (const el of elements) {
     count++;
@@ -124,6 +153,17 @@ export function processElements(elements, polyMap, arraySet, elementTypesMap, on
 
     if (c.scalarType && elementTypesMap && !elementTypesMap.has(c.pathKey)) {
       elementTypesMap.set(c.pathKey, c.scalarType);
+    }
+
+    if (el.contentReference != null && !c.contentReference) {
+      onContentReferenceIssue?.(el.path, el.contentReference, null, sdId);
+    } else if (c.contentReference && contentReferencesMap) {
+      const existing = contentReferencesMap.get(c.pathKey);
+      if (existing == null) {
+        contentReferencesMap.set(c.pathKey, c.contentReference);
+      } else if (existing !== c.contentReference) {
+        onContentReferenceIssue?.(el.path, c.contentReference, existing, sdId);
+      }
     }
 
     for (let i = 0; i < c.missingTypeCodes; i++) {
