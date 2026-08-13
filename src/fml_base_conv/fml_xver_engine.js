@@ -1165,6 +1165,22 @@ export function compileFmlXver({
   }
 
   /**
+   * Return whether a primitive companion contains extension content that can
+   * represent an element without a primitive value. An id alone does not
+   * satisfy the FHIR ele-1 invariant.
+   *
+   * @param {*} companion Candidate primitive companion object.
+   * @returns {boolean} True when at least one non-empty extension is present.
+   */
+  function hasPrimitiveExtension(companion) {
+    return isObject(companion)
+      && Array.isArray(companion.extension)
+      && companion.extension.some(extension => (
+        isObject(extension) && Object.keys(extension).length > 0
+      ));
+  }
+
+  /**
    * Write `value` to `parent[key]`, honoring target-version cardinality and
    * FHIR primitive serialization:
    *
@@ -1235,11 +1251,18 @@ export function compileFmlXver({
         const rawCompanions = Array.isArray(companion) ? companion : [companion];
         const values = [];
         const companions = [];
-        for (let i = 0; i < rawValues.length; i++) {
+        const occurrenceCount = Math.max(rawValues.length, rawCompanions.length);
+        for (let i = 0; i < occurrenceCount; i++) {
           const split = splitPrimitive(rawValues[i], rawCompanions[i]);
-          values.push(split.value === undefined ? null : split.value);
+          if (split.value === undefined && !hasPrimitiveExtension(split.companion)) {
+            continue;
+          }
+
+          values.push(split.value ?? null);
           companions.push(split.companion ?? null);
         }
+
+        if (values.length === 0) return;
 
         const existingCount = Array.isArray(parent[key])
           ? parent[key].length
@@ -1264,7 +1287,8 @@ export function compileFmlXver({
 
       const split = splitPrimitive(value, companion);
       if (split.value !== undefined) parent[key] = split.value;
-      if (split.companion != null) {
+      if (split.companion != null
+          && (split.value !== undefined || hasPrimitiveExtension(split.companion))) {
         parent[`_${key}`] = deepClone(split.companion);
       }
       return;

@@ -693,6 +693,48 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
     assert.deepEqual(r4Attachment._size, { id: 'size-metadata' });
   });
 
+  it('omits invalid Attachment.size occurrences unless an extension remains', function () {
+    const extensionCompanion = {
+      id: 'extension-bearing',
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/size-metadata',
+        valueString: 'kept',
+      }],
+    };
+    const input = {
+      resourceType: 'Questionnaire',
+      status: 'active',
+      item: [{
+        linkId: 'id-only',
+        type: 'attachment',
+        initial: [{
+          valueAttachment: {
+            size: '4294967296',
+            _size: { id: 'id-only' },
+          },
+        }],
+      }, {
+        linkId: 'extension-bearing',
+        type: 'attachment',
+        initial: [{
+          valueAttachment: {
+            size: '4294967296',
+            _size: extensionCompanion,
+          },
+        }],
+      }],
+    };
+    const reverseEngine = createEngine('Questionnaire', 'R5', 'R4');
+    const { resource: converted } = reverseEngine.convert({ input });
+    const idOnly = converted.item[0].initial[0].valueAttachment;
+    const extensionBearing = converted.item[1].initial[0].valueAttachment;
+
+    assert.equal(idOnly.size, undefined);
+    assert.equal(idOnly._size, undefined);
+    assert.equal(extensionBearing.size, undefined);
+    assert.deepEqual(extensionBearing._size, extensionCompanion);
+  });
+
   it('preserves answerOption with valueCoding', function () {
     const item = output.item.find(i => i.linkId === '/X-003');
     assert.ok(item.answerOption);
@@ -1378,6 +1420,20 @@ group TestRes(source src, target tgt) {
         _size: { id: 'preserved-metadata' },
       },
     });
+    const extensionCompanion = {
+      id: 'extension-bearing',
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/size-metadata',
+        valueString: 'kept',
+      }],
+    };
+    const { resource: extensionBearing } = unsignedIntEngine.convert({
+      input: {
+        resourceType: 'TestRes',
+        size: '4294967296',
+        _size: extensionCompanion,
+      },
+    });
     const { resource: fractional } = unsignedIntEngine.convert({
       input: { resourceType: 'TestRes', size: '1.5' },
     });
@@ -1388,11 +1444,69 @@ group TestRes(source src, target tgt) {
 
     assert.equal(negative.size, undefined);
     assert.equal(tooLarge.size, undefined);
-    assert.deepEqual(tooLarge._size, { id: 'preserved-metadata' });
+    assert.equal(tooLarge._size, undefined);
+    assert.equal(extensionBearing.size, undefined);
+    assert.deepEqual(extensionBearing._size, extensionCompanion);
     assert.equal(fractional.size, undefined);
     assert.equal(integer64Overflow.size, undefined);
-    assert.equal(warnings.filter(message => /out of range/.test(message)).length, 3);
+    assert.equal(warnings.filter(message => /out of range/.test(message)).length, 4);
     assert.equal(warnings.filter(message => /not an exact integer/.test(message)).length, 1);
+  });
+
+  it('filters invalid repeating primitives unless an extension remains', function () {
+    const fml = `
+group TestRes(source src, target tgt) {
+  src.value -> tgt.value;
+}
+`;
+    const extensionCompanion = {
+      id: 'extension-bearing',
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/value-metadata',
+        valueString: 'kept',
+      }],
+    };
+    const trailingExtensionCompanion = {
+      extension: [{
+        url: 'http://example.org/fhir/StructureDefinition/trailing-metadata',
+        valueString: 'kept',
+      }],
+    };
+    const engine = compileFmlXver({
+      fmlText: fml,
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'TestRes.value': 'integer64' },
+        arrayPaths: ['TestRes.value'],
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'TestRes.value': 'unsignedInt' },
+        arrayPaths: ['TestRes.value'],
+      },
+    });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'TestRes',
+        value: ['1', '4294967296', '4294967296', '4294967296', '2'],
+        _value: [
+          null,
+          null,
+          { id: 'id-only' },
+          extensionCompanion,
+          null,
+          trailingExtensionCompanion,
+        ],
+      },
+    });
+
+    assert.deepEqual(out.value, [1, null, 2, null]);
+    assert.deepEqual(out._value, [
+      null,
+      extensionCompanion,
+      null,
+      trailingExtensionCompanion,
+    ]);
   });
 
   it('round-trips primitive companions through an explicit primitive group', function () {
