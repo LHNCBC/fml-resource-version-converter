@@ -12,6 +12,16 @@ import { conv_R5_to_R4B as convValueSet_R5_to_R4B } from './ValueSet.js';
 import { conv_R5_to_R4B as convCodeSystem_R5_to_R4B } from './CodeSystem.js';
 
 export const registry = {
+  // Binary has the same element set and cardinalities in R5 and R4B. The FML
+  // maps every element directly, including data and primitive companions.
+  Binary: {
+    fml: {
+      coverage: COVERAGE.COMPLETE,
+      description: 'FML fully covers R5->R4B Binary conversion; no postprocessor needed.',
+    },
+    processors: [],
+  },
+
   // Reviewed against the FHIR spec. R4B is identical to R4 for Questionnaire.item
   // (no answerConstraint, same type set), so the FML mis-narrows item.type the
   // same way as R5->R4: a malformed wrapped primitive when answerConstraint is

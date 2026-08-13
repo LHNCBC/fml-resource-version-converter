@@ -14,6 +14,18 @@ import { conv_R3_to_R4 as convValueSet_R3_to_R4 } from './ValueSet.js';
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
 export const registry = {
+  // Reviewed against the FHIR spec and bundled mapping. The FML renames the
+  // required STU3 content primitive to R4 data and maps every other element.
+  // R4 makes data optional, which requires no value to be invented in this
+  // widening direction.
+  Binary: {
+    fml: {
+      coverage: COVERAGE.COMPLETE,
+      description: 'FML fully covers R3->R4 Binary conversion; no postprocessor needed.',
+    },
+    processors: [],
+  },
+
   // Reviewed against the FHIR spec and bundled mapping. R4 is an element-wise
   // superset of STU3 for CodeSystem, and the FML maps every STU3 element. R4
   // adds warning-severity invariant csd-0 for `name`; STU3 has no equivalent,

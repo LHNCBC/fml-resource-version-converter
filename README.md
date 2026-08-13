@@ -9,6 +9,7 @@ all, data elements in a conversion. When a mapping is incomplete, postprocessors
 may be used to refine the converted resource.
 
 Reviewed conversions currently cover
+  **Binary (DSTU2 <-> STU3, STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**,
   **Questionnaire (STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**,
   **ValueSet (STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**, and
   **CodeSystem (STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**.

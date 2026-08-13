@@ -10,6 +10,16 @@ import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R4B_to_R5 as convCodeSystem_R4B_to_R5 } from './CodeSystem.js';
 
 export const registry = {
+  // Binary has the same element set and cardinalities in R4B and R5. The FML
+  // maps every element directly, including data and primitive companions.
+  Binary: {
+    fml: {
+      coverage: COVERAGE.COMPLETE,
+      description: 'FML fully covers R4B->R5 Binary conversion; no postprocessor needed.',
+    },
+    processors: [],
+  },
+
   // Reviewed against the FHIR spec. The FML maps R4B choice/open-choice ->
   // R5 coding + answerConstraint (the same as R4->R5), which is correct and
   // complete for valid input. No postprocessor needed. (Engine warnings about
@@ -54,4 +64,3 @@ export const registry = {
     processors: [convCodeSystem_R4B_to_R5],
   },
 };
-

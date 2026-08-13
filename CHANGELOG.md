@@ -7,6 +7,8 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 ### Added
 
+- Completed Binary conversion onboarding for DSTU2 <-> STU3, STU3 <-> R4,
+  R4 <-> R5, and R4B <-> R5.
 - Completed CodeSystem conversion onboarding for STU3 <-> R4, R4 <-> R5, and
   R4B <-> R5.
 - Added reusable functions `removePrimitiveArrayEntries()` and

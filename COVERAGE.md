@@ -31,18 +31,21 @@ This report uses **not_reviewed**, **known_gaps**, **best_effort**, and **comple
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
+| Binary | complete | - | complete | **FML:** FML fully covers R2->R3 Binary conversion; no postprocessor needed. |
 | _All other resource types_ | not_reviewed | - | not_reviewed | _Default: FML mapping not yet reviewed; no postprocessors._ |
 
 ## R3 -> R2
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
+| Binary | known_gaps | best_effort | best_effort | **FML:** FML maps shared Binary content but silently drops STU3 securityContext, which DSTU2 cannot represent; reported by the Binary_R3_to_R2 postprocessor.<br>**Binary_R3_to_R2:** Reports Binary.securityContext dropped because DSTU2 has no equivalent. Does not handle inter-version extensions. |
 | _All other resource types_ | not_reviewed | - | not_reviewed | _Default: FML mapping not yet reviewed; no postprocessors._ |
 
 ## R3 -> R4
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
+| Binary | complete | - | complete | **FML:** FML fully covers R3->R4 Binary conversion; no postprocessor needed. |
 | CodeSystem | complete | complete | complete | **FML:** FML maps every STU3 CodeSystem element to R4. The CodeSystem_R3_to_R4 postprocessor reports names that do not satisfy R4 warning invariant csd-0 without changing them.<br>**CodeSystem_R3_to_R4:** Reports STU3 names that do not satisfy R4 warning invariant csd-0 without rewriting the resource identifier. Does not handle inter-version extensions. |
 | Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML maps enableWhen answerUri straight through (invalid in R4) and leaves a malformed entry for answerAttachment; corrected by the Questionnaire_R3_to_R4 postprocessor.<br>**Questionnaire_R3_to_R4:** Drops Questionnaire enableWhen entries whose STU3 answer type (uri or Attachment) has no R4 equivalent, and sets enableBehavior "any" on items with multiple enableWhen (R4 que-12; matches STU3 implicit OR). Does not handle inter-version extensions. |
 | ValueSet | known_gaps | best_effort | best_effort | **FML:** FML maps all shared ValueSet content correctly but relegates STU3 extensible to an inter-version extension without a diagnostic, which general R4 tools need not understand; reported by the ValueSet_R3_to_R4 postprocessor.<br>**ValueSet_R3_to_R4:** Reports STU3 ValueSet.extensible, which R4 can hold only as an inter-version extension and which general R4 tools are therefore not required to understand, and reports a name that does not satisfy R4's warning-severity vsd-0 invariant. Makes no changes. |
@@ -52,6 +55,7 @@ This report uses **not_reviewed**, **known_gaps**, **best_effort**, and **comple
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
+| Binary | known_gaps | complete | complete | **FML:** FML maps Binary.data to content but does not supply the required STU3 primitive when optional R4 data is absent; repaired by the Binary_R4_to_R3 postprocessor.<br>**Binary_R4_to_R3:** Marks required Binary.content absent with the standard data-absent-reason extension when the optional R4 data element is absent, rather than inventing payload data. Does not handle inter-version extensions. |
 | CodeSystem | known_gaps | best_effort | best_effort | **FML:** FML leaves R4-only cardinality, canonical, supplement, and decimal CodeSystem differences unresolved; corrected or approximated with diagnostics by the CodeSystem_R4_to_R3 postprocessor.<br>**CodeSystem_R4_to_R3:** Narrows identifier cardinality, removes canonical version pins, reports dropped supplements, approximates supplement content as fragment, and preserves decimal property values as strings with warnings. Does not handle inter-version extensions. |
 | Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML emits a malformed options string, leaves invalid enableWhen for non-representable operators, drops answerOption.initialSelected, leaves an empty option entry for answerOption.valueReference, and keeps the last (not first) of multiple initial values; corrected by the Questionnaire_R4_to_R3 postprocessor. Some R4-only data elements (e.g. derivedFrom, enableBehavior) have no R3 mapping and are dropped.<br>**Questionnaire_R4_to_R3:** Corrects Questionnaire R4->R3 item fields from the R4 source: rebuilds enableWhen (dropping operators with no STU3 equivalent), fixes options to the STU3 Reference shape, and re-derives initial[x] from answerOption.initialSelected. Warns when enableBehavior "all" cannot be represented in STU3. Does not handle inter-version extensions. |
 | ValueSet | known_gaps | best_effort | best_effort | **FML:** FML copies filter.value and compose valueSet verbatim, so R4-valid values can land in STU3 as an invalid code or an unresolvable versioned reference; it does not supply the expansion identifier STU3 requires, leaves a metadata-only ValueSet in breach of vsd-5, and drops expansion parameter dateTime values without a diagnostic; corrected and reported by the ValueSet_R4_to_R3 postprocessor.<br>**ValueSet_R4_to_R3:** Normalizes compose filter values into valid STU3 codes (removing a filter whose value cannot be one), strips canonical version suffixes from compose valueSet references, generates the expansion identifier STU3 requires, generates an empty expansion when the source satisfies neither half of vsd-5, and reports expansion parameter dateTime values that STU3 cannot represent. Does not handle inter-version extensions. |
@@ -61,6 +65,7 @@ This report uses **not_reviewed**, **known_gaps**, **best_effort**, and **comple
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
+| Binary | complete | - | complete | **FML:** FML fully covers R4->R5 Binary conversion; no postprocessor needed. |
 | CodeSystem | known_gaps | complete | complete | **FML:** FML maps every shared CodeSystem element but silently emits R4 supplements that omit CodeSystem.supplements, which R5 invariant csd-4 rejects; repaired by the CodeSystem_R4_to_R5 postprocessor.<br>**CodeSystem_R4_to_R5:** Marks CodeSystem.supplements absent with the standard data-absent-reason extension when an R4 code system supplement omits it, which R5 invariant csd-4 requires. The supplemented canonical cannot be derived from the source, so it is reported as unknown rather than invented. Does not handle inter-version extensions. |
 | Questionnaire | complete | - | complete | **FML:** FML fully covers R4->R5 for valid input; no postprocessor needed. |
 | ValueSet | complete | - | complete | **FML:** FML fully covers R4->R5 ValueSet conversion; no postprocessor needed. |
@@ -70,6 +75,7 @@ This report uses **not_reviewed**, **known_gaps**, **best_effort**, and **comple
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
+| Binary | complete | - | complete | **FML:** FML fully covers R5->R4 Binary conversion; no postprocessor needed. |
 | CodeSystem | known_gaps | best_effort | best_effort | **FML:** FML maps shared CodeSystem content but drops R5-only elements and retains R5-only filter operators that do not conform to the R4 binding.<br>**CodeSystem_R5_to_R4:** Reports R5-only CodeSystem content dropped during R5->R4 conversion and removes R5-only filter operator codes with warnings, dropping a filter left without any operator. Does not handle inter-version extensions. |
 | Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML mis-narrows item.type (over-produces open-choice) and emits a malformed type object; corrected by the Questionnaire_R5_to_R4 postprocessor.<br>**Questionnaire_R5_to_R4:** Corrects Questionnaire item.type for R5->R4 (coding/answerConstraint -> choice/open-choice) from the R5 source, fixing the FML step's malformed and over-widened narrowing. Also reused verbatim by R5->R4B (R4B is identical to R4 for Questionnaire.item). Does not handle inter-version extensions. |
 | ValueSet | known_gaps | best_effort | best_effort | **FML:** FML maps shared ValueSet content but drops R5-only elements and retains R5-only filter operators that do not conform to the R4 binding.<br>**ValueSet_R5_to_R4:** Reports R5-only ValueSet content dropped during R5->R4 conversion and approximates R5-only filter operators as descendent-of with warnings. Does not handle inter-version extensions. |
@@ -79,6 +85,7 @@ This report uses **not_reviewed**, **known_gaps**, **best_effort**, and **comple
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
+| Binary | complete | - | complete | **FML:** FML fully covers R4B->R5 Binary conversion; no postprocessor needed. |
 | CodeSystem | known_gaps | complete | complete | **FML:** FML maps every shared CodeSystem element but silently emits R4B supplements that omit CodeSystem.supplements, which R5 invariant csd-4 rejects; repaired by the CodeSystem_R4B_to_R5 postprocessor.<br>**CodeSystem_R4B_to_R5:** Marks CodeSystem.supplements absent with the standard data-absent-reason extension when an R4B code system supplement omits it, which R5 invariant csd-4 requires. The supplemented canonical cannot be derived from the source, so it is reported as unknown rather than invented. Reuses the R4->R5 transform. Does not handle inter-version extensions. |
 | Questionnaire | complete | - | complete | **FML:** FML fully covers R4B->R5 for valid input; no postprocessor needed. |
 | ValueSet | complete | - | complete | **FML:** FML fully covers R4B->R5 ValueSet conversion; no postprocessor needed. |
@@ -88,6 +95,7 @@ This report uses **not_reviewed**, **known_gaps**, **best_effort**, and **comple
 
 | Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |
 | --- | --- | --- | --- | --- |
+| Binary | complete | - | complete | **FML:** FML fully covers R5->R4B Binary conversion; no postprocessor needed. |
 | CodeSystem | known_gaps | best_effort | best_effort | **FML:** FML maps shared CodeSystem content but drops R5-only elements and retains R5-only filter operators that do not conform to the R4B binding.<br>**CodeSystem_R5_to_R4B:** Reports R5-only CodeSystem content dropped during R5->R4B conversion and removes R5-only filter operator codes with warnings, dropping a filter left without any operator. Reuses the R5->R4 transform. Does not handle inter-version extensions. |
 | Questionnaire | known_gaps | best_effort | best_effort | **FML:** FML mis-narrows item.type (malformed wrapped primitive and over-widened open-choice); corrected by the Questionnaire_R5_to_R4B postprocessor.<br>**Questionnaire_R5_to_R4B:** Corrects Questionnaire item.type for R5->R4B (coding/answerConstraint -> choice/open-choice) from the R5 source, fixing the FML step's malformed and over-widened narrowing. Reuses the R5->R4 transform. Does not handle inter-version extensions. |
 | ValueSet | known_gaps | best_effort | best_effort | **FML:** FML maps shared ValueSet content but drops R5-only elements and retains R5-only filter operators that do not conform to the R4B binding.<br>**ValueSet_R5_to_R4B:** Reports R5-only ValueSet content dropped during R5->R4B conversion and approximates R5-only filter operators as descendent-of with warnings. Reuses the R5->R4 transform. Does not handle inter-version extensions. |

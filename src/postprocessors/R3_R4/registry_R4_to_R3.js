@@ -7,6 +7,7 @@
  * @module postprocessors/R3_R4/registry_R4_to_R3
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { conv_R4_to_R3 as convBinary_R4_to_R3 } from './Binary.js';
 import { conv_R4_to_R3 as convCodeSystem_R4_to_R3 } from './CodeSystem.js';
 import { conv_R4_to_R3 } from './Questionnaire.js';
 import { conv_R4_to_R3 as convValueSet_R4_to_R3 } from './ValueSet.js';
@@ -14,6 +15,22 @@ import { conv_R4_to_R3 as convValueSet_R4_to_R3 } from './ValueSet.js';
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
 export const registry = {
+  // Reviewed against the FHIR spec and bundled mapping. R4 data is optional,
+  // but the corresponding STU3 content primitive is required. When the source
+  // has no payload, the FML leaves invalid STU3 output; the postprocessor marks
+  // content absent with data-absent-reason rather than inventing data. This is
+  // a truthful, valid representation, so final coverage is COMPLETE.
+  Binary: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML maps Binary.data to content but does not supply the required STU3 '
+        + 'primitive when optional R4 data is absent; repaired by the '
+        + 'Binary_R4_to_R3 postprocessor.',
+    },
+    processors: [convBinary_R4_to_R3],
+  },
+
   // Reviewed against the FHIR spec and bundled mapping. The FML does not
   // implement identifier cardinality narrowing, canonical-to-uri version
   // normalization, or the R4-only supplements/content and decimal-property

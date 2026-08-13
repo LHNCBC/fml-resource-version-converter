@@ -12,6 +12,16 @@ import { conv_R4_to_R5 as convCodeSystem_R4_to_R5 } from './CodeSystem.js';
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
 export const registry = {
+  // Binary has the same element set and cardinalities in R4 and R5. The FML
+  // maps every element directly, including data and primitive companions.
+  Binary: {
+    fml: {
+      coverage: COVERAGE.COMPLETE,
+      description: 'FML fully covers R4->R5 Binary conversion; no postprocessor needed.',
+    },
+    processors: [],
+  },
+
   // Reviewed and determined that the FML mapping fully performs the Questionnaire
   // R4->R5 conversion for valid input, including item type
   // choice/open-choice -> coding with the appropriate answerConstraint.
