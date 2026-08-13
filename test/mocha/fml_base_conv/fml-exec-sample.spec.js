@@ -668,6 +668,41 @@ describe('fml_base_conv: log clause and backtick identifiers', function () {
     assert.ok(infos.some(m => /^log: processing item$/.test(m)), `infos: ${JSON.stringify(infos)}`);
     assert.deepEqual(warnings, []);
   });
+
+  it('evaluates check and log per item for a source-only array then rule', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.items as s where (s.include) check (s.ok) log (s.value) then Copy(s, tgt);',
+      '}',
+      'group Copy(source src, target tgt) {',
+      '  src.value -> tgt.out;',
+      '}',
+    ].join('\n');
+
+    const infos = [];
+    const warnings = [];
+    const engine = compileFmlXver({
+      fmlText: fml,
+      onInfo: m => infos.push(m),
+      onWarning: m => warnings.push(m),
+    });
+    const { resource: output } = engine.convert({
+      input: {
+        resourceType: 'TestRes',
+        items: [
+          { value: 'filtered', include: false, ok: false },
+          { value: 'passed', include: true, ok: true },
+          { value: 'failed', include: true, ok: false },
+        ],
+      },
+    });
+
+    // `where` filters before diagnostics. A failed `check` warns but does not
+    // short-circuit the then-clause, and `log` runs for every selected item.
+    assert.equal(output.out, 'failed');
+    assert.deepEqual(warnings, ['check failed in iteration (s)']);
+    assert.deepEqual(infos, ['log: passed', 'log: failed']);
+  });
 });
 
 
