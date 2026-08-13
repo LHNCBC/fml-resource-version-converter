@@ -7,12 +7,31 @@
  * @module postprocessors/R3_R4/registry_R3_to_R4
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { conv_R3_to_R4 as convCodeSystem_R3_to_R4 } from './CodeSystem.js';
 import { conv_R3_to_R4 } from './Questionnaire.js';
 import { conv_R3_to_R4 as convValueSet_R3_to_R4 } from './ValueSet.js';
 
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
 export const registry = {
+  // Reviewed against the FHIR spec and bundled mapping. R4 is an element-wise
+  // superset of STU3 for CodeSystem, and the FML maps every STU3 element. R4
+  // adds warning-severity invariant csd-0 for `name`; STU3 has no equivalent,
+  // so the postprocessor reports a nonconforming name without rewriting this
+  // externally significant identifier. Because csd-0 is advisory and no data
+  // is lost or approximated, conversion coverage remains COMPLETE even when a
+  // particular conversion has warning status.
+  CodeSystem: {
+    fml: {
+      coverage: COVERAGE.COMPLETE,
+      description:
+        'FML maps every STU3 CodeSystem element to R4. The CodeSystem_R3_to_R4 '
+        + 'postprocessor reports names that do not satisfy R4 warning invariant '
+        + 'csd-0 without changing them.',
+    },
+    processors: [convCodeSystem_R3_to_R4],
+  },
+
   // Reviewed against the FHIR spec. FML has KNOWN_GAPS for enableWhen answer types
   // that STU3 has and R4 removed (uri, Attachment): answerUri passes straight
   // through (invalid in R4) and answerAttachment yields a malformed entry. The
@@ -47,4 +66,3 @@ export const registry = {
     processors: [convValueSet_R3_to_R4],
   },
 };
-

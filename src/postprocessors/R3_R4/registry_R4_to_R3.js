@@ -7,12 +7,32 @@
  * @module postprocessors/R3_R4/registry_R4_to_R3
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { conv_R4_to_R3 as convCodeSystem_R4_to_R3 } from './CodeSystem.js';
 import { conv_R4_to_R3 } from './Questionnaire.js';
 import { conv_R4_to_R3 as convValueSet_R4_to_R3 } from './ValueSet.js';
 
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
 export const registry = {
+  // Reviewed against the FHIR spec and bundled mapping. The FML does not
+  // implement identifier cardinality narrowing, canonical-to-uri version
+  // normalization, or the R4-only supplements/content and decimal-property
+  // differences. The postprocessor keeps the first identifier, removes
+  // canonical version pins, reports supplements loss, approximates supplement
+  // content as fragment, and preserves decimal lexical values as strings.
+  // Supplement and numeric semantics cannot be retained in STU3, so final
+  // coverage is BEST_EFFORT.
+  CodeSystem: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML leaves R4-only cardinality, canonical, supplement, and decimal '
+        + 'CodeSystem differences unresolved; corrected or approximated with '
+        + 'diagnostics by the CodeSystem_R4_to_R3 postprocessor.',
+    },
+    processors: [convCodeSystem_R4_to_R3],
+  },
+
   // FML alone has KNOWN_GAPS for R4->R3: it emits a malformed options string
   // (instead of the STU3 Reference), leaves invalid enableWhen entries for
   // operators with no STU3 equivalent, drops answerOption.initialSelected,
@@ -59,4 +79,3 @@ export const registry = {
     processors: [convValueSet_R4_to_R3],
   },
 };
-

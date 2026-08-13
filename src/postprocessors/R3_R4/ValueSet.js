@@ -48,7 +48,10 @@ import {
   statusFromMessages,
   warningMessage,
 } from '../../converter/diagnostics.js';
-import { hasAnyContent } from '../util/elements.js';
+import {
+  hasAnyContent,
+  stripCanonicalVersion,
+} from '../util/elements.js';
 
 // STU3 defines `code` as "a string which has at least one character and no
 // leading or trailing whitespace and where there is no whitespace other than
@@ -136,25 +139,6 @@ function normalizeFilterValues(entry, branch, entryIndex, messages) {
   if (kept.length === entry.filter.length) return;
   if (kept.length === 0) delete entry.filter;
   else entry.filter = kept;
-}
-
-/**
- * Remove a canonical `|version` suffix while preserving any `#fragment`.
- *
- * Canonical syntax orders the parts as `url|version#fragment`, so the fragment
- * must be carried across when the version is dropped.
- *
- * @param {string} reference Canonical reference.
- * @returns {string} The reference without its version suffix.
- */
-function stripCanonicalVersion(reference) {
-  const bar = reference.indexOf('|');
-  if (bar === -1) return reference;
-
-  const hash = reference.indexOf('#', bar);
-  return hash === -1
-    ? reference.slice(0, bar)
-    : reference.slice(0, bar) + reference.slice(hash);
 }
 
 /**
@@ -367,5 +351,4 @@ export const conv_R4_to_R3 = {
     return { resource: target, status: statusFromMessages(messages), messages };
   },
 };
-
 

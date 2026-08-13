@@ -11,7 +11,7 @@ may be used to refine the converted resource.
 Reviewed conversions currently cover
   **Questionnaire (STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**,
   **ValueSet (STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**, and
-  **CodeSystem (R4 <-> R5 and R4B <-> R5)**.
+  **CodeSystem (STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**.
 For other resource types, the FML mappings have not been reviewed and no package
 postprocessors have been provided. However, the converter can still handle most
 data elements through FML, and callers can supply postprocessors as needed.

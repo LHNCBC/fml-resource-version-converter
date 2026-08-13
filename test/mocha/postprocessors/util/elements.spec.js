@@ -11,7 +11,32 @@ import {
   hasAnyContent,
   removePrimitiveArrayEntries,
   renamePrimitive,
+  stripCanonicalVersion,
 } from '../../../../src/postprocessors/util/elements.js';
+
+
+describe('postprocessors/util/elements stripCanonicalVersion', function () {
+  it('removes a version suffix', function () {
+    assert.equal(
+      stripCanonicalVersion('http://example.org/fhir/ValueSet/example|2.0.0'),
+      'http://example.org/fhir/ValueSet/example',
+    );
+  });
+
+  it('preserves a fragment after the removed version', function () {
+    assert.equal(
+      stripCanonicalVersion('http://example.org/fhir/ValueSet/example|2.0.0#contained'),
+      'http://example.org/fhir/ValueSet/example#contained',
+    );
+  });
+
+  it('leaves an unversioned reference unchanged', function () {
+    assert.equal(
+      stripCanonicalVersion('http://example.org/fhir/ValueSet/example#contained'),
+      'http://example.org/fhir/ValueSet/example#contained',
+    );
+  });
+});
 
 
 describe('postprocessors/util/elements addDataAbsentReasonExtension', function () {

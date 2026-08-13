@@ -1,7 +1,7 @@
 /**
  * @fileoverview Generic, resource-agnostic helpers for FHIR element shapes.
  *
- * Three concerns live here, all independent of any resource type or version:
+ * Four concerns live here, all independent of any resource type or version:
  *   - Primitive companion mechanics: a FHIR primitive keeps its id/extension in
  *     a sibling `_<name>` object, so relocating/removing a primitive must carry
  *     that companion too. copyPrimitive / renamePrimitive / deletePrimitive
@@ -15,6 +15,8 @@
  *   - Content probing: hasAnyContent reports whether an element carries
  *     meaningful content under any of a set of candidate property names, so a
  *     caller can decide whether unrepresentable source content was present.
+ *   - Canonical normalization: stripCanonicalVersion removes a canonical's
+ *     version pin while retaining any fragment identifier.
  *
  * These are pure mechanics with no diagnostics or business logic; callers decide
  * what any loss means and how to report it.
@@ -45,6 +47,25 @@ export function hasAnyContent(object, names) {
     if (typeof value === 'object') return Object.keys(value).length > 0;
     return true;
   });
+}
+
+/**
+ * Remove a canonical `|version` suffix while preserving any `#fragment`.
+ *
+ * Canonical syntax orders the parts as `url|version#fragment`, so the fragment
+ * must be carried across when the version is dropped.
+ *
+ * @param {string} reference Canonical reference.
+ * @returns {string} The reference without its version suffix.
+ */
+export function stripCanonicalVersion(reference) {
+  const bar = reference.indexOf('|');
+  if (bar === -1) return reference;
+
+  const hash = reference.indexOf('#', bar);
+  return hash === -1
+    ? reference.slice(0, bar)
+    : reference.slice(0, bar) + reference.slice(hash);
 }
 
 /**
