@@ -72,6 +72,22 @@ describe('fhir-tables-lib: classifyElement', () => {
     assert.equal(c.poly, null);
   });
 
+  it('normalizes a local content reference to its element path', () => {
+    const c = classifyElement({ path: 'Foo.part', contentReference: '#Foo.parameter' });
+    assert.equal(c.contentReference, 'Foo.parameter');
+  });
+
+  it('rejects non-local and malformed content references', () => {
+    assert.equal(classifyElement({
+      path: 'Foo.part',
+      contentReference: 'http://example.org/StructureDefinition/Foo#Foo.parameter',
+    }).contentReference, null);
+    assert.equal(classifyElement({
+      path: 'Foo.part',
+      contentReference: '#Foo..parameter',
+    }).contentReference, null);
+  });
+
   it('counts type entries with missing code and excludes them from types', () => {
     const c = classifyElement({
       path: 'Foo.bar[x]',
@@ -198,6 +214,34 @@ describe('fhir-tables-lib: processElements', () => {
       'FooSD'
     );
     assert.deepEqual(calls, [['Foo.bar[x]', 'FooSD']]);
+  });
+
+  it('accumulates normalized content references', () => {
+    const references = new Map();
+    processElements(
+      [{ path: 'Parameters.parameter.part', contentReference: '#Parameters.parameter' }],
+      new Map(), new Set(), new Map(), null, 'Parameters', references,
+    );
+    assert.deepEqual(
+      [...references],
+      [['Parameters.parameter.part', 'Parameters.parameter']],
+    );
+  });
+
+  it('keeps the first content reference and reports invalid or conflicting values', () => {
+    const references = new Map([['Foo.part', 'Foo.parameter']]);
+    const issues = [];
+    processElements([
+      { path: 'Foo.part', contentReference: '#Foo.other' },
+      { path: 'Foo.bad', contentReference: 'Foo.parameter' },
+    ], new Map(), new Set(), new Map(), null, 'FooSD', references,
+    (...args) => issues.push(args));
+
+    assert.equal(references.get('Foo.part'), 'Foo.parameter');
+    assert.deepEqual(issues, [
+      ['Foo.part', 'Foo.other', 'Foo.parameter', 'FooSD'],
+      ['Foo.bad', 'Foo.parameter', null, 'FooSD'],
+    ]);
   });
 });
 

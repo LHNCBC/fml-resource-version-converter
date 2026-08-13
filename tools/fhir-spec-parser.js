@@ -9,7 +9,7 @@
  *
  *   <out-dir>/<VERSION>.json
  *
- * The file groups three sibling sub-tables, all keyed by FHIR dotted
+ * The file groups four sibling sub-tables, all keyed by FHIR dotted
  * path (with any trailing "[x]" stripped uniformly via classifyElement):
  *
  *   polyPaths     Polymorphic field paths and their allowed FHIR type
@@ -30,8 +30,13 @@
  *                 versions, so a <<types>> conversion group can be
  *                 auto-invoked (e.g. R4 canonical -> R3 Reference).
  *
- * All three are produced from a single pass over the StructureDefinitions
- * so the cost stays at one zip read per version, and the three tables
+ *   contentReferences  Paths whose child definitions are supplied by another
+ *                 element in the same StructureDefinition. Consumed by the
+ *                 FML engine to resolve schema metadata below recursive
+ *                 backbone elements.
+ *
+ * All four are produced from a single pass over the StructureDefinitions
+ * so the cost stays at one zip read per version, and the tables
  * cannot drift apart in their interpretation of the source data.
  *
  * Output file shape:
@@ -45,7 +50,8 @@
  *     "pathCounts": {
  *       "poly":         186,
  *       "array":        3153,
- *       "elementTypes": 3300
+ *       "elementTypes": 7245,
+ *       "contentReferences": 55
  *     },
  *     "polyPaths": {
  *       "Observation.value":                 ["CodeableConcept", "Quantity", "..."],
@@ -60,6 +66,9 @@
  *       "Patient.gender":                    "code",
  *       "Patient.identifier":                "Identifier",
  *       "Questionnaire.item.answerValueSet": "canonical"
+ *     },
+ *     "contentReferences": {
+ *       "Questionnaire.item.item": "Questionnaire.item"
  *     },
  *     "resourceTypes": ["Account", "ActivityDefinition", "..."]
  *   }
@@ -144,6 +153,9 @@ const arrayPaths = new Set();
 /** path -> single concrete FHIR type code for non-polymorphic scalar elements */
 const elementTypes = new Map();
 
+/** referencing element path -> referenced element path */
+const contentReferences = new Map();
+
 /**
  * Names of StructureDefinitions whose kind is "resource" (i.e. actual FHIR
  * resources, as opposed to complex/primitive datatypes or logical models).
@@ -158,12 +170,24 @@ let sdSeen = 0;
 let sdSkipped = 0;
 let elementsSeen = 0;
 let missingTypeCodes = 0;
+let contentReferenceIssues = 0;
 
 /** Diagnostic sink for processElements, throttled to the first 5 notes. */
 function noteMissingTypeCode(elPath, sdId) {
   missingTypeCodes++;
   if (missingTypeCodes <= 5) {
     console.error(`Note: missing type.code at ${elPath} in ${sdId}`);
+  }
+}
+
+/** Diagnostic sink for invalid or conflicting content references. */
+function noteContentReferenceIssue(elPath, reference, existing, sdId) {
+  contentReferenceIssues++;
+  if (contentReferenceIssues <= 5) {
+    const detail = existing == null
+      ? `invalid reference ${JSON.stringify(reference)}`
+      : `conflicts with ${JSON.stringify(existing)} (keeping first)`;
+    console.error(`Warning: contentReference at ${elPath} in ${sdId} ${detail}`);
   }
 }
 
@@ -233,7 +257,16 @@ for (const entry of matchedEntries) {
     }
 
     const sdId = sd.id || sd.name || '(unknown)';
-    elementsSeen += processElements(elements, polyPaths, arrayPaths, elementTypes, noteMissingTypeCode, sdId);
+    elementsSeen += processElements(
+      elements,
+      polyPaths,
+      arrayPaths,
+      elementTypes,
+      noteMissingTypeCode,
+      sdId,
+      contentReferences,
+      noteContentReferenceIssue,
+    );
   }
 }
 
@@ -267,6 +300,13 @@ for (const p of sortedElementTypePaths) {
   elementTypesObj[p] = elementTypes.get(p);
 }
 
+const sortedContentReferencePaths = [...contentReferences.keys()].sort();
+/** @type {Object<string,string>} */
+const contentReferencesObj = {};
+for (const p of sortedContentReferencePaths) {
+  contentReferencesObj[p] = contentReferences.get(p);
+}
+
 const outFile = path.join(outDir, `${version}.json`);
 writeJson(outFile, {
   fhirVersion:   version,
@@ -277,10 +317,12 @@ writeJson(outFile, {
     poly:         sortedPolyPaths.length,
     array:        sortedArrayPaths.length,
     elementTypes: sortedElementTypePaths.length,
+    contentReferences: sortedContentReferencePaths.length,
   },
   polyPaths:    polyPathsObj,
   arrayPaths:   sortedArrayPaths,
   elementTypes: elementTypesObj,
+  contentReferences: contentReferencesObj,
   resourceTypes: [...resourceTypes].sort(),
 });
 
@@ -290,8 +332,11 @@ console.error(`  Elements scanned:     ${elementsSeen}`);
 console.error(`  Polymorphic paths:    ${sortedPolyPaths.length}`);
 console.error(`  Array paths:          ${sortedArrayPaths.length}`);
 console.error(`  Scalar-type paths:    ${sortedElementTypePaths.length}`);
+console.error(`  Content references:   ${sortedContentReferencePaths.length}`);
 console.error(`  Resource types:       ${resourceTypes.size}`);
 if (missingTypeCodes > 0) {
   console.error(`  Elements with missing type.code: ${missingTypeCodes}`);
 }
-
+if (contentReferenceIssues > 0) {
+  console.error(`  Invalid/conflicting content references: ${contentReferenceIssues}`);
+}
