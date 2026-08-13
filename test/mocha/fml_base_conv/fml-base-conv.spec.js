@@ -1402,6 +1402,59 @@ group Parameter(source src, target tgt) {
     ]);
   });
 
+  it('resolves primitive identity-wrapper paths below recursive content references', function () {
+    const fml = `
+group Test(source src, target tgt) {
+  src.parameter as s -> tgt.parameter as t then Parameter(s, t);
+}
+
+group Parameter(source src, target tgt) {
+  src.value : boolean as vs -> tgt.value = create('boolean') as vt then boolean(vs, vt) "valueBoolean";
+  src.part as s -> tgt.part as t then Parameter(s, t);
+}
+`;
+    const primitives = `
+uses "http://test/source/StructureDefinition/boolean" alias booleanSource as source
+uses "http://test/target/StructureDefinition/boolean" alias booleanTarget as target
+
+group boolean(source src : booleanSource, target tgt : booleanTarget) extends Element <<type+>> {
+  src.value -> tgt.value;
+}
+`;
+    const defs = {
+      polyPaths: { 'Test.parameter.value': ['boolean'] },
+      elementTypes: {},
+      arrayPaths: ['Test.parameter', 'Test.parameter.part'],
+      contentReferences: { 'Test.parameter.part': 'Test.parameter' },
+    };
+    const engine = compileFmlXver({
+      fmlText: fml,
+      importedFmlTexts: [primitives],
+      srcDefs: defs,
+      tgtDefs: defs,
+    });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        parameter: [{
+          valueBoolean: true,
+          part: [{
+            valueBoolean: false,
+            part: [{ valueBoolean: true }],
+          }],
+        }],
+      },
+    });
+
+    assert.deepEqual(out.parameter, [{
+      valueBoolean: true,
+      part: [{
+        valueBoolean: false,
+        part: [{ valueBoolean: true }],
+      }],
+    }]);
+  });
+
   it('uses source schema metadata to distinguish fixed type hints from polymorphic fields', function () {
     const fixedFml = `
 group TestRes(source src, target tgt) {
