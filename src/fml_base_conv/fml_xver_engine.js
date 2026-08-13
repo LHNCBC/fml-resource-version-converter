@@ -102,6 +102,17 @@ const FHIRPATH_HEAD_RE = /^([a-zA-Z_$][a-zA-Z0-9_$]*)/;
 const isObject = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 
 /**
+ * Return whether a plain JSON object has no serialized content.
+ * Object-path metadata is stored externally, so it does not affect this test.
+ *
+ * @param {*} value Candidate object.
+ * @returns {boolean} True for an object with no own enumerable properties.
+ */
+function isEmptyObject(value) {
+  return isObject(value) && Object.keys(value).length === 0;
+}
+
+/**
  * FHIR primitive type codes. In JSON, these types split their bare value and
  * Element metadata across `field` and `_field`.
  *
@@ -2557,6 +2568,8 @@ export function compileFmlXver({
       }
 
       if (writePath) {
+        if (isEmptyObject(child)) return;
+
         const { parent, key } = ensurePath(tctx, writePath);
         writeToSlot(parent, key, child, composeChildPath(tctx, writePath));
       } else {
@@ -2595,6 +2608,8 @@ export function compileFmlXver({
         for (let i = 1; i < targets.length; i++) {
           applyTarget(targets[i], primary, bindings, childScope);
         }
+
+        if (isEmptyObject(child)) return;
 
         if (firstTgt.path) {
           const { parent, key } = ensurePath(tctx, firstTgt.path);
@@ -2741,8 +2756,10 @@ export function compileFmlXver({
           applyTarget(targets[i], iterationPrimary, iterationBindings, childScope);
         }
 
-        results.push(child);
-        resultCompanions.push(null);
+        if (!isEmptyObject(child)) {
+          results.push(child);
+          resultCompanions.push(null);
+        }
         continue;
       }
 
@@ -2826,8 +2843,10 @@ export function compileFmlXver({
           subScope.set(tgtSpec.context, child);
           for (const sr of thenRules) execRule(sr, subScope);
         }
-        results.push(child);
-        resultCompanions.push(null);
+        if (!isEmptyObject(child)) {
+          results.push(child);
+          resultCompanions.push(null);
+        }
       } else {
         // No then-clause: each iteration produces one value. Apply the
         // applicable default group just as applyTarget() does for a scalar
@@ -2998,7 +3017,8 @@ export function compileFmlXver({
      *
      * @param {*} value One source field value.
      * @param {*} companion Primitive metadata aligned with the value.
-     * @returns {Object} Expanded target value produced by the default group.
+     * @returns {Object|undefined} Expanded target value produced by the default
+     * group, or undefined when the group produced no serialized content.
      */
     function mapValue(value, companion) {
       const wrapped = isObject(value)
@@ -3020,16 +3040,18 @@ export function compileFmlXver({
         : targetValuePath;
       setObjectPath(child, targetContextPath);
       execGroup(groupName, [wrapped, child], scope);
-      return child;
+      return isEmptyObject(child) ? undefined : child;
     }
 
     if (Array.isArray(primary.value)) {
       const companions = Array.isArray(primary.companion)
         ? primary.companion
         : [];
+      const values = primary.value
+        .map((value, index) => mapValue(value, companions[index]))
+        .filter(value => value !== undefined);
       return {
-        value: primary.value.map((value, index) =>
-          mapValue(value, companions[index])),
+        value: values.length > 0 ? values : undefined,
         polySuffix,
       };
     }

@@ -693,7 +693,7 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
     assert.deepEqual(r4Attachment._size, { id: 'size-metadata' });
   });
 
-  it('omits invalid Attachment.size occurrences unless an extension remains', function () {
+  it('omits empty Attachments after invalid size filtering unless an extension remains', function () {
     const extensionCompanion = {
       id: 'extension-bearing',
       extension: [{
@@ -726,11 +726,10 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
     };
     const reverseEngine = createEngine('Questionnaire', 'R5', 'R4');
     const { resource: converted } = reverseEngine.convert({ input });
-    const idOnly = converted.item[0].initial[0].valueAttachment;
+    const idOnly = converted.item[0];
     const extensionBearing = converted.item[1].initial[0].valueAttachment;
 
-    assert.equal(idOnly.size, undefined);
-    assert.equal(idOnly._size, undefined);
+    assert.equal(idOnly.initial, undefined);
     assert.equal(extensionBearing.size, undefined);
     assert.deepEqual(extensionBearing._size, extensionCompanion);
   });
