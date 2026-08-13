@@ -8,7 +8,7 @@
  * R4 -> R3: the FML does not account for identifier cardinality narrowing,
  * canonical version pins, R4 supplements, the R4-only `supplement` content
  * code, or decimal concept properties. The postprocessor repairs the target
- * shape and preserves decimal lexical values as strings where STU3 cannot
+ * shape and preserves parsed decimal values as strings where STU3 cannot
  * preserve their numeric property type.
  *
  * Neither direction implements inter-version extensions.
@@ -94,6 +94,8 @@ function convertDecimalDeclarations(target, messages) {
 /**
  * Copy one R4 decimal property value into the corresponding STU3 property as a
  * string, carrying any primitive companion under the new typed name.
+ * Original JSON formatting (such as trailing zeros), and any precision already
+ * lost when the decimal became a JavaScript number, cannot be recovered here.
  *
  * @param {Object} sourceProperty R4 concept property (read-only).
  * @param {Object} targetProperty Corresponding STU3 concept property, mutated.
@@ -112,16 +114,17 @@ function convertDecimalValue(sourceProperty, targetProperty, path, messages) {
 
   messages.push(warningMessage(
     `${path}.valueDecimal has no STU3 equivalent; it was approximated as valueString, `
-    + 'preserving its lexical value and primitive metadata but losing numeric typing',
+    + 'preserving its parsed numeric value and primitive metadata but losing numeric typing',
   ));
 }
 
 /**
  * Convert decimal property values throughout the recursive concept tree.
  *
- * The bundled mapping preserves concept and property array order, so source
- * and target entries correspond by index even when an unsupported value[x]
- * variant was omitted from the target property.
+ * This relies on the bundled FML emitting one target concept/property for each
+ * valid source occurrence, in source order. The required property code is
+ * still mapped when an unsupported value[x] variant is omitted, so source and
+ * target entries remain aligned by index.
  *
  * @param {Array<Object>|undefined} sourceConcepts R4 concepts (read-only).
  * @param {Array<Object>|undefined} targetConcepts STU3 concepts, mutated.
