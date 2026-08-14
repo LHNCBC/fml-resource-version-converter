@@ -129,8 +129,8 @@ const FHIR_PRIMITIVES = new Set([
 const INTEGER64_MIN = -9223372036854775808n;
 const INTEGER64_MAX = 9223372036854775807n;
 
-/** Unsigned 32-bit upper bound used by the FHIR unsignedInt primitive. */
-const UNSIGNED_INT_MAX = 4294967295n;
+/** Upper bound used by the FHIR unsignedInt primitive. */
+const UNSIGNED_INT_MAX = 2147483647n;
 
 /** Lexical form accepted when an integer value crosses the engine as a string. */
 const INTEGER_STRING_RE = /^[+-]?[0-9]+$/;

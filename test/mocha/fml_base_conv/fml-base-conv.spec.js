@@ -1522,12 +1522,12 @@ group TestRes(source src, target tgt) {
     const { resource: integer64Out } = integer64Engine.convert({
       input: {
         resourceType: 'TestRes',
-        size: 4294967295,
+        size: 2147483647,
         _size: { id: 'size-metadata' },
       },
     });
 
-    assert.equal(integer64Out.size, '4294967295');
+    assert.equal(integer64Out.size, '2147483647');
     assert.deepEqual(integer64Out._size, { id: 'size-metadata' });
 
     const unsignedIntEngine = compileFmlXver({
@@ -1545,12 +1545,12 @@ group TestRes(source src, target tgt) {
     const { resource: unsignedIntOut } = unsignedIntEngine.convert({
       input: {
         resourceType: 'TestRes',
-        size: '4294967295',
+        size: '2147483647',
         _size: { id: 'size-metadata' },
       },
     });
 
-    assert.equal(unsignedIntOut.size, 4294967295);
+    assert.equal(unsignedIntOut.size, 2147483647);
     assert.deepEqual(unsignedIntOut._size, { id: 'size-metadata' });
     assert.deepEqual(warnings, []);
   });
@@ -1582,7 +1582,7 @@ group TestRes(source src, target tgt) {
     const { resource: tooLarge } = unsignedIntEngine.convert({
       input: {
         resourceType: 'TestRes',
-        size: '4294967296',
+        size: '2147483648',
         _size: { id: 'preserved-metadata' },
       },
     });
@@ -1596,7 +1596,7 @@ group TestRes(source src, target tgt) {
     const { resource: extensionBearing } = unsignedIntEngine.convert({
       input: {
         resourceType: 'TestRes',
-        size: '4294967296',
+        size: '2147483648',
         _size: extensionCompanion,
       },
     });
