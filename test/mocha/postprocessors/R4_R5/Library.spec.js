@@ -162,8 +162,21 @@ describe('postprocessors/R4_R5 Library', function () {
       assert.match(text, /left unchanged because it identifies the resource/);
     });
 
-    it('normalizes renamed DataRequirement resource types and drops unsupported ones', function () {
+    it('normalizes required FHIR types in ParameterDefinition and '
+      + 'DataRequirement', function () {
       const source = makeSharedLibrary();
+      source.parameter = [
+        {
+          name: 'device',
+          use: 'in',
+          min: 0,
+          max: '1',
+          type: 'DeviceUseStatement',
+          _type: { id: 'parameter-type-metadata' },
+        },
+        { name: 'catalog', use: 'in', min: 0, max: '1', type: 'CatalogEntry' },
+        { name: 'observation', use: 'in', min: 0, max: '1', type: 'Observation' },
+      ];
       source.dataRequirement = [
         {
           type: 'DeviceUseStatement',
@@ -179,6 +192,11 @@ describe('postprocessors/R4_R5 Library', function () {
       const result = singleHopConverter.convert(source, 'R4', 'R5');
       const messages = result.postprocessors[0].messages;
 
+      assert.deepEqual(result.resource.parameter.map(entry => entry.type), [
+        'DeviceUsage',
+        'Observation',
+      ]);
+      assert.deepEqual(result.resource.parameter[0]._type, source.parameter[0]._type);
       assert.deepEqual(result.resource.dataRequirement.map(entry => entry.type), [
         'DeviceUsage',
         'MedicinalProductDefinition',
@@ -190,10 +208,52 @@ describe('postprocessors/R4_R5 Library', function () {
       assert.deepEqual(result.resource.dataRequirement[0].mustSupport, ['status']);
       assert.ok(messages.some(message =>
         message.type === MESSAGE_TYPE.INFO
-        && /type was renamed from "DeviceUseStatement" to "DeviceUsage"/.test(message.text)));
+        && /parameter\[0\].type was renamed from "DeviceUseStatement" to "DeviceUsage"/
+          .test(message.text)));
       assert.ok(messages.some(message =>
         message.type === MESSAGE_TYPE.WARNING
-        && /type "CatalogEntry" is a R4-only resource type/.test(message.text)));
+        && /parameter\[1\].*type "CatalogEntry" is defined only in R4/
+          .test(message.text)));
+      assert.ok(messages.some(message =>
+        message.type === MESSAGE_TYPE.INFO
+        && /dataRequirement\[0\].type was renamed from "DeviceUseStatement" to "DeviceUsage"/
+          .test(message.text)));
+    });
+
+    it('removes every R4-only datatype from required type bindings', function () {
+      const source = makeSharedLibrary();
+      const unsupported = [
+        'Any',
+        'MoneyQuantity',
+        'Population',
+        'ProdCharacteristic',
+        'SimpleQuantity',
+        'SubstanceAmount',
+        'Type',
+      ];
+      source.parameter = [
+        ...unsupported.map((type, index) => ({
+          name: `unsupported-${index}`,
+          use: 'in',
+          min: 0,
+          max: '1',
+          type,
+        })),
+        { name: 'shared', use: 'in', min: 0, max: '1', type: 'string' },
+      ];
+      source.dataRequirement = [
+        ...unsupported.map(type => ({ type })),
+        { type: 'Observation' },
+      ];
+
+      const result = singleHopConverter.convert(source, 'R4', 'R5');
+      const text = result.postprocessors[0].messages.map(message => message.text).join('\n');
+
+      assert.deepEqual(result.resource.parameter.map(entry => entry.type), ['string']);
+      assert.deepEqual(result.resource.dataRequirement.map(entry => entry.type), ['Observation']);
+      for (const type of unsupported) {
+        assert.match(text, new RegExp(`required type "${type}".*no R5 type equivalent`));
+      }
     });
   });
 
@@ -278,9 +338,15 @@ describe('postprocessors/R4_R5 Library', function () {
       assert.deepEqual(converted.postprocessors[0].messages, []);
     });
 
-    it('normalizes renamed DataRequirement resource types and drops unsupported ones', function () {
+    it('normalizes required FHIR types in ParameterDefinition and '
+      + 'DataRequirement', function () {
       const typedSource = makeSharedLibrary();
       typedSource.content[0].size = '10';
+      typedSource.parameter = [
+        { name: 'device', use: 'in', min: 0, max: '1', type: 'DeviceUsage' },
+        { name: 'actor', use: 'in', min: 0, max: '1', type: 'ActorDefinition' },
+        { name: 'observation', use: 'in', min: 0, max: '1', type: 'Observation' },
+      ];
       typedSource.dataRequirement = [
         { type: 'DeviceUsage' },
         { type: 'MedicinalProductDefinition' },
@@ -292,6 +358,10 @@ describe('postprocessors/R4_R5 Library', function () {
       const converted = singleHopConverter.convert(typedSource, 'R5', 'R4');
       const messages = converted.postprocessors[0].messages;
 
+      assert.deepEqual(converted.resource.parameter.map(entry => entry.type), [
+        'DeviceUseStatement',
+        'Observation',
+      ]);
       assert.deepEqual(converted.resource.dataRequirement.map(entry => entry.type), [
         'DeviceUseStatement',
         'MedicinalProduct',
@@ -302,10 +372,76 @@ describe('postprocessors/R4_R5 Library', function () {
       assert.deepEqual(converted.resource.dataRequirement[4].mustSupport, ['status']);
       assert.ok(messages.some(message =>
         message.type === MESSAGE_TYPE.INFO
-        && /type was renamed from "RequestOrchestration" to "RequestGroup"/.test(message.text)));
+        && /parameter\[0\].type was renamed from "DeviceUsage" to "DeviceUseStatement"/
+          .test(message.text)));
       assert.ok(messages.some(message =>
         message.type === MESSAGE_TYPE.WARNING
-        && /type "ActorDefinition" is a R5-only resource type/.test(message.text)));
+        && /parameter\[1\].*type "ActorDefinition" is defined only in R5/
+          .test(message.text)));
+      assert.ok(messages.some(message =>
+        message.type === MESSAGE_TYPE.INFO
+        && /dataRequirement\[2\].type was renamed from "RequestOrchestration" to "RequestGroup"/
+          .test(message.text)));
+    });
+
+    it('approximates or removes every R5-only datatype in required type bindings', function () {
+      const typedSource = makeSharedLibrary();
+      const unsupported = [
+        'Availability',
+        'BackboneType',
+        'Base',
+        'CodeableReference',
+        'DataType',
+        'ExtendedContactDetail',
+        'MonetaryComponent',
+        'PrimitiveType',
+        'RatioRange',
+        'VirtualServiceDetail',
+      ];
+      typedSource.content[0].size = '10';
+      typedSource.parameter = [
+        {
+          name: 'wide-integer',
+          use: 'in',
+          min: 0,
+          max: '1',
+          type: 'integer64',
+          _type: { id: 'integer64-type-id' },
+        },
+        ...unsupported.map((type, index) => ({
+          name: `unsupported-${index}`,
+          use: 'in',
+          min: 0,
+          max: '1',
+          type,
+        })),
+        { name: 'shared', use: 'in', min: 0, max: '1', type: 'string' },
+      ];
+      typedSource.dataRequirement = [
+        { type: 'integer64' },
+        { type: 'RatioRange' },
+        { type: 'Observation' },
+      ];
+
+      const converted = singleHopConverter.convert(typedSource, 'R5', 'R4');
+      const text = converted.postprocessors[0].messages
+        .map(message => message.text)
+        .join('\n');
+
+      assert.deepEqual(converted.resource.parameter.map(entry => entry.type), [
+        'integer',
+        'string',
+      ]);
+      assert.deepEqual(converted.resource.parameter[0]._type, { id: 'integer64-type-id' });
+      assert.deepEqual(converted.resource.dataRequirement.map(entry => entry.type), [
+        'integer',
+        'Observation',
+      ]);
+      assert.match(text, /parameter\[0\]\.type "integer64".*approximated as "integer"/);
+      for (const type of unsupported) {
+        assert.match(text, new RegExp(`required type "${type}".*no R4 type equivalent`));
+      }
+      assert.match(text, /dataRequirement\[1\].*"RatioRange".*no R4 type equivalent/);
     });
 
     it('drops R5-only RelatedArtifact relationship codes but keeps aligned shared entries', function () {

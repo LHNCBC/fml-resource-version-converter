@@ -65,19 +65,21 @@ export const registry = {
     processors: [convCodeSystem_R4B_to_R5],
   },
 
-  // R4B and R4 have identical Library, Attachment, DataRequirement, and
-  // RelatedArtifact element sets for this review. Their FML maps have the same
-  // gaps: RelatedArtifact.url is dropped because R5 has no equivalent, and
-  // version-specific DataRequirement.type resource names are left unchanged.
-  // The R4 transform is reused to normalize or remove those requirements and
-  // report the URL loss and R5 cnl-0/cnl-1 warning incompatibilities.
+  // R4B and R4 have identical Library, Attachment, ParameterDefinition,
+  // DataRequirement, and RelatedArtifact element sets for this review. Their
+  // FML maps have the same gaps: RelatedArtifact.url is dropped because R5 has
+  // no equivalent, and version-specific ParameterDefinition.type and
+  // DataRequirement.type FHIR type codes are left unchanged.
+  // The R4 transform is reused to apply resource renames and datatype policy,
+  // remove entries that cannot conform, and report the URL loss and R5
+  // cnl-0/cnl-1 warning incompatibilities.
   Library: {
     fml: {
       coverage: COVERAGE.KNOWN_GAPS,
       description:
         'FML silently drops RelatedArtifact.url, leaves version-specific '
-        + 'DataRequirement.type resource names unchanged, and does not report R4B identity '
-        + 'values that trip R5 warning invariants cnl-0 or cnl-1.',
+        + 'ParameterDefinition.type and DataRequirement.type FHIR type codes unchanged, and '
+        + 'does not report R4B identity values that trip R5 warning invariants cnl-0 or cnl-1.',
     },
     processors: [convLibrary_R4B_to_R5],
   },

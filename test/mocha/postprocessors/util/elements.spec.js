@@ -9,6 +9,7 @@ import {
   deletePrimitive,
   findValueKey,
   hasAnyContent,
+  hasPrimitiveValueOrExtension,
   removePrimitiveArrayEntries,
   renamePrimitive,
   stripCanonicalVersion,
@@ -195,6 +196,31 @@ describe('postprocessors/util/elements hasAnyContent', function () {
     assert.equal(hasAnyContent(null, ['a']), false);
     assert.equal(hasAnyContent('str', ['a']), false);
     assert.equal(hasAnyContent({ a: 1 }, []), false);
+  });
+});
+
+
+describe('postprocessors/util/elements hasPrimitiveValueOrExtension', function () {
+  it('accepts a bare primitive value', function () {
+    assert.equal(hasPrimitiveValueOrExtension({ name: 'Example' }, 'name'), true);
+  });
+
+  it('accepts an extension-only primitive', function () {
+    const object = { _name: { extension: [{ url: 'http://example.org/absent' }] } };
+
+    assert.equal(hasPrimitiveValueOrExtension(object, 'name'), true);
+  });
+
+  it('rejects absent, null, empty-companion, and id-only primitives', function () {
+    assert.equal(hasPrimitiveValueOrExtension({}, 'name'), false);
+    assert.equal(hasPrimitiveValueOrExtension({ name: null }, 'name'), false);
+    assert.equal(hasPrimitiveValueOrExtension({ _name: {} }, 'name'), false);
+    assert.equal(hasPrimitiveValueOrExtension({ _name: { id: 'name-id' } }, 'name'), false);
+  });
+
+  it('rejects non-object input', function () {
+    assert.equal(hasPrimitiveValueOrExtension(null, 'name'), false);
+    assert.equal(hasPrimitiveValueOrExtension(undefined, 'name'), false);
   });
 });
 

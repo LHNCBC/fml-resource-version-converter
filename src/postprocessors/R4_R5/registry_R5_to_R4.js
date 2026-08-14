@@ -80,17 +80,18 @@ export const registry = {
   // R5 versionAlgorithm[x] and copyrightLabel; Attachment media metadata under
   // content and relatedArtifact.document; DataRequirement.valueFilter; and the
   // R5 RelatedArtifact classifier, publication metadata, and resourceReference.
-  // It also preserves R5-only codes from the required DataRequirement.type and
-  // RelatedArtifact.type bindings, yielding invalid R4. The postprocessor
-  // applies exact resource type renames, removes unrepresentable requirements
-  // and related artifacts, and reports every loss without fabricating values.
+  // It also preserves R5-only codes from the required ParameterDefinition.type,
+  // DataRequirement.type, and RelatedArtifact.type bindings, yielding invalid
+  // R4. The postprocessor applies exact resource renames and reviewed datatype
+  // approximations, removes unrepresentable requirements and related artifacts,
+  // and reports every loss without fabricating values.
   Library: {
     fml: {
       coverage: COVERAGE.KNOWN_GAPS,
       description:
         'FML silently drops R5-only Library and nested datatype content and preserves '
-        + 'version-specific DataRequirement.type and RelatedArtifact.type codes that do not '
-        + 'conform to R4 required bindings.',
+        + 'version-specific ParameterDefinition.type, DataRequirement.type, and '
+        + 'RelatedArtifact.type codes that do not conform to R4 required bindings.',
     },
     processors: [convLibrary_R5_to_R4],
   },

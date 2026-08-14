@@ -9,6 +9,7 @@
 import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R4_to_R3 as convBinary_R4_to_R3 } from './Binary.js';
 import { conv_R4_to_R3 as convCodeSystem_R4_to_R3 } from './CodeSystem.js';
+import { conv_R4_to_R3 as convLibrary_R4_to_R3 } from './Library.js';
 import { conv_R4_to_R3 } from './Questionnaire.js';
 import { conv_R4_to_R3 as convValueSet_R4_to_R3 } from './ValueSet.js';
 
@@ -48,6 +49,25 @@ export const registry = {
         + 'diagnostics by the CodeSystem_R4_to_R3 postprocessor.',
     },
     processors: [convCodeSystem_R4_to_R3],
+  },
+
+  // Reviewed against Library and the embedded Contributor,
+  // ParameterDefinition, DataRequirement, and RelatedArtifact mappings. The
+  // FML emits Contributors without their required name, omits or malforms
+  // canonical-to-Reference fields, leaves required version-specific type codes
+  // and the LibraryType code system canonical unchanged, and silently drops
+  // R4-only content. The postprocessor repairs representable content and reports
+  // unavoidable loss.
+  Library: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML leaves R4/R3 Contributor, canonical-to-Reference, required type-code, '
+        + 'LibraryType code-system canonical, and DataRequirement narrowing unresolved and '
+        + 'drops R4-only content silently; repaired or reported by the '
+        + 'Library_R4_to_R3 postprocessor.',
+    },
+    processors: [convLibrary_R4_to_R3],
   },
 
   // FML alone has KNOWN_GAPS for R4->R3: it emits a malformed options string

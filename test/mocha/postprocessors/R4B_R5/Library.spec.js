@@ -130,9 +130,20 @@ describe('postprocessors/R4B_R5 Library', function () {
     ]);
   });
 
-  it('uses R4B-specific DataRequirement resource type policies in both directions', function () {
+  it('uses R4B-specific required resource type policies in both directions', function () {
     const upgradeSource = {
       ...compatibleLibrary,
+      parameter: [
+        { name: 'device', use: 'in', min: 0, max: '1', type: 'DeviceUseStatement' },
+        { name: 'catalog', use: 'in', min: 0, max: '1', type: 'CatalogEntry' },
+        {
+          name: 'medicinal',
+          use: 'in',
+          min: 0,
+          max: '1',
+          type: 'MedicinalProductDefinition',
+        },
+      ],
       dataRequirement: [
         { type: 'DeviceUseStatement' },
         { type: 'RequestGroup' },
@@ -142,6 +153,10 @@ describe('postprocessors/R4B_R5 Library', function () {
     };
     const upgrade = singleHopConverter.convert(upgradeSource, 'R4B', 'R5');
 
+    assert.deepEqual(upgrade.resource.parameter.map(entry => entry.type), [
+      'DeviceUsage',
+      'MedicinalProductDefinition',
+    ]);
     assert.deepEqual(upgrade.resource.dataRequirement.map(entry => entry.type), [
       'DeviceUsage',
       'RequestOrchestration',
@@ -151,6 +166,17 @@ describe('postprocessors/R4B_R5 Library', function () {
     const downgradeSource = {
       ...compatibleLibrary,
       content: [{ contentType: 'text/plain', size: '10' }],
+      parameter: [
+        { name: 'device', use: 'in', min: 0, max: '1', type: 'DeviceUsage' },
+        { name: 'actor', use: 'in', min: 0, max: '1', type: 'ActorDefinition' },
+        {
+          name: 'medicinal',
+          use: 'in',
+          min: 0,
+          max: '1',
+          type: 'MedicinalProductDefinition',
+        },
+      ],
       dataRequirement: [
         { type: 'DeviceUsage' },
         { type: 'RequestOrchestration' },
@@ -160,13 +186,109 @@ describe('postprocessors/R4B_R5 Library', function () {
     };
     const downgrade = singleHopConverter.convert(downgradeSource, 'R5', 'R4B');
 
+    assert.deepEqual(downgrade.resource.parameter.map(entry => entry.type), [
+      'DeviceUseStatement',
+      'MedicinalProductDefinition',
+    ]);
     assert.deepEqual(downgrade.resource.dataRequirement.map(entry => entry.type), [
       'DeviceUseStatement',
       'RequestGroup',
       'MedicinalProductDefinition',
     ]);
     assert.ok(downgrade.postprocessors[0].messages.some(message =>
-      /type "ActorDefinition" is a R5-only resource type with no R4B equivalent/.test(message.text)));
+      /type "ActorDefinition" is defined only in R5 and has no R4B type equivalent/
+        .test(message.text)));
+  });
+
+  it('uses R4B-specific datatype policies in both directions', function () {
+    const r4bOnlyTypes = [
+      'Any',
+      'MoneyQuantity',
+      'Population',
+      'ProdCharacteristic',
+      'SimpleQuantity',
+      'Type',
+    ];
+    const upgradeSource = {
+      ...compatibleLibrary,
+      parameter: [
+        ...r4bOnlyTypes.map((type, index) => ({
+          name: `unsupported-${index}`,
+          use: 'in',
+          min: 0,
+          max: '1',
+          type,
+        })),
+        { name: 'shared', use: 'in', min: 0, max: '1', type: 'string' },
+      ],
+      dataRequirement: [
+        ...r4bOnlyTypes.map(type => ({ type })),
+        { type: 'Observation' },
+      ],
+    };
+
+    const upgrade = singleHopConverter.convert(upgradeSource, 'R4B', 'R5');
+    const upgradeText = upgrade.postprocessors[0].messages
+      .map(message => message.text)
+      .join('\n');
+
+    assert.deepEqual(upgrade.resource.parameter.map(entry => entry.type), ['string']);
+    assert.deepEqual(upgrade.resource.dataRequirement.map(entry => entry.type), ['Observation']);
+    for (const type of r4bOnlyTypes) {
+      assert.match(upgradeText, new RegExp(`required type "${type}".*no R5 type equivalent`));
+    }
+
+    const r5OnlyTypes = [
+      'Availability',
+      'BackboneType',
+      'Base',
+      'DataType',
+      'ExtendedContactDetail',
+      'MonetaryComponent',
+      'PrimitiveType',
+      'VirtualServiceDetail',
+    ];
+    const downgradeSource = {
+      ...compatibleLibrary,
+      content: [{ contentType: 'text/plain', size: '10' }],
+      parameter: [
+        { name: 'wide-integer', use: 'in', min: 0, max: '1', type: 'integer64' },
+        ...r5OnlyTypes.map((type, index) => ({
+          name: `unsupported-${index}`,
+          use: 'in',
+          min: 0,
+          max: '1',
+          type,
+        })),
+        {
+          name: 'codeable-reference',
+          use: 'in',
+          min: 0,
+          max: '1',
+          type: 'CodeableReference',
+        },
+        { name: 'ratio-range', use: 'in', min: 0, max: '1', type: 'RatioRange' },
+        { name: 'shared', use: 'in', min: 0, max: '1', type: 'string' },
+      ],
+    };
+
+    const downgrade = singleHopConverter.convert(downgradeSource, 'R5', 'R4B');
+    const downgradeText = downgrade.postprocessors[0].messages
+      .map(message => message.text)
+      .join('\n');
+
+    // CodeableReference and RatioRange were added in R4B, so they survive the
+    // hop; every R5-only type is removed instead of emitting an invalid code.
+    assert.deepEqual(downgrade.resource.parameter.map(entry => entry.type), [
+      'integer',
+      'CodeableReference',
+      'RatioRange',
+      'string',
+    ]);
+    assert.match(downgradeText, /type "integer64".*approximated as "integer"/);
+    for (const type of r5OnlyTypes) {
+      assert.match(downgradeText, new RegExp(`required type "${type}".*no R4B type equivalent`));
+    }
   });
 
   it('drops an R5-only RelatedArtifact relationship code from the R4B target', function () {

@@ -7,9 +7,10 @@
  *     that companion too. copyPrimitive / renamePrimitive / deletePrimitive
  *     encapsulate that rule so callers never strand a `_`-companion.
  *     removePrimitiveArrayEntries applies the same rule to a repeating
- *     primitive, where the companion is a position-aligned array, and
- *     addDataAbsentReasonExtension uses the companion to mark a primitive as
- *     present-but-valueless.
+ *     primitive, where the companion is a position-aligned array.
+ *     hasPrimitiveValueOrExtension distinguishes a valid extension-only
+ *     primitive from invalid id-only metadata, and addDataAbsentReasonExtension
+ *     uses the companion to mark a primitive as present-but-valueless.
  *   - Choice-type detection: findValueKey locates the single `value[x]` choice
  *     carried on an element object (the payload may be primitive or complex).
  *   - Content probing: hasAnyContent reports whether an element carries
@@ -47,6 +48,25 @@ export function hasAnyContent(object, names) {
     if (typeof value === 'object') return Object.keys(value).length > 0;
     return true;
   });
+}
+
+/**
+ * Return whether a primitive has a value or extension content that represents
+ * a valid value-less occurrence in FHIR JSON.
+ *
+ * An element id alone does not satisfy Element invariant ele-1. Any extension
+ * does satisfy ele-1 and can represent the primitive without a bare value.
+ *
+ * @param {Object|undefined} object Object holding the primitive.
+ * @param {string} key Primitive property name.
+ * @returns {boolean} True when the primitive is represented validly.
+ */
+export function hasPrimitiveValueOrExtension(object, key) {
+  if (!object || typeof object !== 'object') return false;
+  if (Object.hasOwn(object, key) && object[key] != null) return true;
+
+  const extensions = object[`_${key}`]?.extension;
+  return Array.isArray(extensions) && extensions.length > 0;
 }
 
 /**

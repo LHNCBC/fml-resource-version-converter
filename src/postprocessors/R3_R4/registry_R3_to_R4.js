@@ -8,6 +8,7 @@
  */
 import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R3_to_R4 as convCodeSystem_R3_to_R4 } from './CodeSystem.js';
+import { conv_R3_to_R4 as convLibrary_R3_to_R4 } from './Library.js';
 import { conv_R3_to_R4 } from './Questionnaire.js';
 import { conv_R3_to_R4 as convValueSet_R3_to_R4 } from './ValueSet.js';
 
@@ -42,6 +43,24 @@ export const registry = {
         + 'csd-0 without changing them.',
     },
     processors: [convCodeSystem_R3_to_R4],
+  },
+
+  // Reviewed against Library and the embedded Contributor,
+  // ParameterDefinition, DataRequirement, and RelatedArtifact mappings. The
+  // FML loses Contributor structure, emits malformed Reference/canonical
+  // companions, leaves required version-specific type codes and the LibraryType
+  // code system canonical unchanged, and flattens CodeableConcept values without
+  // reporting their non-Coding content. The postprocessor repairs representable
+  // content and reports the remainder.
+  Library: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML leaves R3/R4 Contributor, Reference-to-canonical, required type-code, '
+        + 'LibraryType code-system canonical, and DataRequirement code-filter differences '
+        + 'unresolved; repaired or reported by the Library_R3_to_R4 postprocessor.',
+    },
+    processors: [convLibrary_R3_to_R4],
   },
 
   // Reviewed against the FHIR spec. FML has KNOWN_GAPS for enableWhen answer types

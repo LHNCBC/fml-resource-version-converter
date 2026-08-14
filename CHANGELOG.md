@@ -7,14 +7,16 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 ### Added
 
-- Completed Binary conversion onboarding for DSTU2 <-> STU3, STU3 <-> R4,
+- Completed Binary conversion onboarding for R2 <-> R3, R3 <-> R4,
   R4 <-> R5, and R4B <-> R5.
-- Completed CodeSystem conversion onboarding for STU3 <-> R4, R4 <-> R5, and
+- Completed CodeSystem conversion onboarding for R3 <-> R4, R4 <-> R5, and
   R4B <-> R5.
-- Completed Library conversion onboarding for R4 <-> R5 and R4B <-> R5.
-- Added reusable functions `removePrimitiveArrayEntries()` and
-  `addDataAbsentReasonExtension()` in `postprocessors/util/elements.js`, and the
-  reusable canonical helper `stripCanonicalVersion()`.
+- Completed Library conversion onboarding for R3 <-> R4, R4 <-> R5, and
+  R4B <-> R5.
+- Added reusable functions `removePrimitiveArrayEntries()`,
+  `hasPrimitiveValueOrExtension()`, and `addDataAbsentReasonExtension()` in
+  `postprocessors/util/elements.js`, and the reusable canonical helper
+  `stripCanonicalVersion()`.
 - `CONTRIBUTING.md` guidance on handling a target version that adds a constraint
   the source does not have.
 
@@ -22,7 +24,7 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 ### Added
 
-- Completed ValueSet conversion onboarding for STU3 <-> R4, R4 <-> R5, and
+- Completed ValueSet conversion onboarding for R3 <-> R4, R4 <-> R5, and
   R4B <-> R5.
 - `chainedConverter.convert(resource, fromVer, toVer, opts?)`: a multi-hop
   conversion entry point that chains adjacent FML hops as needed (for example,

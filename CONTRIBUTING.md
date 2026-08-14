@@ -161,6 +161,11 @@ Typical gap categories to look for:
 - Elements renamed or restructured across versions (FML leaves the old shape).
 - Collection cardinality changes, e.g. target 0..1 vs source 0..*, or vice versa.
 - Choice type `[x]` mismatches and value-set/enum changes.
+- Required or extensible binding changes, including code-system canonical URL
+  migrations. Compare the source and target value-set composition and system
+  URLs, not only binding strength or code membership: generic CodeableConcept
+  copying can retain an obsolete source-version system even when the target has
+  an exact successor code system.
 - Invalid output: the FML emitted a field the target schema does not allow.
 - Elements required in the target that the source does not always supply, e.g.
   target 1..1 where the source is 0..1. The FML cannot invent a value, so a

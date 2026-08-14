@@ -74,16 +74,17 @@ export const registry = {
 
   // R4B and R4 have the same relevant structures, so R5->R4B has the same
   // unavoidable losses as R5->R4: R5-only Library fields and nested Attachment,
-  // DataRequirement, and RelatedArtifact content, plus required-binding codes
-  // that R4B does not define. The R5->R4 transform is reused to apply exact
-  // resource renames, remove unrepresentable entries, and report every loss.
+  // ParameterDefinition, DataRequirement, and RelatedArtifact content, plus
+  // required-binding codes that R4B does not define. The R5->R4 transform is
+  // reused to apply exact resource renames and reviewed datatype approximations,
+  // remove unrepresentable entries, and report every loss.
   Library: {
     fml: {
       coverage: COVERAGE.KNOWN_GAPS,
       description:
         'FML silently drops R5-only Library and nested datatype content and preserves '
-        + 'version-specific DataRequirement.type and RelatedArtifact.type codes that do not '
-        + 'conform to R4B required bindings.',
+        + 'version-specific ParameterDefinition.type, DataRequirement.type, and '
+        + 'RelatedArtifact.type codes that do not conform to R4B required bindings.',
     },
     processors: [convLibrary_R5_to_R4B],
   },

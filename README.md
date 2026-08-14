@@ -47,7 +47,7 @@ onboarded conversion is one that meets the following criteria:
 Reviewed conversions currently cover:
 - **Binary (R2 <-> R3, R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
 - **CodeSystem (R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
-- **Library (R4 <-> R5 and R4B <-> R5)**
+- **Library (R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
 - **Questionnaire (R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
 - **ValueSet (R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
 

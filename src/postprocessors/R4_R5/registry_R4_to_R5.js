@@ -72,17 +72,18 @@ export const registry = {
   // but has no equivalent for the general artifact-access URL, and redirecting
   // it there would conflate two fields an R4 entry may carry at once. Its
   // generic type ConceptMap also does not cover renamed or removed resource
-  // names used by DataRequirement.type. R5 additionally tightens warning
-  // invariants cnl-0 and cnl-1 for canonical resource identity. The
-  // postprocessor applies exact resource renames, removes requirements that
-  // cannot conform, and reports the remaining losses and incompatibilities.
+  // names used by ParameterDefinition.type and DataRequirement.type. R5 also
+  // tightens warning invariants cnl-0 and cnl-1 for canonical resource identity.
+  // The postprocessor applies exact resource renames and reviewed datatype
+  // approximations, removes entries that cannot conform, and reports the
+  // remaining losses and incompatibilities.
   Library: {
     fml: {
       coverage: COVERAGE.KNOWN_GAPS,
       description:
         'FML silently drops RelatedArtifact.url, leaves version-specific '
-        + 'DataRequirement.type resource names unchanged, and does not report R4 identity '
-        + 'values that trip R5 warning invariants cnl-0 or cnl-1.',
+        + 'ParameterDefinition.type and DataRequirement.type FHIR type codes unchanged, and '
+        + 'does not report R4 identity values that trip R5 warning invariants cnl-0 or cnl-1.',
     },
     processors: [convLibrary_R4_to_R5],
   },

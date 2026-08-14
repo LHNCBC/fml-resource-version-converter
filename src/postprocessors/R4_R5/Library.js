@@ -4,12 +4,13 @@
  * The bundled FML preserves every shared Library element. It cannot represent
  * R4 RelatedArtifact.url in R5, or the R5-only Library and embedded-datatype
  * additions in R4. The FML also leaves version-specific required-binding codes
- * unchanged in DataRequirement.type and RelatedArtifact.type. These processors
- * apply exact resource renames, remove entries that cannot conform to the target
- * binding, and report unavoidable losses without inventing replacements. R4
- * Library names and canonical URLs also have two shapes that satisfy R4 but
- * trip R5 warning-severity canonical-resource invariants; those are reported
- * without rewriting resource identity.
+ * unchanged in ParameterDefinition.type, DataRequirement.type, and
+ * RelatedArtifact.type. These processors apply exact resource renames, remove
+ * entries that cannot conform to the target binding, and report unavoidable
+ * losses without inventing replacements. R4 Library names and canonical URLs
+ * also have two shapes that satisfy R4 but trip R5 warning-severity
+ * canonical-resource invariants; those are reported without rewriting resource
+ * identity.
  *
  * R4B reuses both transforms unchanged; see postprocessors/R4B_R5/Library.js.
  * Neither direction implements inter-version extensions.
@@ -18,10 +19,13 @@
  */
 import { COVERAGE } from '../../converter/coverage.js';
 import {
-  infoMessage,
   statusFromMessages,
   warningMessage,
 } from '../../converter/diagnostics.js';
+import {
+  describeLibraryTypeActions,
+  normalizeLibraryRequiredTypes,
+} from '../util/Library.js';
 import { hasAnyContent } from '../util/elements.js';
 
 // R5 tightened the inherited canonical-resource name recommendation: unlike
@@ -29,13 +33,14 @@ import { hasAnyContent } from '../util/elements.js';
 const R5_CNL_0_NAME = /^[A-Z][A-Za-z0-9_]{1,254}$/;
 const R5_CNL_1_URL = /^[^|# ]+$/;
 
-// DataRequirement.type has a required binding to FHIR resource type names. The
-// generic `types-*` ConceptMaps do not cover resource renames, so the FML leaves
-// these codes unchanged. Keep this reviewed policy static: an exact rename is
-// applied where the bundled resource maps establish one; a source-only type
-// with no mapping makes the whole requirement unrepresentable because type is
-// required. R4 and R4B differ, so selection uses the actual hop key.
-const DATA_REQUIREMENT_TYPE_POLICIES = {
+// ParameterDefinition.type and DataRequirement.type have required bindings to
+// FHIR type names. The generic `types-*` ConceptMaps do not cover resource
+// renames and sometimes map a removed datatype to itself, so their output does
+// not establish target validity. Keep this reviewed policy static: apply exact
+// resource renames and reviewed datatype approximations, and remove an entry
+// whose required type has no target equivalent. R4 and R4B differ, so selection
+// uses the actual hop key.
+const REQUIRED_TYPE_POLICIES = {
   'R4->R5': {
     renames: new Map([
       ['DeviceUseStatement', 'DeviceUsage'],
@@ -44,6 +49,7 @@ const DATA_REQUIREMENT_TYPE_POLICIES = {
       ['SubstanceSpecification', 'SubstanceDefinition'],
     ]),
     unsupported: new Set([
+      'Any',
       'CatalogEntry',
       'DocumentManifest',
       'EffectEvidenceSynthesis',
@@ -57,9 +63,15 @@ const DATA_REQUIREMENT_TYPE_POLICIES = {
       'MedicinalProductPackaged',
       'MedicinalProductPharmaceutical',
       'MedicinalProductUndesirableEffect',
+      'MoneyQuantity',
+      'Population',
+      'ProdCharacteristic',
       'ResearchDefinition',
       'ResearchElementDefinition',
       'RiskEvidenceSynthesis',
+      'SimpleQuantity',
+      'SubstanceAmount',
+      'Type',
     ]),
   },
   'R4B->R5': {
@@ -68,11 +80,17 @@ const DATA_REQUIREMENT_TYPE_POLICIES = {
       ['RequestGroup', 'RequestOrchestration'],
     ]),
     unsupported: new Set([
+      'Any',
       'CatalogEntry',
       'DocumentManifest',
       'Media',
+      'MoneyQuantity',
+      'Population',
+      'ProdCharacteristic',
       'ResearchDefinition',
       'ResearchElementDefinition',
+      'SimpleQuantity',
+      'Type',
     ]),
   },
   'R5->R4': {
@@ -82,19 +100,31 @@ const DATA_REQUIREMENT_TYPE_POLICIES = {
       ['RequestOrchestration', 'RequestGroup'],
       ['SubstanceDefinition', 'SubstanceSpecification'],
     ]),
+    approximations: new Map([
+      ['integer64', {
+        targetType: 'integer',
+        detail: 'integer has a smaller range than integer64',
+      }],
+    ]),
     unsupported: new Set([
       'ActorDefinition',
       'AdministrableProductDefinition',
       'ArtifactAssessment',
+      'Availability',
+      'BackboneType',
+      'Base',
       'BiologicallyDerivedProductDispense',
       'CanonicalResource',
       'Citation',
       'ClinicalUseDefinition',
+      'CodeableReference',
       'ConditionDefinition',
+      'DataType',
       'DeviceAssociation',
       'DeviceDispense',
       'EncounterHistory',
       'EvidenceReport',
+      'ExtendedContactDetail',
       'FormularyItem',
       'GenomicStudy',
       'ImagingSelection',
@@ -103,16 +133,20 @@ const DATA_REQUIREMENT_TYPE_POLICIES = {
       'InventoryReport',
       'ManufacturedItemDefinition',
       'MetadataResource',
+      'MonetaryComponent',
       'NutritionIntake',
       'NutritionProduct',
       'PackagedProductDefinition',
       'Permission',
+      'PrimitiveType',
+      'RatioRange',
       'RegulatedAuthorization',
       'Requirements',
       'SubscriptionStatus',
       'SubscriptionTopic',
       'TestPlan',
       'Transport',
+      'VirtualServiceDetail',
     ]),
   },
   'R5->R4B': {
@@ -120,23 +154,36 @@ const DATA_REQUIREMENT_TYPE_POLICIES = {
       ['DeviceUsage', 'DeviceUseStatement'],
       ['RequestOrchestration', 'RequestGroup'],
     ]),
+    approximations: new Map([
+      ['integer64', {
+        targetType: 'integer',
+        detail: 'integer has a smaller range than integer64',
+      }],
+    ]),
     unsupported: new Set([
       'ActorDefinition',
       'ArtifactAssessment',
+      'Availability',
+      'BackboneType',
+      'Base',
       'BiologicallyDerivedProductDispense',
       'CanonicalResource',
       'ConditionDefinition',
+      'DataType',
       'DeviceAssociation',
       'DeviceDispense',
       'EncounterHistory',
+      'ExtendedContactDetail',
       'FormularyItem',
       'GenomicStudy',
       'ImagingSelection',
       'InventoryItem',
       'InventoryReport',
       'MetadataResource',
+      'MonetaryComponent',
       'NutritionIntake',
       'Permission',
+      'PrimitiveType',
       'Requirements',
       'SubstanceNucleicAcid',
       'SubstancePolymer',
@@ -145,6 +192,7 @@ const DATA_REQUIREMENT_TYPE_POLICIES = {
       'SubstanceSourceMaterial',
       'TestPlan',
       'Transport',
+      'VirtualServiceDetail',
     ]),
   },
 };
@@ -280,12 +328,7 @@ function findR5OnlyContent(source) {
 }
 
 /**
- * Normalize DataRequirement.type values for one Library conversion hop.
- *
- * The Library FML emits one target dataRequirement for each source entry in the
- * same order. This function depends on that alignment to preserve each complete
- * converted entry while changing or filtering its required type code. Focused
- * tests lock the assumption for shared, renamed, and dropped entries.
+ * Normalize required ParameterDefinition/DataRequirement type codes.
  *
  * @param {Object} target FML-converted Library, mutated in place.
  * @param {Object} source Source Library (read-only).
@@ -293,50 +336,18 @@ function findR5OnlyContent(source) {
  * @param {string} targetVersion Target FHIR version.
  * @param {Array<Object>} messages Diagnostic messages to append.
  */
-function normalizeDataRequirementTypes(
+function normalizeRequiredTypes(
   target,
   source,
   sourceVersion,
   targetVersion,
   messages,
 ) {
-  const policy = DATA_REQUIREMENT_TYPE_POLICIES[`${sourceVersion}->${targetVersion}`];
-  const sourceRequirements = source?.dataRequirement;
-  const targetRequirements = target?.dataRequirement;
-  if (!policy || !Array.isArray(sourceRequirements) || !Array.isArray(targetRequirements)) return;
+  const policy = REQUIRED_TYPE_POLICIES[`${sourceVersion}->${targetVersion}`];
+  if (!policy) return;
 
-  const kept = [];
-
-  targetRequirements.forEach((requirement, index) => {
-    const sourceType = sourceRequirements[index]?.type;
-    const renamedType = policy.renames.get(sourceType);
-
-    if (renamedType) {
-      requirement.type = renamedType;
-      kept.push(requirement);
-      messages.push(infoMessage(
-        `Library.dataRequirement[${index}].type was renamed from "${sourceType}" to `
-        + `"${renamedType}" to follow the resource rename between ${sourceVersion} and `
-        + targetVersion,
-      ));
-      return;
-    }
-
-    if (policy.unsupported.has(sourceType)) {
-      messages.push(warningMessage(
-        `Library.dataRequirement[${index}] was dropped because its required type `
-        + `"${sourceType}" is a ${sourceVersion}-only resource type with no `
-        + `${targetVersion} equivalent`,
-      ));
-      return;
-    }
-
-    kept.push(requirement);
-  });
-
-  if (kept.length === targetRequirements.length) return;
-  if (kept.length === 0) delete target.dataRequirement;
-  else target.dataRequirement = kept;
+  const actions = normalizeLibraryRequiredTypes(target, source, policy);
+  messages.push(...describeLibraryTypeActions(actions, sourceVersion, targetVersion));
 }
 
 /**
@@ -382,7 +393,7 @@ function removeUnrepresentableRelatedArtifacts(target, source, targetVersion, me
  * Normalize R4/R4B content for R5 and report losses and warning invariants.
  *
  * @param {Object} target FML-converted R5 Library, mutated in place when a
- *   DataRequirement type must be renamed or its entry removed.
+ *   ParameterDefinition/DataRequirement type must be renamed or its entry removed.
  * @param {Object} ctx Hop context with sourceResource, fromVer, and toVer.
  * @returns {{resource: Object, status: string, messages: Array<Object>}} Result.
  */
@@ -417,7 +428,7 @@ function convertR4ToR5(target, ctx) {
     ));
   }
 
-  normalizeDataRequirementTypes(
+  normalizeRequiredTypes(
     target,
     source,
     sourceVersion,
@@ -432,7 +443,7 @@ function convertR4ToR5(target, ctx) {
  * Normalize R5 content for R4/R4B and report unavoidable losses.
  *
  * @param {Object} target FML-converted R4/R4B Library, mutated in place when a
- *   DataRequirement type is normalized or an unrepresentable entry is removed.
+ *   ParameterDefinition/DataRequirement type is normalized or an unrepresentable entry is removed.
  * @param {Object} ctx Hop context with sourceResource, fromVer, and toVer.
  * @returns {{resource: Object, status: string, messages: Array<Object>}} Result.
  */
@@ -450,7 +461,7 @@ function convertR5ToR4(target, ctx) {
     ));
   }
 
-  normalizeDataRequirementTypes(
+  normalizeRequiredTypes(
     target,
     source,
     sourceVersion,
@@ -470,9 +481,9 @@ export const conv_R4_to_R5 = {
   coverage: COVERAGE.BEST_EFFORT,
   description:
     'Reports RelatedArtifact.url content dropped because R5 has no equivalent, normalizes '
-    + 'DataRequirement resource type renames and removes requirements with unrepresentable '
-    + 'types, and reports R4 names or URLs that do not satisfy R5 warning invariants cnl-0 '
-    + 'and cnl-1. Does not handle inter-version extensions.',
+    + 'ParameterDefinition and DataRequirement FHIR type changes and removes entries '
+    + 'with unrepresentable types, and reports R4 names or URLs that do not satisfy R5 '
+    + 'warning invariants cnl-0 and cnl-1. Does not handle inter-version extensions.',
   execute: convertR4ToR5,
 };
 
@@ -484,8 +495,9 @@ export const conv_R5_to_R4 = {
   coverage: COVERAGE.BEST_EFFORT,
   description:
     'Reports R5-only Library content and nested Attachment, DataRequirement, and '
-    + 'RelatedArtifact content, normalizes DataRequirement resource type renames and removes '
-    + 'requirements with unrepresentable types, and drops related artifacts whose required '
-    + 'R5 relationship type has no R4 code. Does not handle inter-version extensions.',
+    + 'RelatedArtifact content, normalizes ParameterDefinition and DataRequirement FHIR '
+    + 'type changes and removes entries with unrepresentable types, and drops related '
+    + 'artifacts whose required R5 relationship type has no R4 code. Does not handle '
+    + 'inter-version extensions.',
   execute: convertR5ToR4,
 };

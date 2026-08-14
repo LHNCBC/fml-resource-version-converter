@@ -14,27 +14,10 @@ import {
   statusFromMessages,
   warningMessage,
 } from '../../converter/diagnostics.js';
-import { addDataAbsentReasonExtension } from '../util/elements.js';
-
-/**
- * Return whether a primitive has a value or extension content that represents
- * a valid value-less occurrence in FHIR JSON.
- *
- * An element id alone does not satisfy Element invariant ele-1, so it is not
- * sufficient here. Any extension does satisfy ele-1 and can represent the
- * required primitive without a bare value.
- *
- * @param {Object|undefined} object Object holding the primitive.
- * @param {string} key Primitive property name.
- * @returns {boolean} True when the primitive is represented validly.
- */
-function hasPrimitiveValueOrExtension(object, key) {
-  if (!object || typeof object !== 'object') return false;
-  if (Object.hasOwn(object, key) && object[key] != null) return true;
-
-  const extensions = object[`_${key}`]?.extension;
-  return Array.isArray(extensions) && extensions.length > 0;
-}
+import {
+  addDataAbsentReasonExtension,
+  hasPrimitiveValueOrExtension,
+} from '../util/elements.js';
 
 /**
  * R4 -> R3 Binary postprocessor descriptor.
