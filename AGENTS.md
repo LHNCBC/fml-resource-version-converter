@@ -1,19 +1,38 @@
 # Agent Guidelines
 
+## Commands
+Run from the project root (Node >= 20.11.0):
+
+```bash
+npm test                            # run the full mocha suite
+node bin/convert.js R4 R5 in.json   # CLI conversion, result to stdout
+
+npm run build:coverage       # maintainer: regenerate COVERAGE.md (do not edit it by hand)
+npm run build:fhir-defs      # maintainer: regenerate data/fhir-defs/ from the spec zips
+node tools/check-data.js     # maintainer: check bundled cross-version data; report ambiguities
+```
+
 ## General
 - The .scratch/ directory is a work area for use to communicate between the
-  developer and the AI. It's not going into the build. Specifically:
-  - .scratch/AI/: this your scratch area for your work, put your stuff here.
-  - .scratch/human/: this is my area. You can read from here, but DO NOT write to it.
-  
-- Check my directions/instructions first to see if they make sense before execution 
-- If, at any point, you feel that my directions are off, please confirm with me first.
+  developer and the AI.
+  - It's git-ignored and is not going into the build.
+  - .scratch/AI/: this is your scratch area, put your stuff here.
+  - .scratch/human/: this is my area. You can read from here, but
+    DO NOT write/update anything there unless explicitly asked to.
+
+- Check my instructions before execution to see if they make sense.
+- If, at any point, you feel that my instructions are off, please
+  pause and confirm with me first.
+- When you completed your response, please so indicate, e.g.,
+  "Completed" with a green checkmark or similar.
 
 ## Workflow
-- Questions: Answer, but do NOT make changes until ordered.
-- Tasks: Propose a plan, wait for approval, then execute.
-- Edits: Use editor tools (not terminal sed/awk), prompt for my approval (keep/decline)
-- After edits: Run tests; stop and report if they fail.
+- Questions: Answer, but do NOT make changes until instructed.
+- Tasks: Propose a plan, wait for approval, and then execute.
+- Edits: Use IDE editor tools (not from terminal) whenever
+  possible to avoid causing content out of sync.
+  Always prompt for my approval (keep/decline) for each change.
+- After edits: run tests; stop and report if they fail.
 - New files: Propose before creating.
 - Destructive actions: Always ask before deleting or renaming files.
 - Context: Read relevant files before editing; don't guess.
@@ -32,10 +51,7 @@
 - Stay within this project directory
 
 ## Special Notes
-- The FML framework code (under src/fml_base_conv) should execute the FML
-  transformations faithfully, and that it does not need to, and should not
-  implement the special business logic that the converters outside of this
-  framework, e.g., the legacy converter.
-- When using tools/compare-converters.js and test/data/test/data/qn-ver-conv-test* files
-  for testing/comparision, report such special business logics from the legacy but do
-  not consider these as bugs of the FML framework code.
+- The FML engine code (under src/fml_base_conv) should execute the FML
+  transformations faithfully, and that it does not need to, and should not,
+  implement any business logic or fixes that are specific to some resource
+  type(s). In other words, the engine should be absolutely pure.

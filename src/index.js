@@ -5,26 +5,29 @@
 //   - Policy / report enums (consumers, to interpret options and results).
 //   - Authoring helpers (contributors writing pre-/post-processors).
 //
-// The multi-hop convert() is added in a later phase; for now the single-hop
-// entry point is the public conversion function. The low-level FML engine
-// factory lives behind the package's "./fml-engine" subpath, not here. Other
-// internal machinery (coverage rollups, status ranking, validators) is private.
+// The two conversion entry points are objects exposing convert():
+// singleHopConverter (one adjacent hop, flat result; the building block) and
+// chainedConverter (multi-hop incl. length 1, hops[] result). The low-level FML
+// engine factory lives behind the package's "./fml-engine" subpath, not here.
+// Other internal machinery (coverage rollups, status ranking, validators) is
+// private.
 import { converterContext } from './converter/converterContext.js';
 
-// ----- Conversion entry point ----------------------------------------------
-export { convertSingleHop } from './converter/singleHopConverter.js';
+// ----- Conversion entry points ---------------------------------------------
+export { singleHopConverter } from './converter/singleHopConverter.js';
+export { chainedConverter } from './converter/chainedConverter.js';
 
 // ----- Registry read (inspect / re-assemble a conversion's pipeline) --------
 /**
  * Read the registry entry for one adjacent version hop of a resource type.
  *
  * Returns the FML coverage and the package's postprocessor descriptors so a
- * caller can reorder / subset / extend them and feed them back to
- * convertSingleHop via opts.postprocs (with the 'replace' policy). The entry is
- * a safe copy - a fresh `fml` object, a fresh `processors` array, and a fresh
- * (shallow) copy of each descriptor - so mutating any of it (including a
- * descriptor's `coverage` or `execute`) never affects the package tables or a
- * later lookup/conversion. Each descriptor includes its `execute` function.
+ * caller can reorder / subset / extend them and feed them back to a converter
+ * via postproc/postprocs (e.g. a { policy: 'replace', psps } entry). The entry
+ * is a safe copy - a fresh `fml` object, a fresh `processors` array, and a fresh
+ * copy of each descriptor - so mutating any of it (including a descriptor's
+ * `coverage` or `execute`) never affects the package tables or a later
+ * lookup/conversion. Each descriptor includes its `execute` function.
  *
  * Read-only and tolerant: returns null for a tuple with no direct FML mapping
  * (unknown resource type, or invalid / non-adjacent version pair), so callers
@@ -44,7 +47,7 @@ export function getRegistryEntry(resourceType, fromVer, toVer) {
 
 // ----- Policy / report enums (used in options and result objects) ----------
 // COVERAGE / STATUS / MESSAGE_TYPE appear in the result object and its reports;
-// POSTPROCESS_POLICY is used in convertSingleHop options.
+// POSTPROCESS_POLICY is used in postproc/postprocs option entries.
 export { POSTPROCESS_POLICY } from './converter/postprocessPolicy.js';
 export { COVERAGE } from './converter/coverage.js';
 export { STATUS, MESSAGE_TYPE } from './converter/diagnostics.js';
@@ -59,4 +62,3 @@ export {
   warningMessage,
   statusFromMessages,
 } from './converter/diagnostics.js';
-

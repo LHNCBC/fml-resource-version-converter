@@ -116,6 +116,62 @@ function describeFmlFile(filePath) {
 }
 
 /**
+ * Scan one version direction and index its resource mappings by source type.
+ *
+ * Exported so maintainer tooling can enumerate the declared routes using the
+ * exact same detection rules the runtime uses, rather than re-deriving them.
+ * An unknown version or an absent direction directory yields an empty map; a
+ * malformed FML file throws.
+ *
+ * @param {string} fromVer Canonical source version.
+ * @param {string} toVer Canonical target version.
+ * @param {string} xverRoot Absolute FML mapping root.
+ * @returns {Map<string, Array<Object>>} Source type to candidate descriptors.
+ */
+export function scanResourceMappings(fromVer, toVer, xverRoot) {
+  const bySource = new Map();
+  if (!KNOWN_VERSIONS.has(fromVer) || !KNOWN_VERSIONS.has(toVer)) return bySource;
+
+  const directionDir = path.join(xverRoot, `${fromVer}to${toVer}`);
+  let entries;
+  try {
+    entries = fs.readdirSync(directionDir, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === 'ENOENT') return bySource;
+    throw error;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.fml')) continue;
+    const filePath = path.join(directionDir, entry.name);
+    let descriptors;
+    try {
+      descriptors = describeFmlFile(filePath);
+    } catch (error) {
+      throw new Error(
+        `FML mapping catalog: failed to inspect ${filePath}: ${error.message}`,
+        { cause: error },
+      );
+    }
+
+    for (const descriptor of descriptors) {
+      const candidates = bySource.get(descriptor.sourceResourceType) || [];
+      candidates.push(descriptor);
+      bySource.set(descriptor.sourceResourceType, candidates);
+    }
+  }
+
+  for (const [sourceType, candidates] of bySource) {
+    candidates.sort((a, b) =>
+      a.targetResourceType.localeCompare(b.targetResourceType) ||
+      a.structureMapName.localeCompare(b.structureMapName));
+    bySource.set(sourceType, Object.freeze(candidates));
+  }
+
+  return bySource;
+}
+
+/**
  * Create a lazy mapping catalog bound to one FML input root.
  *
  * @param {string} xverRoot Absolute FML mapping root.
@@ -126,7 +182,7 @@ export function createFmlMappingCatalog(xverRoot) {
   const directionCache = new Map();
 
   /**
-   * Load and index one version direction.
+   * Load and index one version direction, memoizing the result.
    *
    * @param {string} fromVer Canonical source version.
    * @param {string} toVer Canonical target version.
@@ -136,54 +192,10 @@ export function createFmlMappingCatalog(xverRoot) {
     const cacheKey = `${fromVer}->${toVer}`;
     if (directionCache.has(cacheKey)) return directionCache.get(cacheKey);
 
-    const bySource = new Map();
-    if (!KNOWN_VERSIONS.has(fromVer) || !KNOWN_VERSIONS.has(toVer)) {
-      directionCache.set(cacheKey, bySource);
-      return bySource;
-    }
-
-    const directionDir = path.join(xverRoot, `${fromVer}to${toVer}`);
-    let entries;
-    try {
-      entries = fs.readdirSync(directionDir, { withFileTypes: true });
-    } catch (error) {
-      if (error?.code === 'ENOENT') {
-        directionCache.set(cacheKey, bySource);
-        return bySource;
-      }
-      throw error;
-    }
-
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.fml')) continue;
-      const filePath = path.join(directionDir, entry.name);
-      let descriptors;
-      try {
-        descriptors = describeFmlFile(filePath);
-      } catch (error) {
-        throw new Error(
-          `FML mapping catalog: failed to inspect ${filePath}: ${error.message}`,
-          { cause: error },
-        );
-      }
-
-      for (const descriptor of descriptors) {
-        const candidates = bySource.get(descriptor.sourceResourceType) || [];
-        candidates.push(descriptor);
-        bySource.set(descriptor.sourceResourceType, candidates);
-      }
-    }
-
-    for (const [sourceType, candidates] of bySource) {
-      candidates.sort((a, b) =>
-        a.targetResourceType.localeCompare(b.targetResourceType) ||
-        a.structureMapName.localeCompare(b.structureMapName));
-      bySource.set(sourceType, Object.freeze(candidates));
-    }
-
-    // Publish only a fully inspected direction. If any file above fails,
-    // callers must retry the scan and see the same integrity error rather than
-    // receiving a partial map left behind by the failed attempt.
+    // Publish only a fully inspected direction. If the scan throws, nothing is
+    // cached, so callers must retry and see the same integrity error rather
+    // than receiving a partial map left behind by the failed attempt.
+    const bySource = scanResourceMappings(fromVer, toVer, xverRoot);
     directionCache.set(cacheKey, bySource);
     return bySource;
   }

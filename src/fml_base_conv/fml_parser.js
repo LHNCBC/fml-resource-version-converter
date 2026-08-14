@@ -60,6 +60,11 @@
  * @property {GuardExpr|null} where     `where (...)` guard.
  * @property {GuardExpr|null} check     `check (...)` guard. Warning only;
  *                                      does not short-circuit the rule.
+ * @property {GuardExpr|null} log       `log (...)` clause. Diagnostic only:
+ *                                      per the FML spec its evaluated result
+ *                                      is a log message; it does not affect
+ *                                      the transformation. The engine emits
+ *                                      the evaluated value as an info message.
  * @property {'first'|'last'|'not_first'|'not_last'|'only_one'|null} listMode
  *
  * @typedef {Object} Target
@@ -67,6 +72,11 @@
  * @property {string|null}    path       Dot-path on context.
  * @property {string|null}    alias      Bound name from `as X`.
  * @property {Transform|null} transform  RHS expression after `=`, if any.
+ * @property {'first'|'last'|'single'|'share'|'collate'} [listMode]  Target
+ *                                       list mode from the FML grammar's
+ *                                       targetListMode (e.g. `tgt.x as t first`).
+ * @property {string} [shareVar]         Variable name captured for `share`
+ *                                       mode (`... share var`).
  *
  * @typedef {Object} Transform
  * @property {string}              fn     Transform function name.
@@ -211,6 +221,30 @@ export function tokenise(text, onWarning) {
     // already handled above; left in for safety on malformed files).
     if (c === '<' || c === '>' || c === '+') { i++; start = i; continue; }
 
+    // --- Backtick-delimited identifier (FHIRPath): `div`, `where`, ... ---
+    // FHIRPath (and thus FML paths) allow an identifier that collides with a
+    // reserved word or contains special characters to be delimited with
+    // backticks. We emit the inner text as a plain WORD so downstream path
+    // navigation sees the real field name. (Backticks inside parenthesised
+    // FHIRPath expressions are already preserved verbatim and handed to
+    // fhirpath.js; this covers the bare-path case.)
+    if (c === '`') {
+      i++;
+      let s = '';
+      while (i < text.length && text[i] !== '`') {
+        if (text[i] === '\\') { i++; s += text[i++] ?? ''; continue; }
+        if (text[i] === '\n') line++;
+        s += text[i++];
+      }
+      if (i >= text.length) {
+        onWarning?.(`Tokenizer: unterminated backtick identifier starting near line ${line}`);
+      }
+      i++; // consume closing backtick
+      push(TK.WORD, s);
+      start = i;
+      continue;
+    }
+
     // --- Quoted strings (single or double) ---
     if (c === "'" || c === '"') {
       const quote = c;
@@ -327,6 +361,28 @@ export function parseFml(fmlText, onWarning) {
         advance();
       }
       if (at(TK.SEMI)) advance();
+    } else if (atWord('let')) {
+      // `let name = <fhirpath> ;` -- FML constants are not yet supported.
+      // Emit one clear diagnostic and skip the whole declaration cleanly
+      // (to the terminating `;`) rather than warning token-by-token.
+      onWarning?.(`Parser: 'let' constants are not yet supported (line ${peek().line}); declaration ignored`);
+      while (!at(TK.SEMI) && !at(TK.EOF)) advance();
+      if (at(TK.SEMI)) advance();
+    } else if (atWord('conceptmap')) {
+      // `conceptmap "url" { ... }` -- inline ConceptMaps are not yet
+      // supported. Emit one clear diagnostic and skip the whole brace-
+      // balanced block cleanly.
+      onWarning?.(`Parser: inline 'conceptmap' is not yet supported (line ${peek().line}); block ignored`);
+      advance();
+      while (!at(TK.LBRACE) && !at(TK.EOF) && !at(TK.SEMI)) advance();
+      if (at(TK.LBRACE)) {
+        let depth = 0;
+        do {
+          if (at(TK.LBRACE)) depth++;
+          else if (at(TK.RBRACE)) depth--;
+          advance();
+        } while (depth > 0 && !at(TK.EOF));
+      }
     } else {
       onWarning?.(`Parser: unexpected token ${peek().kind} '${peek().value}' at line ${peek().line}, skipping`);
       advance();
@@ -465,13 +521,13 @@ export function parseFml(fmlText, onWarning) {
 
   /**
    * Parse one source clause:
-   *   context [. dotPath] [: TypeHint] [listMode] [as alias] [where (...)] [check (...)]
+   *   context [. dotPath] [: TypeHint] [listMode] [as alias] [where (...)] [check (...)] [log (...)]
    */
   function parseOneSource() {
     const src = {
       context: expect(TK.WORD).value,
       path: null, alias: null, typeHint: null,
-      where: null, check: null, listMode: null,
+      where: null, check: null, log: null, listMode: null,
     };
     if (at(TK.DOT))    { advance(); src.path     = parseDotPath(); }
     if (at(TK.COLON))  { advance(); src.typeHint = expect(TK.WORD).value; }
@@ -485,6 +541,9 @@ export function parseFml(fmlText, onWarning) {
     if (atWord('as'))    { advance(); src.alias = expect(TK.WORD).value; }
     if (atWord('where')) { advance(); src.where = parseGuardExpr(); }
     if (atWord('check')) { advance(); src.check = parseGuardExpr(); }
+    // `log (...)` -- diagnostic only per the FML spec. The engine evaluates
+    // the parsed expression and emits its value as an info message.
+    if (atWord('log'))   { advance(); src.log = parseGuardExpr(); }
     return src;
   }
 
@@ -569,6 +628,14 @@ export function parseFml(fmlText, onWarning) {
       // Complex expression: capture original source text byte-for-byte.
       return { fhirpath: captureBalancedParenText() };
     }
+    // Bare string literal as the whole expression (valid FHIRPath), e.g.
+    // `log 'message'` or `check 'note'`. Re-wrap it as a FHIRPath string
+    // literal so where/check/log evaluate it consistently instead of the
+    // parser throwing on the unexpected STRING token.
+    if (at(TK.STRING)) {
+      const s = advance().value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      return { fhirpath: `'${s}'` };
+    }
     let left = expect(TK.WORD).value;
     while (at(TK.DOT)) { advance(); left += '.' + expect(TK.WORD).value; }
     return { left, op: null, right: null };
@@ -585,14 +652,14 @@ export function parseFml(fmlText, onWarning) {
     return out;
   }
 
-  /** Parse one target clause: `context [. dotPath] [= transform] [as alias]` or `(expr) as alias`. */
+  /** Parse one target clause: `context [. dotPath] [= transform] [as alias] [listMode]` or `(expr) as alias`. */
   function parseOneTarget() {
     // Parenthesized FHIRPath expression as target: `(expr) as alias`
     if (at(TK.LPAREN)) {
       const fhirpathExpr = captureBalancedParenText();
       const tgt = { context: null, path: null, alias: null, transform: null, fhirpathExpr };
       if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
-      return tgt;
+      return parseTargetListMode(tgt);
     }
 
     const tgt = { context: expect(TK.WORD).value, path: null, alias: null, transform: null };
@@ -601,11 +668,32 @@ export function parseFml(fmlText, onWarning) {
       tgt.transform = parseTransformFromName(tgt.context);
       tgt.context = null;
       if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
-      return tgt;
+      return parseTargetListMode(tgt);
     }
     if (at(TK.DOT))   { advance(); tgt.path = parseDotPath(); }
     if (at(TK.EQ))    { advance(); tgt.transform = parseTransform(); }
     if (atWord('as')) { advance(); tgt.alias = expect(TK.WORD).value; }
+    return parseTargetListMode(tgt);
+  }
+
+  /**
+   * Capture an optional target list mode keyword following a target clause,
+   * per the FML grammar's targetListMode: `first | last | single | share |
+   * collate`. `share` is followed by a variable name. Recognising these
+   * keeps the parser from mis-reading `tgt.x as t first, ...` (where the
+   * bare `first` token previously terminated the target list and was then
+   * mis-consumed as the next rule's source context). Stores the mode on
+   * `tgt.listMode` (and the variable on `tgt.shareVar` for `share`).
+   *
+   * @param {Object} tgt  The target node being built.
+   * @returns {Object}    The same target node, for chaining.
+   */
+  function parseTargetListMode(tgt) {
+    if (atWord('first') || atWord('last') || atWord('single') ||
+        atWord('share') || atWord('collate')) {
+      tgt.listMode = advance().value;
+      if (tgt.listMode === 'share' && at(TK.WORD)) tgt.shareVar = advance().value;
+    }
     return tgt;
   }
 
@@ -665,4 +753,3 @@ export function parseFml(fmlText, onWarning) {
     return { name, args };
   }
 }
-

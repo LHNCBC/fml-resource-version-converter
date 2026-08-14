@@ -4,7 +4,7 @@
  *
  * By default, this script does not use the network. It checks that the expected
  * raw FHIR spec archives are present under data/fhir-spec-downloads/ and then
- * invokes tools/build_fhir_tables.js once per version.
+ * invokes tools/fhir-spec-parser.js once per version.
  *
  * Use --download-missing to fetch missing archives before building.
  */
@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TOOL_DIR, '..');
-const BUILD_TABLES_SCRIPT = path.join(TOOL_DIR, 'build_fhir_tables.js');
+const PARSER_SCRIPT = path.join(TOOL_DIR, 'fhir-spec-parser.js');
 
 const SPEC_DIR = path.join(REPO_ROOT, 'data/fhir-spec-downloads');
 const OUT_DIR = path.join(REPO_ROOT, 'data/fhir-defs');
@@ -234,7 +234,7 @@ function buildTables(specs, outDir) {
   for (const spec of specs) {
     console.error(`Building ${spec.version} from ${path.relative(REPO_ROOT, spec.file)}`);
     const result = spawnSync(process.execPath, [
-      BUILD_TABLES_SCRIPT,
+      PARSER_SCRIPT,
       spec.version,
       spec.file,
       outDir,
@@ -243,7 +243,7 @@ function buildTables(specs, outDir) {
       stdio: 'inherit',
     });
     if (result.status !== 0) {
-      throw new Error(`build_fhir_tables.js failed for ${spec.version}`);
+      throw new Error(`fhir-spec-parser.js failed for ${spec.version}`);
     }
   }
 }

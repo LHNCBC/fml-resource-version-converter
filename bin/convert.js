@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * @fileoverview Really simple command-line runner for a single-hop conversion.
+ * @fileoverview Really simple command-line runner for resource conversion.
  *
- * A minimal, dependency-free harness for trying out convertSingleHop from the
- * shell. Reads a FHIR resource from a JSON file (or stdin), converts it across
- * one adjacent version hop, prints the converted resource to stdout, and prints
- * a short diagnostics summary (aggregated across all conversion stages) to
- * stderr. Bundle entry.resource values are not recursively converted.
+ * A minimal, dependency-free harness for trying out chainedConverter.convert
+ * from the shell. Reads a FHIR resource from a JSON file (or stdin), converts it
+ * across one or more version hops, prints the converted resource to stdout, and
+ * prints a short diagnostics summary, aggregated across all conversion stages
+ * and hops, to stderr. Bundle entry.resource values are not recursively
+ * converted.
  *
  * Usage:
  *   node bin/convert.js <fromVer> <toVer> [inputFile] [options]
@@ -19,13 +20,16 @@
  *
  * Examples:
  *   node bin/convert.js R4 R5 ./patient.json
+ *   node bin/convert.js R3 R5 ./questionnaire.json
  *   cat patient.json | node bin/convert.js R4 R5
  *   node bin/convert.js R4 R3 ./request.json --target-resource-type ProcedureRequest
  *
  * @module bin/convert
  */
 import fs from 'node:fs';
-import { convertSingleHop } from '../src/converter/singleHopConverter.js';
+import { chainedConverter } from '../src/converter/chainedConverter.js';
+import { singleHopConverter } from '../src/converter/singleHopConverter.js';
+import { planHops } from '../src/fml_base_conv/create_converter.js';
 
 /**
  * Read the whole of a readable stream as a UTF-8 string.
@@ -69,11 +73,11 @@ function parseArgs(args) {
       }
 
       const value = args[++i];
-      if (!value || value.startsWith('--')) {
+      if (!value || value.startsWith('-')) {
         throw new Error('--target-resource-type requires a resource type');
       }
       targetResourceType = value;
-    } else if (arg.startsWith('--')) {
+    } else if (arg.startsWith('-')) {
       throw new Error(`unknown option: ${arg}`);
     } else {
       positional.push(arg);
@@ -96,11 +100,67 @@ function printUsage() {
   process.stderr.write(
     'Usage: node bin/convert.js <fromVer> <toVer> [inputFile] [options]\n' +
     '  Reads inputFile (or stdin) as a FHIR resource JSON and converts it\n' +
-    '  across one adjacent version hop. Versions: R2|R3|R4|R4B|R5.\n' +
+    '  across one or more version hops. Versions: R2|R3|R4|R4B|R5.\n' +
     '  --verbose also prints info-level diagnostics (warnings always shown).\n' +
-    '  --target-resource-type <type> selects an ambiguous target mapping.\n' +
+    '  --target-resource-type <type> selects an ambiguous single-hop target.\n' +
     '  Note: Bundle entry.resource values are not recursively converted.\n',
   );
+}
+
+/**
+ * Normalize a flat single-hop result to the CLI's chained result shape.
+ *
+ * @param {Object} result Flat result from singleHopConverter.convert().
+ * @param {string} fromVer Source version.
+ * @param {string} toVer Target version.
+ * @returns {Object} Result with one entry in hops[].
+ */
+function normalizeSingleHopResult(result, fromVer, toVer) {
+  const {
+    resource,
+    coverage,
+    status,
+    preprocessors,
+    fml_base_conv: fmlBaseConv,
+    postprocessors,
+  } = result;
+  const hop = { fromVer, toVer, fml_base_conv: fmlBaseConv };
+
+  if (preprocessors) hop.preprocessors = preprocessors;
+  if (postprocessors) hop.postprocessors = postprocessors;
+
+  return { resource, coverage, status, hops: [hop] };
+}
+
+/**
+ * Collect diagnostics from every report component in a chained result.
+ *
+ * @param {Array<Object>} hops Per-hop conversion reports.
+ * @returns {Array<Object>} Messages annotated with hop and component metadata.
+ */
+function collectMessages(hops) {
+  const messages = [];
+
+  for (const hop of hops) {
+    const hopLabel = `${hop.fromVer} -> ${hop.toVer}`;
+    const components = [
+      ...(hop.preprocessors || []),
+      hop.fml_base_conv,
+      ...(hop.postprocessors || []),
+    ].filter(Boolean);
+
+    for (const component of components) {
+      for (const message of (component.messages || [])) {
+        messages.push({
+          ...message,
+          component: component.name,
+          hop: hopLabel,
+        });
+      }
+    }
+  }
+
+  return messages;
 }
 
 /**
@@ -142,36 +202,41 @@ async function main() {
     return;
   }
 
-  const result = convertSingleHop(resource, fromVer, toVer, {
-    targetResourceType,
-  });
+  // Target selection is a single-hop capability. Check it here so the user gets
+  // a command-line-oriented message instead of one naming the JavaScript API.
+  if (targetResourceType !== undefined && planHops(fromVer, toVer).length !== 1) {
+    process.stderr.write(
+      `Error: --target-resource-type is supported only for an adjacent version pair, `
+      + `but ${fromVer} -> ${toVer} takes more than one hop.\n`
+      + `       Convert one hop at a time, selecting the target on the ambiguous hop.\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const result = targetResourceType === undefined
+    ? chainedConverter.convert(resource, fromVer, toVer)
+    : normalizeSingleHopResult(
+      singleHopConverter.convert(resource, fromVer, toVer, { targetResourceType }),
+      fromVer,
+      toVer,
+    );
 
   // Converted resource goes to stdout (pipe/redirect friendly).
   process.stdout.write(`${JSON.stringify(result.resource, null, 2)}\n`);
 
   // Diagnostics summary goes to stderr so it never pollutes the JSON output.
-  // Aggregate messages across every executed stage (preprocessors, the FML
-  // engine, and postprocessors); the result rolls status up over all of them,
-  // so reading only the FML stage would hide pre/postprocessor diagnostics and
-  // undercount warnings. Each message keeps its stage name for context.
-  const stages = [
-    ...(result.preprocessors ?? []),
-    result.fml_base_conv,
-    ...(result.postprocessors ?? []),
-  ].filter(Boolean);
-  const messages = stages.flatMap(
-    stage => (stage.messages ?? []).map(m => ({ ...m, stage: stage.name })),
-  );
+  const messages = collectMessages(result.hops);
   const warnings = messages.filter(m => m.type === 'warning');
   const infos = messages.filter(m => m.type === 'info');
   process.stderr.write(
     `\n[${fromVer} -> ${toVer}] status=${result.status} coverage=${result.coverage} ` +
-    `warnings=${warnings.length} info=${infos.length}\n`,
+    `hops=${result.hops.length} warnings=${warnings.length} info=${infos.length}\n`,
   );
   // Always show warnings; show info only when --verbose is given.
   const shown = verbose ? messages : warnings;
   for (const m of shown) {
-    process.stderr.write(`  - ${m.stage} ${m.type}: ${m.text}\n`);
+    process.stderr.write(`  - [${m.hop} ${m.component}] ${m.type}: ${m.text}\n`);
   }
   if (!verbose && infos.length > 0) {
     process.stderr.write(`  (${infos.length} info messages hidden; pass --verbose to show)\n`);

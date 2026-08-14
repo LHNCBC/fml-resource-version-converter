@@ -39,7 +39,6 @@ describe('FML parse: all cross-version files', function () {
     });
   }
 });
-
 // A standalone minus (e.g. the `- 1` in `where (v = ( - 1))`) must tokenise as
 // a MINUS token, not trigger an "unrecognised character" warning. Otherwise the
 // warning leaks into any conversion that merely imports the file (all sibling
@@ -65,4 +64,3 @@ describe('FML tokeniser: standalone minus', function () {
     assert.deepEqual(stray, [], `unexpected stray-minus warnings: ${stray.join(', ')}`);
   });
 });
-

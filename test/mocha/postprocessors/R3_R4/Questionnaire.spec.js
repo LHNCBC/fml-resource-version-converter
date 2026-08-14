@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { COVERAGE } from '../../../../src/converter/coverage.js';
 import { MESSAGE_TYPE, STATUS } from '../../../../src/converter/diagnostics.js';
-import { convertSingleHop } from '../../../../src/converter/singleHopConverter.js';
+import { singleHopConverter } from '../../../../src/converter/singleHopConverter.js';
 import { conv_R3_to_R4, conv_R4_to_R3 } from '../../../../src/postprocessors/R3_R4/Questionnaire.js';
 
 const TEST_DATA = path.resolve(import.meta.dirname, '../../../data');
@@ -40,7 +40,7 @@ describe('postprocessors/R3_R4 Questionnaire R3 -> R4', function () {
   let result;
 
   before(function () {
-    result = convertSingleHop(r3Questionnaire, 'R3', 'R4');
+    result = singleHopConverter.convert(r3Questionnaire, 'R3', 'R4');
   });
 
   it('registers the postprocessor and reports FML known gaps + best-effort hop', function () {
@@ -295,11 +295,11 @@ describe('postprocessors/R3_R4 Questionnaire R3 -> R4', function () {
 describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
 
   // -------- through the single-hop pipeline --------------------------------
-  describe('via convertSingleHop', function () {
+  describe('via singleHopConverter.convert', function () {
     let result;
 
     before(function () {
-      result = convertSingleHop(r4Questionnaire, 'R4', 'R3');
+      result = singleHopConverter.convert(r4Questionnaire, 'R4', 'R3');
     });
 
     it('registers the postprocessor and reports FML known gaps + best-effort hop', function () {
@@ -370,7 +370,7 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
           answerOption: [{ _valueString: companion }],
         }],
       };
-      const converted = convertSingleHop(input, 'R4', 'R3');
+      const converted = singleHopConverter.convert(input, 'R4', 'R3');
 
       assert.deepEqual(
         converted.resource.item[0].option,
@@ -776,4 +776,3 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
     });
   });
 });
-

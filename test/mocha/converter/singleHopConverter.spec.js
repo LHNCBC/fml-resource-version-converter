@@ -6,7 +6,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { COVERAGE } from '../../../src/converter/coverage.js';
 import { MESSAGE_TYPE, STATUS } from '../../../src/converter/diagnostics.js';
-import { convertSingleHop } from '../../../src/converter/singleHopConverter.js';
+import { singleHopConverter } from '../../../src/converter/singleHopConverter.js';
+
+const { convert } = singleHopConverter;
 
 const TEST_DATA = path.resolve(import.meta.dirname, '../../data');
 const r4Questionnaire = JSON.parse(
@@ -22,45 +24,67 @@ describe('converter/singleHopConverter', function () {
 
   // -------- version validation ---------------------------------------------
   describe('version validation', function () {
-    // No FML mapping files ship for unsupported/non-adjacent version pairs,
-    // so the mapping gate rejects them before any conversion is attempted.
     it('rejects R4 <-> R4B (no mapping ships)', function () {
-      assert.throws(() => convertSingleHop(r4Questionnaire, 'R4', 'R4B'), /no direct FML mapping/);
+      assert.throws(
+        () => convert(r4Questionnaire, 'R4', 'R4B'),
+        /R4 and R4B are near-equivalent/,
+      );
     });
 
-    it('rejects a non-adjacent pair (multi-hop)', function () {
-      assert.throws(() => convertSingleHop(r4Questionnaire, 'R3', 'R5'), /no direct FML mapping/);
+    it('rejects unknown versions', function () {
+      assert.throws(
+        () => convert(r4Questionnaire, 'R6', 'R5'),
+        /Unknown FHIR version: R6/,
+      );
+      assert.throws(
+        () => convert(r4Questionnaire, 'R4', 'R6'),
+        /Unknown FHIR version: R6/,
+      );
+    });
+
+    it('rejects a same-version pair', function () {
+      assert.throws(
+        () => convert(r4Questionnaire, 'R4', 'R4'),
+        /source and target versions are the same/,
+      );
+    });
+
+    it('directs a non-adjacent pair to chainedConverter', function () {
+      assert.throws(
+        () => convert(r4Questionnaire, 'R3', 'R5'),
+        /requires an adjacent version pair; use chainedConverter\.convert for R3->R5/,
+      );
     });
   });
 
   // -------- resource validation --------------------------------------------
   describe('resource validation', function () {
     it('rejects non-object resource', function () {
-      assert.throws(() => convertSingleHop(null, 'R4', 'R5'), /resourceType is required/);
-      assert.throws(() => convertSingleHop('string', 'R4', 'R5'), /resourceType is required/);
-      assert.throws(() => convertSingleHop([], 'R4', 'R5'), /resourceType is required/);
+      assert.throws(() => convert(null, 'R4', 'R5'), /resourceType is required/);
+      assert.throws(() => convert('string', 'R4', 'R5'), /resourceType is required/);
+      assert.throws(() => convert([], 'R4', 'R5'), /resourceType is required/);
     });
 
     it('rejects resource without resourceType', function () {
-      assert.throws(() => convertSingleHop({}, 'R4', 'R5'), /resourceType is required/);
+      assert.throws(() => convert({}, 'R4', 'R5'), /resourceType is required/);
     });
 
     it('throws when no FML mapping exists for the resource type', function () {
       assert.throws(
-        () => convertSingleHop({ resourceType: 'NoSuchResource' }, 'R4', 'R5'),
+        () => convert({ resourceType: 'NoSuchResource' }, 'R4', 'R5'),
         /no direct FML mapping for NoSuchResource/,
       );
     });
 
     it('rejects an invalid targetResourceType option', function () {
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', {
+        () => convert(r4Questionnaire, 'R4', 'R5', {
           targetResourceType: '',
         }),
         /targetResourceType must be a non-empty string/,
       );
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', {
+        () => convert(r4Questionnaire, 'R4', 'R5', {
           targetResourceType: 42,
         }),
         /targetResourceType must be a non-empty string/,
@@ -71,7 +95,7 @@ describe('converter/singleHopConverter', function () {
   // -------- renamed and ambiguous resource mappings -------------------------
   describe('renamed and ambiguous resource mappings', function () {
     it('converts Sequence R3 to MolecularSequence R4', function () {
-      const result = convertSingleHop({
+      const result = convert({
         resourceType: 'Sequence',
         id: 'sequence-r3',
         type: 'dna',
@@ -83,7 +107,7 @@ describe('converter/singleHopConverter', function () {
     });
 
     it('converts MolecularSequence R4 to Sequence R3', function () {
-      const result = convertSingleHop({
+      const result = convert({
         resourceType: 'MolecularSequence',
         id: 'sequence-r4',
         type: 'dna',
@@ -105,11 +129,11 @@ describe('converter/singleHopConverter', function () {
       };
 
       assert.throws(
-        () => convertSingleHop(
+        () => convert(
           { resourceType: 'ServiceRequest', status: 'active', intent: 'order' },
           'R4',
           'R3',
-          { preprocs: [preprocessor] },
+          { preproc: [preprocessor] },
         ),
         /targetResourceType is required.*ProcedureRequest, ReferralRequest/,
       );
@@ -125,10 +149,10 @@ describe('converter/singleHopConverter', function () {
         subject: { reference: 'Patient/example' },
       };
 
-      const procedure = convertSingleHop(input, 'R4', 'R3', {
+      const procedure = convert(input, 'R4', 'R3', {
         targetResourceType: 'ProcedureRequest',
       });
-      const referral = convertSingleHop(input, 'R4', 'R3', {
+      const referral = convert(input, 'R4', 'R3', {
         targetResourceType: 'ReferralRequest',
       });
 
@@ -142,7 +166,7 @@ describe('converter/singleHopConverter', function () {
     let result;
 
     before(function () {
-      result = convertSingleHop(r4Questionnaire, 'R4', 'R5');
+      result = convert(r4Questionnaire, 'R4', 'R5');
     });
 
     it('returns the standard result object shape', function () {
@@ -191,7 +215,7 @@ describe('converter/singleHopConverter', function () {
         status: 'active',
         item: [{ linkId: 'q1', type: 'choice', answerOption: [{ valueCoding: { code: 'b' } }] }],
       };
-      const res = convertSingleHop(q, 'R4', 'R5');
+      const res = convert(q, 'R4', 'R5');
       assert.equal(res.status, STATUS.OK);
       const warnings = res.fml_base_conv.messages.filter(m => m.type === MESSAGE_TYPE.WARNING);
       assert.equal(
@@ -232,7 +256,7 @@ describe('converter/singleHopConverter', function () {
         }],
       };
 
-      const result = convertSingleHop(q, 'R4', 'R5');
+      const result = convert(q, 'R4', 'R5');
 
       assert.equal(result.status, STATUS.OK);
       assert.equal(result.coverage, COVERAGE.COMPLETE);
@@ -249,7 +273,7 @@ describe('converter/singleHopConverter', function () {
   });
 
   // -------- preprocessors --------------------------------------------------
-  describe('preprocessors', function () {
+  describe('preprocessors (preproc)', function () {
     it('runs a preprocessor before the FML engine and records it', function () {
       let seenCtx = null;
       let seenInput = null;
@@ -263,7 +287,7 @@ describe('converter/singleHopConverter', function () {
         },
       };
 
-      const result = convertSingleHop(r4Questionnaire, 'R4', 'R5', { preprocs: [preproc] });
+      const result = convert(r4Questionnaire, 'R4', 'R5', { preproc: [preproc] });
 
       assert.deepEqual(seenCtx, { fromVer: 'R4', toVer: 'R5' });
       // Preproc input is the cloned resource, not the caller's object.
@@ -273,8 +297,6 @@ describe('converter/singleHopConverter', function () {
       assert.equal(result.preprocessors.length, 1);
       assert.equal(result.preprocessors[0].name, 'tagInput');
       assert.equal(result.preprocessors[0].status, STATUS.OK);
-      // Top-level status may be warning (from FML engine); the preproc
-      // itself returned ok so its own report status is ok above.
       assert.ok([STATUS.OK, STATUS.WARNING].includes(result.status));
       // The preproc-injected field flows through the FML step.
       assert.equal(result.resource.language, 'en');
@@ -292,7 +314,7 @@ describe('converter/singleHopConverter', function () {
         },
       };
 
-      const result = convertSingleHop(r4Questionnaire, 'R4', 'R5', { preprocs: [preproc] });
+      const result = convert(r4Questionnaire, 'R4', 'R5', { preproc: [preproc] });
       assert.equal(result.status, STATUS.WARNING);
       assert.equal(result.preprocessors[0].status, STATUS.WARNING);
     });
@@ -305,14 +327,14 @@ describe('converter/singleHopConverter', function () {
         },
       };
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { preprocs: [bad] }),
+        () => convert(r4Questionnaire, 'R4', 'R5', { preproc: [bad] }),
         /liar.*no warning message/,
       );
     });
   });
 
   // -------- postprocessors -------------------------------------------------
-  describe('postprocessors', function () {
+  describe('postprocessors (postproc)', function () {
     it('runs postprocessors after the FML step with sourceResource in ctx', function () {
       let seenCtx = null;
       let seenTarget = null;
@@ -332,9 +354,9 @@ describe('converter/singleHopConverter', function () {
         },
       };
 
-      const result = convertSingleHop(r4Questionnaire, 'R4', 'R5', {
-        preprocs: [preproc],
-        postprocs: [post],
+      const result = convert(r4Questionnaire, 'R4', 'R5', {
+        preproc: [preproc],
+        postproc: [post],
       });
 
       // sourceResource for the postproc is the input to the FML step
@@ -363,9 +385,7 @@ describe('converter/singleHopConverter', function () {
           return { resource: target, status: STATUS.OK };
         },
       };
-      const result = convertSingleHop(r4Questionnaire, 'R4', 'R5', {
-        postprocs: [post],
-      });
+      const result = convert(r4Questionnaire, 'R4', 'R5', { postproc: [post] });
       assert.equal(result.postprocessors[0].coverage, COVERAGE.NEUTRAL);
     });
   });
@@ -379,27 +399,26 @@ describe('converter/singleHopConverter', function () {
 
     it('rejects decreasing coverage by default', function () {
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', {
-          postprocs: completeThenKnownGaps(),
-        }),
+        () => convert(r4Questionnaire, 'R4', 'R5', { postproc: completeThenKnownGaps() }),
         /Coverage decreases at second/,
       );
     });
 
     it('accepts decreasing coverage when checkCoverage is false', function () {
-      assert.doesNotThrow(() => convertSingleHop(r4Questionnaire, 'R4', 'R5', {
-        postprocs: completeThenKnownGaps(),
+      assert.doesNotThrow(() => convert(r4Questionnaire, 'R4', 'R5', {
+        postproc: completeThenKnownGaps(),
         checkCoverage: false,
       }));
     });
   });
 
-  // -------- postprocessPolicy ----------------------------------------------
-  describe('postprocessPolicy', function () {
-    it('rejects an invalid postprocessPolicy', function () {
+  // -------- PSPE policy ----------------------------------------------------
+  describe('postproc policy', function () {
+    it('rejects an invalid policy in a { policy, psps } entry', function () {
+      const post = { name: 'tag', execute: t => ({ resource: t, status: STATUS.OK }) };
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocessPolicy: 'bogus' }),
-        /Invalid postprocessPolicy/,
+        () => convert(r4Questionnaire, 'R4', 'R5', { postproc: { policy: 'bogus', psps: [post] } }),
+        /Invalid postproc.policy/,
       );
     });
 
@@ -408,41 +427,90 @@ describe('converter/singleHopConverter', function () {
         name: 'tag',
         execute: t => ({ resource: { ...t, language: 'de' }, status: STATUS.OK }),
       };
-      const result = convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: [post] });
+      const result = convert(r4Questionnaire, 'R4', 'R5', { postproc: [post] });
       assert.equal(result.postprocessors.length, 1);
       assert.equal(result.resource.language, 'de');
     });
   });
 
-  // -------- processor contract enforcement ---------------------------------
-  describe('processor contract enforcement', function () {
-    it('rejects a non-array preprocs option', function () {
+  // -------- keyed postprocs (single-hop key convenience) -------------------
+  describe('keyed postprocs (type-only key convenience)', function () {
+    it('accepts a type-only postprocs map key', function () {
+      const post = {
+        name: 'tag',
+        execute: t => ({ resource: { ...t, language: 'de' }, status: STATUS.OK }),
+      };
+      const result = convert(r4Questionnaire, 'R4', 'R5', { postprocs: { Questionnaire: [post] } });
+      assert.equal(result.postprocessors.some(p => p.name === 'tag'), true);
+      assert.equal(result.resource.language, 'de');
+    });
+
+    it('also accepts a canonical postprocs map key', function () {
+      const post = { name: 'tag', execute: t => ({ resource: t, status: STATUS.OK }) };
+      const result = convert(r4Questionnaire, 'R4', 'R5', {
+        postprocs: { 'Questionnaire:R4->R5': [post] },
+      });
+      assert.equal(result.postprocessors.some(p => p.name === 'tag'), true);
+    });
+
+    it('throws when a keyed postprocs resource type never matches (typo)', function () {
+      const post = { name: 'tag', execute: t => ({ resource: t, status: STATUS.OK }) };
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { preprocs: {} }),
-        /opts\.preprocs must be an array/,
+        () => convert(r4Questionnaire, 'R4', 'R5', { postprocs: { Questionaire: [post] } }),
+        /postprocs: no resource of type "Questionaire" enters the R4->R5 hop/,
       );
     });
 
-    it('rejects a non-array postprocs option', function () {
+    it('throws when a keyed preprocs resource type never matches (typo)', function () {
+      const pre = { name: 'pre', execute: r => ({ resource: r, status: STATUS.OK }) };
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: 'nope' }),
-        /opts\.postprocs must be an array/,
+        () => convert(r4Questionnaire, 'R4', 'R5', { preprocs: { Observation: [pre] } }),
+        /preprocs: no resource of type "Observation" enters the R4->R5 hop/,
+      );
+    });
+
+    it('runs a correctly-typed keyed entry and does not flag it as unused', function () {
+      const post = {
+        name: 'tag',
+        execute: t => ({ resource: { ...t, language: 'de' }, status: STATUS.OK }),
+      };
+      const result = convert(r4Questionnaire, 'R4', 'R5', {
+        postprocs: { 'Questionnaire:R4->R5': [post] },
+      });
+      assert.equal(result.resource.language, 'de');
+      assert.equal(result.postprocessors.some(p => p.name === 'tag'), true);
+    });
+  });
+
+  // -------- processor contract enforcement ---------------------------------
+  describe('processor contract enforcement', function () {
+    it('rejects a non-array preproc option', function () {
+      assert.throws(
+        () => convert(r4Questionnaire, 'R4', 'R5', { preproc: {} }),
+        /preproc.*must be an array/,
+      );
+    });
+
+    it('rejects an invalid postproc option', function () {
+      assert.throws(
+        () => convert(r4Questionnaire, 'R4', 'R5', { postproc: 'nope' }),
+        /postproc.*must be a list/,
       );
     });
 
     it('rejects a caller postprocessor with an empty name', function () {
       const bad = { name: '', execute: t => ({ resource: t, status: STATUS.OK }) };
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: [bad] }),
-        /postprocessor\.name must be a non-empty string/,
+        () => convert(r4Questionnaire, 'R4', 'R5', { postproc: [bad] }),
+        /postproc\[0\]\.name must be a non-empty string/,
       );
     });
 
     it('rejects a caller processor whose execute is not a function', function () {
       const bad = { name: 'noExec', execute: 'not-a-function' };
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: [bad] }),
-        /postprocessor\.execute must be a function/,
+        () => convert(r4Questionnaire, 'R4', 'R5', { postproc: [bad] }),
+        /postproc\[0\]\.execute must be a function/,
       );
     });
 
@@ -453,7 +521,7 @@ describe('converter/singleHopConverter', function () {
         execute: t => ({ resource: t, status: STATUS.OK }),
       };
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: [bad] }),
+        () => convert(r4Questionnaire, 'R4', 'R5', { postproc: [bad] }),
         /coverage/,
       );
     });
@@ -464,23 +532,23 @@ describe('converter/singleHopConverter', function () {
         execute: t => ({ resource: t, status: STATUS.OK, messages: 'not-an-array' }),
       };
       assert.throws(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: [bad] }),
+        () => convert(r4Questionnaire, 'R4', 'R5', { postproc: [bad] }),
         /messages must be an array/,
       );
     });
 
-    it('treats null preprocs/postprocs as "not provided" (no throw)', function () {
+    it('treats null preproc/postproc as "not provided" (no throw)', function () {
       assert.doesNotThrow(
-        () => convertSingleHop(r4Questionnaire, 'R4', 'R5', {
-          preprocs: null,
-          postprocs: null,
+        () => convert(r4Questionnaire, 'R4', 'R5', {
+          preproc: null,
+          postproc: null,
         }),
       );
     });
 
-    it('null postprocs falls back to the registry list (like omitted)', function () {
-      const omitted = convertSingleHop(r4Questionnaire, 'R4', 'R5');
-      const withNull = convertSingleHop(r4Questionnaire, 'R4', 'R5', { postprocs: null });
+    it('null postproc falls back to the registry list (like omitted)', function () {
+      const omitted = convert(r4Questionnaire, 'R4', 'R5');
+      const withNull = convert(r4Questionnaire, 'R4', 'R5', { postproc: null });
       // Questionnaire R4->R5 has no registry postprocessors, so neither reports any.
       assert.equal('postprocessors' in omitted, 'postprocessors' in withNull);
       assert.equal(withNull.coverage, omitted.coverage);
@@ -490,21 +558,20 @@ describe('converter/singleHopConverter', function () {
     // distinguishes "not provided" (null/undefined -> use registry) from an
     // explicit empty list under policy 'replace' (-> run none).
     describe('null/undefined vs empty-list (R5->R4 has a registry postprocessor)', function () {
-      it('omitted postprocs runs the registry postprocessor', function () {
-        const r = convertSingleHop(r5Questionnaire, 'R5', 'R4');
+      it('omitted postproc runs the registry postprocessor', function () {
+        const r = convert(r5Questionnaire, 'R5', 'R4');
         assert.ok(Array.isArray(r.postprocessors));
         assert.ok(r.postprocessors.some(p => p.name === 'Questionnaire_R5_to_R4'));
       });
 
-      it('null postprocs behaves exactly like undefined (uses the registry)', function () {
-        const r = convertSingleHop(r5Questionnaire, 'R5', 'R4', { postprocs: null });
+      it('null postproc behaves exactly like undefined (uses the registry)', function () {
+        const r = convert(r5Questionnaire, 'R5', 'R4', { postproc: null });
         assert.ok(r.postprocessors?.some(p => p.name === 'Questionnaire_R5_to_R4'));
       });
 
-      it('empty postprocs with policy replace runs none (empty list is meaningful)', function () {
-        const r = convertSingleHop(r5Questionnaire, 'R5', 'R4', {
-          postprocs: [],
-          postprocessPolicy: 'replace',
+      it('empty postproc with policy replace runs none (empty list is meaningful)', function () {
+        const r = convert(r5Questionnaire, 'R5', 'R4', {
+          postproc: { policy: 'replace', psps: [] },
         });
         assert.equal('postprocessors' in r, false);
       });

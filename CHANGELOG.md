@@ -3,6 +3,87 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
+## [0.2.0] - 2026-08-13
+
+### Added
+
+- `chainedConverter.convert(resource, fromVer, toVer, opts?)`: a multi-hop
+  conversion entry point that chains adjacent FML hops as needed (for example,
+  R3 -> R5 runs as R3 -> R4 -> R5) and returns a per-hop `hops[]` report.
+- Keyed pre-/postprocessor options (`preprocs` / `postprocs`) that target a
+  specific resource type and hop, alongside the outer-boundary `preproc` /
+  `postproc` options.
+- The command-line runner (`bin/convert.js`) now handles multi-hop conversions
+  and prints a per-hop diagnostics summary.
+- `opts.targetResourceType` on `singleHopConverter.convert()` (and the
+  `--target-resource-type` CLI option for single-hop conversion) to select an
+  ambiguous target, such as `ServiceRequest` R4 -> R3. See
+  [CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md) for known ambiguities.
+- `CONVERSION-AMBIGUITY.md`, documenting the known mapping-selection
+  ambiguities. One of them, `ProcedureRequest` R3 -> R2 targeting
+  `DiagnosticOrder`, is served by two mapping files and cannot be run; it is
+  listed under Limitations in `README.md`.
+
+### Changed
+
+- The FML engine now returns a conversion result envelope.
+- The single-hop entry point `convertSingleHop(...)` is now the object method
+  `singleHopConverter.convert(...)`; it returns the same flat result shape.
+- Caller processor options were renamed and restructured: outer-boundary
+  `preproc` / `postproc` and keyed `preprocs` / `postprocs`. The postprocessor
+  combination policy now lives inside a postprocessor's configuration entry as
+  `{ policy: 'append' | 'replace', psps: [...] }` (the standalone
+  `postprocessPolicy` option was removed).
+- The public API now checks its arguments up front - the resource shape, the
+  version tokens, and the option types - and throws a clear error, instead of
+  failing later with a confusing one.
+- `singleHopConverter.convert()` now rejects a non-adjacent version pair up
+  front, pointing to `chainedConverter.convert()`, instead of failing later with
+  a less obvious error.
+- `chainedConverter.convert()` now rejects `opts.targetResourceType` instead of
+  silently ignoring it. Target selection currently only applies to one hop.
+
+### Fixed
+
+- A single (unkeyed) `postproc` was silently skipped on the last hop when an
+  earlier hop renamed the resource type (for example `Sequence` R3 ->
+  `MolecularSequence` R4); it now runs as documented.
+- A keyed `preprocs` / `postprocs` entry whose resource type does not enter its
+  hop (typically a misspelled type such as `Questionaire:R4->R5`) was silently
+  ignored; it is now rejected with an error before that hop runs, naming the
+  resource type entering the hop.
+- FML engine: multi-target `then` rules now process the intermediate
+  targets (e.g. `tgt.A as t, t.B as tc then Group(s, tc)`) correctly.
+- FML parser: target list modes (`first`, `last`, `single`, `share`, and
+  `collate`) are now recognized. Their semantics are not yet faithfully
+  supported by the engine; it preserves produced values using a provisional
+  append fallback and emits a diagnostic when a target list mode is used. The
+  only known bundled case is HealthcareService R3 -> R2, where each specialty
+  may become a separate `serviceType` without its required `type`, producing
+  invalid DSTU2 output.
+- "log" clause is now fully supported.
+- Source-only array `then` rules now emit their per-item `check` warnings and
+  `log` diagnostics consistently with other rule forms.
+- Source type hints on fixed fields no longer make the engine look for a
+  nonexistent polymorphic JSON name (for example, `Attachment.size :
+  unsignedInt` now reads `size`, not `sizeUnsignedInt`).
+- Target `integer64` and `unsignedInt` primitives are now converted to their
+  required FHIR JSON representations and range-checked without clamping.
+- Backtick-delimited identifiers in bare paths are now supported.
+- `create('X')` no longer adds a spurious `resourceType` to primitives and
+  datatypes (e.g. `create('CodeableConcept')`).
+- FML engine: datatype-internal array fields written through a type/`then`
+  conversion (e.g. `Encounter.class.coding`, `PractitionerRole.contact.telecom`)
+  are now correctly wrapped as arrays.
+- Companion fields (the `_name` object that carries the `id` and extensions of a
+  primitive value, such as `_status` for `status`) are now carried over
+  correctly in a number of cases where they were previously dropped or
+  misplaced.
+- The converted resource no longer carries a stray `resourceType` on objects
+  that are not resources.
+- FML parser: fixed the tokenizing of a hyphen followed by a space, which could
+  cause some rules to be misread.
+
 ## [0.1.0] - 2026-07-20
 
 Initial release of the FML-based FHIR resource version converter.

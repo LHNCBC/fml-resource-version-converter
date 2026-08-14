@@ -15,16 +15,17 @@ still handle most of the data elements (via FML mapping), and
 you can pass in a postprocessor as needed to make the conversion complete.
 
 This project is designed as a general, extensible framework to support all
-FHIR resource types that have FML mappings. Postprocessors can be added
-incrementally and cleanly in future releases as the mappings are reviewed.
+FHIR resource types and versions for which FML mapping files exist.
+Postprocessors can be added incrementally and cleanly in future releases
+as the FML mappings are reviewed.
 
 For non-adjacent version pairs such as R3 -> R5, the conversion can be
 completed through a hop via R4, that is, R3 -> R4 and then R4 -> R5.
-Direct support for such conversion chains is planned for a future release.
+The `chainedConverter` entry point performs this hop chaining for you.
 
 The community is encouraged to contribute by reviewing the conversions for
 other resource types and version pairs, and by providing postprocessors
-as needed to make the conversion complete. Detailed instructions
+as needed to make the conversions complete. Detailed instructions
 for contributing are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 As a historical note, this project evolved from the now-deprecated
@@ -44,7 +45,7 @@ The package is published as an ES module.
 ## Quick start
 
 ```js
-import { convertSingleHop } from '@lhncbc/fml-resource-version-converter';
+import { chainedConverter, singleHopConverter } from '@lhncbc/fml-resource-version-converter';
 
 const questionnaireR4 = {
   resourceType: 'Questionnaire',
@@ -61,18 +62,18 @@ const questionnaireR4 = {
   ],
 };
 
-const result = convertSingleHop(questionnaireR4, 'R4', 'R5');
+const result = chainedConverter.convert(questionnaireR4, 'R4', 'R5');
 
 console.log(result.resource);  // the converted R5 Questionnaire
 console.log(result.status);    // 'ok' or 'warning'
 console.log(result.coverage);  // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
 ```
 
-**convertSingleHop(resource, fromVer, toVer, opts?)** throws when the request cannot be
-run, such as an unknown version token, the same source and target version, an
-unknown resource type, or a version pair with no direct FML mapping.
+**chainedConverter.convert(resource, fromVer, toVer)** throws when the request
+cannot be run, such as an unknown version token, the same source and target
+version, an unknown resource type, or an unsupported version path.
 
-The input object is deep-cloned before conversion. Your original resource object
+The input resource is deep-cloned before conversion. Your original resource object
 is not modified.
 
 Because resources are sometimes renamed or split between FHIR versions, a
@@ -82,7 +83,7 @@ source resource type can map to more than one target type on a single hop. Use
 ```js
 // R4 -> R3: a ServiceRequest may become a ProcedureRequest or a ReferralRequest,
 // so the target type must be stated explicitly.
-const result = convertSingleHop(serviceRequestR4, 'R4', 'R3', {
+const result = singleHopConverter.convert(serviceRequestR4, 'R4', 'R3', {
   targetResourceType: 'ProcedureRequest',
 });
 ```
@@ -93,13 +94,18 @@ only when the source resource maps to more than one target on the hop (as with
 supplied, it is checked against the target type declared by the FML
 StructureMap, so a mismatched value is rejected rather than silently ignored.
 
+Naming a target type does not always identify a single mapping: `ProcedureRequest`
+R3 -> R2 targeting `DiagnosticOrder` is served by two FML StructureMaps and
+therefore cannot be run. See [Limitations](#limitations).
+
 ## Supported version pairs
 
 Use the canonical version tokens **R2**, **R3**, **R4**, **R4B**, and **R5**.
 Other names such as **STU3**, **DSTU2**, or **4.0.1** are not accepted by the
 public API.
 
-Direct FML mappings are available for these adjacent pairs, in both directions:
+As of this release, direct FML mappings are available for the following
+adjacent pairs, in both directions:
 
 ```text
 R2  <-> R3
@@ -108,17 +114,20 @@ R4  <-> R5
 R4B <-> R5
 ```
 
-This release exposes a single-hop conversion API. If you need **R3 -> R5**, call
-the converter once for **R3 -> R4** and then again for **R4 -> R5**.
+`chainedConverter.convert()` supports adjacent pairs and multi-hop paths along
+the supported lanes. For example, **R3 -> R5** runs as **R3 -> R4 -> R5**.
+Use `singleHopConverter.convert()` only when you specifically want the flat
+single-hop result shape for one adjacent pair.
 
-R4B has mappings only with R5. There is no **R4 <-> R4B** conversion, and there
-is no **{R2, R3} <-> R4B** conversion. In those cases, use **R4** instead of
-**R4B** when that is acceptable for your workflow.
+R4B only has FML mappings to and from R5, and specifically, there is no FML mapping
+between **R4 <-> R4B** (not needed).
+For conversions between **R3 <-> R4B**, use **R4** instead of
+**R4B** when that is acceptable.
 
 ## Limitations
 
-This initial release focuses on the single-hop conversion of a top-level
-resource. Please keep the following in mind:
+This initial release focuses on top-level resource conversion. Please keep the
+following in mind:
 
 - **Contained resources are not version-converted.** A resource's `contained[]`
   entries are carried through as-is and are not converted to the target version.
@@ -129,30 +138,57 @@ resource. Please keep the following in mind:
 - **Bundle entry resources are not version-converted.** Bundle structure is
   mapped, but each `entry.resource` is carried through as-is. Recursive
   conversion of Bundle entries is planned for a future release.
-- **Non-adjacent versions require manual chaining.** Only direct (adjacent) FML
-  hops are supported by a single call. For a conversion such as **R3 -> R5**, call
-  the converter once for **R3 -> R4** and then again for **R4 -> R5**. Automatic
-  multi-hop chaining is planned for a future release.
+- **One-to-many conversion is not yet supported.** A future release will handle
+  cases such as R2 -> R3 `CarePlan` -> `CarePlan` + `CareTeam` when needed.
+- **Ambiguous target selection with `targetResourceType` (or the CLI option
+  `--target-resource-type`) is supported only for a single hop.** Support for
+  selecting targets within a multi-hop conversion may be added in a future
+  release.
 - **Reviewed postprocessors are supplied only for Questionnaire.** Other resource
   types are converted by the FML mapping alone (see [COVERAGE.md](COVERAGE.md)),
   and more postprocessors may be added in future releases. You certainly can
   supply your own postprocessors as needed - and better yet, contribute
   them back to the project.
+- **A few FML language features are not yet implemented:** `let` constants and
+  inline `conceptmap` declarations. Bundled mappings do not use them; the engine
+  emits a warning if it sees one.
+- **Target list-mode semantics are not fully supported.** The engine recognizes
+  these modes but currently uses an append fallback and emits a warning. The
+  only bundled conversion currently impacted is HealthcareService R3 -> R2:
+  each specialty may become a separate `serviceType` without its required
+  `type`, producing invalid DSTU2 output.
+- **Automatic resolution of ambiguous StructureMap selection is not supported.**
+  The only bundled conversion currently impacted is `ProcedureRequest` R3 -> R2
+  with target type `DiagnosticOrder`: two StructureMaps declare that same
+  source/target pair (`DiagnosticOrder.fml` and `ProcedureRequestDO.fml`), and
+  choosing between them requires clinical knowledge this converter does not
+  have. See [CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md) for the full list
+  of known mapping ambiguities.
 
 ## Understanding the result
 
-A successful conversion returns a result object:
+`chainedConverter.convert()` returns a result object with one report entry per
+hop:
 
 ```text
 {
   resource,       // converted resource
   coverage,       // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
   status,         // 'ok' or 'warning'
-  fml_base_conv,  // report for the FML mapping step
-  postprocessors, // reports for postprocessors, omitted when none ran
-  preprocessors,  // reports for caller preprocessors, omitted when none ran
+  hops: [
+    {
+      fromVer,
+      toVer,
+      preprocessors,  // omitted when none ran for the hop
+      fml_base_conv,  // report for the FML mapping step
+      postprocessors, // omitted when none ran for the hop
+    },
+  ],
 }
 ```
+
+`singleHopConverter.convert()` returns the same per-hop report fields flattened
+onto the top-level result, without a `hops` array.
 
 The two most important fields are:
 
@@ -166,7 +202,7 @@ completeness of the FML mapping and any related postprocessors.
 ### Coverage levels
 
 - **not_reviewed**: the FML mapping has not yet been reviewed for completeness for
-  that resource type and version pair.
+  that specific resource type and version pair combination.
 - **known_gaps**: the conversion has known gaps that could be improved with
   additional mapping or postprocessing.
 - **best_effort**: the conversion has been reviewed and implemented as far as
@@ -193,16 +229,19 @@ Most users do not need custom processors. If you do, pass them in the optional
 fourth argument:
 
 ```js
-const result = convertSingleHop(resource, 'R3', 'R4', {
-  preprocs: [myPreprocessor],
-  postprocs: [myPostprocessor],
-  postprocessPolicy: 'append',
+const result = chainedConverter.convert(resource, 'R3', 'R5', {
+  preproc: [myPreprocessor],
+  postproc: { policy: 'append', psps: [myPostprocessor] },
   checkCoverage: true,
 });
 ```
 
-**postprocessPolicy** controls how your postprocessors combine with the package's
-registered postprocessors (if any):
+`preproc` is applied to the first hop for the primary resource - the very first
+processor to run. `postproc` is applied to the last hop for the primary resource
+- the very last processor to run, so its output is the final result. The
+postprocessor `policy` controls
+how your postprocessors combine with the package's registered postprocessors
+for that hop:
 
 - **append** (default): run package postprocessors first, then yours.
 - **replace**: run only the postprocessors specified in the request -
@@ -211,8 +250,63 @@ registered postprocessors (if any):
   postprocessors may be obtained using the `getRegistryEntry()`
   function in the public API.
 
+For a specific hop, use keyed `preprocs` or `postprocs`:
+
+```js
+const result = chainedConverter.convert(resource, 'R3', 'R5', {
+  postprocs: {
+    'Questionnaire:R4->R5': { policy: 'replace', psps: [myPostprocessor] },
+  },
+});
+```
+
+In a keyed `preprocs` or `postprocs` entry, the resource type is the type
+entering that hop. This also applies when a mapping renames the resource: for
+`Sequence` R3 -> `MolecularSequence` R4, use the postprocessor key
+`Sequence:R3->R4`, even though the postprocessor receives the converted
+`MolecularSequence`.
+
+For `singleHopConverter.convert()`, keyed maps may use either the full
+`'Questionnaire:R4->R5'` key or the type-only `'Questionnaire'` key. These are
+two spellings of the same entry. If both occur in one map, the later property in
+the map takes precedence; their processor lists are not merged, just as if you
+specify two entries with the same key.
+
+The package also exports helpers for authoring processors - `makeProcessor`,
+`validateProcessorDescriptor`, `makeMessage`, `infoMessage`, `warningMessage`,
+and `statusFromMessages`.
+
 The processor contract is documented in [CONTRIBUTING.md](CONTRIBUTING.md) for
 contributors and advanced users.
+
+## Migration notes
+
+- `convertSingleHop(resource, fromVer, toVer)` is now
+  `singleHopConverter.convert(resource, fromVer, toVer)` for adjacent one-hop
+  conversions with the flat result shape.
+- For normal one-shot conversion, use
+  `chainedConverter.convert(resource, fromVer, toVer)`. It supports multi-hop
+  paths and always returns `hops[]`.
+- Manual chains such as **R3 -> R4** followed by **R4 -> R5** can usually become
+  one `chainedConverter.convert(resource, 'R3', 'R5')` call.
+- Old single-hop `preprocs: [...]` and `postprocs: [...]` array options are now
+  `preproc: [...]` and `postproc: [...]` for outer-boundary processors. Keyed
+  `preprocs` and `postprocs` are maps or lookup functions.
+- `postprocessPolicy` is now part of the postprocessor entry:
+  `{ policy: 'append' | 'replace', psps: [...] }`.
+
+## Examples
+
+A runnable example script is included in the repository:
+
+```bash
+node examples/conversions.js
+```
+
+It demonstrates a single adjacent-hop conversion, a simple multi-hop chain with
+one boundary preprocessor and postprocessor, a non-trivial chain (**R3 -> R5**)
+with per-hop postprocessors, and - commented out - how contained resource types
+would be targeted once contained-resource support is available.
 
 ## Command line
 
@@ -223,14 +317,20 @@ pipelines:
 node bin/convert.js R4 R5 questionnaire-r4.json > questionnaire-r5.json
 ```
 
+The CLI also supports multi-hop conversion:
+
+```bash
+node bin/convert.js R3 R5 questionnaire-r3.json > questionnaire-r5.json
+```
+
 You can also read the input resource from stdin:
 
 ```bash
 cat questionnaire-r4.json | node bin/convert.js R4 R5 > questionnaire-r5.json
 ```
 
-The converted JSON is written to stdout. A short status summary and any warnings
-are written to stderr. Use `--verbose` to include info messages:
+The converted JSON is written to stdout. A short status summary and any per-hop
+warnings are written to stderr. Use `--verbose` to include info messages:
 
 ```bash
 node bin/convert.js --verbose R3 R4 questionnaire-r3.json > questionnaire-r4.json
@@ -246,9 +346,9 @@ node bin/convert.js R4 R3 service-request-r4.json \
 
 ## Coverage and contributions
 
-FHIR has many resource types and many version pairs. This package is meant to
+Due to the sheer number of resource type and version pair combinations, this package is meant to
 grow incrementally: review one resource type and version pair at a time, add a
-postprocessor if needed, add tests, and regenerate the coverage report.
+postprocessor if needed, test, and then regenerate the coverage report.
 
 In this initial release, reviewed postprocessors are supplied only for
 **Questionnaire**. Contributions for other resource types are welcome.

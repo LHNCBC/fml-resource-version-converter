@@ -60,7 +60,8 @@
  *       "Patient.gender":                    "code",
  *       "Patient.identifier":                "Identifier",
  *       "Questionnaire.item.answerValueSet": "canonical"
- *     }
+ *     },
+ *     "resourceTypes": ["Account", "ActivityDefinition", "..."]
  *   }
  *
  * Detection rules:
@@ -77,7 +78,7 @@
  *   not end in "[x]") AND that entry has a non-empty `code` string.
  *
  * Usage:
- *   node tools/build_fhir_tables.js <VERSION> <archive.zip> <out-dir>
+ *   node tools/fhir-spec-parser.js <VERSION> <archive.zip> <out-dir>
  *
  * Arguments:
  *   <VERSION>       Label written verbatim into the output JSON's
@@ -96,7 +97,7 @@
  *                   files are overwritten without prompting.
  *
  * Example:
- *   node tools/build_fhir_tables.js R4 \
+ *   node tools/fhir-spec-parser.js R4 \
  *        data/fhir-spec-downloads/R4/definitions.json.zip \
  *        data/fhir-defs
  *
@@ -117,18 +118,18 @@
  *     missing or empty (older spec versions occasionally encode the type
  *     via an extension instead of a code).
  *
- * @module tools/build_fhir_tables
+ * @module tools/fhir-spec-parser
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
-import { BUNDLE_ENTRY_RE, processElements } from './fhir_tables_lib.js';
+import { BUNDLE_ENTRY_RE, processElements } from './fhir-tables-lib.js';
 
 const args = process.argv.slice(2);
 
 if (args.length !== 3) {
-  console.error('Usage: node tools/build_fhir_tables.js <VERSION> <archive.zip> <out-dir>');
+  console.error('Usage: node tools/fhir-spec-parser.js <VERSION> <archive.zip> <out-dir>');
   process.exit(2);
 }
 
@@ -142,6 +143,16 @@ const arrayPaths = new Set();
 
 /** path -> single concrete FHIR type code for non-polymorphic scalar elements */
 const elementTypes = new Map();
+
+/**
+ * Names of StructureDefinitions whose kind is "resource" (i.e. actual FHIR
+ * resources, as opposed to complex/primitive datatypes or logical models).
+ * Consumed by the FML engine so `create('X')` only tags resources with
+ * `resourceType`. DSTU2 spells datatypes as kind "datatype"; STU3+ split
+ * them into "complex-type"/"primitive-type"; only "resource" is collected
+ * here, so the distinction does not matter.
+ */
+const resourceTypes = new Set();
 
 let sdSeen = 0;
 let sdSkipped = 0;
@@ -207,6 +218,14 @@ for (const entry of matchedEntries) {
     if (sd?.resourceType !== 'StructureDefinition') continue;
     sdSeen++;
 
+    // Record resource type names (kind === 'resource') for the FML engine's
+    // create() classification. The type name is `type` in STU3+ and falls
+    // back to id/name for DSTU2.
+    if (sd.kind === 'resource') {
+      const typeName = sd.type || sd.id || sd.name;
+      if (typeName) resourceTypes.add(typeName);
+    }
+
     const elements = sd.snapshot?.element || sd.differential?.element || [];
     if (elements.length === 0) {
       sdSkipped++;
@@ -262,6 +281,7 @@ writeJson(outFile, {
   polyPaths:    polyPathsObj,
   arrayPaths:   sortedArrayPaths,
   elementTypes: elementTypesObj,
+  resourceTypes: [...resourceTypes].sort(),
 });
 
 console.error(`Wrote ${outFile}`);
@@ -270,6 +290,7 @@ console.error(`  Elements scanned:     ${elementsSeen}`);
 console.error(`  Polymorphic paths:    ${sortedPolyPaths.length}`);
 console.error(`  Array paths:          ${sortedArrayPaths.length}`);
 console.error(`  Scalar-type paths:    ${sortedElementTypePaths.length}`);
+console.error(`  Resource types:       ${resourceTypes.size}`);
 if (missingTypeCodes > 0) {
   console.error(`  Elements with missing type.code: ${missingTypeCodes}`);
 }

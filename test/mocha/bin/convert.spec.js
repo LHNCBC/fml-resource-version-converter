@@ -42,8 +42,8 @@ describe('bin/convert.js CLI diagnostics', function () {
     assert.match(res.stderr, /status=warning/);
     assert.doesNotMatch(res.stderr, /warnings=0/);
 
-    // The postprocessor's own warning is printed, tagged with its stage name.
-    assert.match(res.stderr, /Questionnaire_R4_to_R3 warning:/);
+    // The postprocessor's own warning is printed, tagged with its hop + stage.
+    assert.match(res.stderr, /Questionnaire_R4_to_R3\] warning:/);
     assert.match(res.stderr, /no STU3 equivalent/);
 
     // The converted resource still goes to stdout as valid JSON.
@@ -88,6 +88,20 @@ describe('bin/convert.js CLI diagnostics', function () {
 
   it('rejects --target-resource-type without a value', function () {
     const res = runCli(['R4', 'R3', '--target-resource-type']);
+
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /requires a resource type/);
+  });
+
+  it('rejects an unknown short option', function () {
+    const res = runCli(['-x', 'R4', 'R5']);
+
+    assert.equal(res.status, 2);
+    assert.match(res.stderr, /unknown option: -x/);
+  });
+
+  it('rejects an option-shaped target resource type', function () {
+    const res = runCli(['--target-resource-type', '-x', 'R4', 'R5']);
 
     assert.equal(res.status, 2);
     assert.match(res.stderr, /requires a resource type/);

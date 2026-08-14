@@ -137,7 +137,7 @@ function convertWithWarnings(resourceType, from, to, input) {
     onWarning: msg => warnings.push(msg),
   });
 
-  const output = engine.convert({ input });
+  const { resource: output } = engine.convert({ input });
   return { output, warnings };
 }
 
@@ -255,7 +255,7 @@ describe('fml_base_conv: STU3->R4 polymorphic initial conversion', () => {
         initialString: 'Mint',
       }],
     };
-    const output = engine.convert({ input });
+    const { resource: output } = engine.convert({ input });
     assert.ok(Array.isArray(output.item), 'item should be an array');
     const item = output.item[0];
     assert.ok(Array.isArray(item.initial), 'item.initial should be an array');
@@ -273,12 +273,17 @@ describe('fml_base_conv: STU3->R4 polymorphic initial conversion', () => {
  *
  * @param {string} fmlText FML mapping source.
  * @param {object} input Source resource (its resourceType names the entry group).
+ * @param {object|undefined} [tgtDefs] Optional target definition metadata.
  * @returns {{ output: object, warnings: string[] }}
  */
-function runRawFml(fmlText, input) {
+function runRawFml(fmlText, input, tgtDefs = undefined) {
   const warnings = [];
-  const engine = compileFmlXver({ fmlText, onWarning: msg => warnings.push(msg) });
-  const output = engine.convert({ input });
+  const engine = compileFmlXver({
+    fmlText,
+    tgtDefs,
+    onWarning: msg => warnings.push(msg),
+  });
+  const { resource: output } = engine.convert({ input });
   return { output, warnings };
 }
 
@@ -293,8 +298,8 @@ describe('fml_base_conv: source list mode only_one', function () {
       { resourceType: 'TestRes', tag: ['a', 'b', 'c'] },
     );
 
-    // only_one keeps exactly the first item.
-    assert.deepEqual(output.picked, ['a']);
+    // only_one selects exactly one scalar item.
+    assert.equal(output.picked, 'a');
 
     // Exactly one warning, naming the mode, the source path, and the count.
     assert.equal(warnings.length, 1);
@@ -309,8 +314,34 @@ describe('fml_base_conv: source list mode only_one', function () {
       { resourceType: 'TestRes', tag: ['a'] },
     );
 
-    assert.deepEqual(output.picked, ['a']);
+    assert.equal(output.picked, 'a');
     assert.equal(warnings.length, 0);
+  });
+
+  it('does not write a target for an empty source list', function () {
+    const { output, warnings } = runRawFml(
+      groupWith('only_one as vs'),
+      { resourceType: 'TestRes', tag: [] },
+    );
+
+    assert.equal('picked' in output, false);
+    assert.equal(warnings.length, 0);
+  });
+
+  it('converts a single R3 MedicationRequest note to the R2 scalar', function () {
+    const engine = createEngine('MedicationRequest', 'R3', 'R2');
+    const { resource: output } = engine.convert({
+      input: {
+        resourceType: 'MedicationRequest',
+        status: 'active',
+        intent: 'order',
+        medicationCodeableConcept: { text: 'Example medication' },
+        subject: { reference: 'Patient/example' },
+        note: [{ text: 'Take with food' }],
+      },
+    });
+
+    assert.equal(output.note, 'Take with food');
   });
 
   it('without only_one, all items pass through (guards against regression)', function () {
@@ -327,3 +358,496 @@ describe('fml_base_conv: source list mode only_one', function () {
 });
 
 
+describe('fml_base_conv: multi-target then-rule (intermediate target binding)', function () {
+  // A helper group that copies `text` from source to target; used as the
+  // `then` group so we can observe whether the intermediate alias was bound.
+  const FILL = 'group Fill(source src, target tgt) {\n  src.text -> tgt.text;\n}';
+
+  it('binds an intermediate target alias so the then-group fills it (scalar)', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.item as s -> tgt.wrap as t, t.inner as tc then Fill(s, tc);',
+      '}',
+      FILL,
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      item: { text: 'hello' },
+    });
+
+    // Before the fix `t.inner as tc` was ignored: `tc` was unbound, Fill ran
+    // on `undefined`, and `tgt.wrap.inner` never received the value.
+    assert.equal(output?.wrap?.inner?.text, 'hello');
+
+    // No "not in scope" warnings (the old bug signature).
+    assert.deepEqual(warnings.filter(w => /not in scope/.test(w)), []);
+  });
+
+  it('preserves a transformed primary target for a primitive source', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.value as s -> tgt.flag = true, tgt.out as o then FillPrimitive(s, o);',
+      '}',
+      'group FillPrimitive(source src, target tgt) {',
+      '  src.value -> tgt.copied;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      value: 'abc',
+    });
+
+    assert.equal(output.flag, true);
+    assert.equal(output.out.copied, 'abc');
+    assert.deepEqual(warnings, []);
+  });
+
+  it('binds intermediate aliases per item (array context)', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.items as s -> tgt.out as t, t.inner as tc then Fill(s, tc);',
+      '}',
+      FILL,
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      items: [{ text: 'a' }, { text: 'b' }],
+    });
+
+    assert.ok(Array.isArray(output.out), 'out should be an array');
+    assert.equal(output.out.length, 2);
+    assert.equal(output.out[0].inner.text, 'a');
+    assert.equal(output.out[1].inner.text, 'b');
+    assert.deepEqual(warnings.filter(w => /not in scope/.test(w)), []);
+  });
+
+  it('binds a bare-transform intermediate alias (create ... as v)', function () {
+    // Mirrors the R2->R3 StructureDefinition idiom:
+    //   ... -> tgt.a as t, create('boolean') as flag, flag.value = 'true'
+    //          then Fill3(s, t, flag);
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      "  src.item as s -> tgt.a as t, create('boolean') as flag, flag.value = 'true' then Fill3(s, t, flag);",
+      '}',
+      'group Fill3(source src, target tgt, source flag) {',
+      '  src.text -> tgt.text;',
+      '  flag.value as fv -> tgt.flagged = fv;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      item: { text: 'x' },
+    });
+
+    assert.equal(output?.a?.text, 'x');
+    assert.equal(output?.a?.flagged, 'true');
+    assert.deepEqual(warnings.filter(w => /not in scope/.test(w)), []);
+  });
+
+  it('binds a parenthesized FHIRPath intermediate target (expr) as v', function () {
+    // Mirrors the R3->R2 ValueSet idiom:
+    //   ... -> vst.codeSystem as vt, (vs.system.resolve()) as cs
+    //          then codeSystem(cs, vt);
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.item as s -> tgt.a as t, (s.code) as cs then Fill2(cs, t);',
+      '}',
+      'group Fill2(source src, target tgt) {',
+      '  src.value as v -> tgt.picked = v;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      item: { code: 'C' },
+    });
+
+    // `cs` is the FHIRPath result 'C'; Fill2 receives it and copies it.
+    assert.equal(output?.a?.picked, 'C');
+    assert.deepEqual(warnings.filter(w => /not in scope/.test(w)), []);
+  });
+});
+
+
+describe('fml_base_conv: target list mode parsing', function () {
+  it('parses a target list mode without mis-consuming the next target', function () {
+    // `tgt.x as t first, tgt.y = ...`: the `first` keyword must be consumed
+    // as a target list mode, not left to terminate the target list (which
+    // previously caused the remainder of the rule to be mis-parsed).
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.a as s -> tgt.x as t first, tgt.y = s;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      a: 'v',
+    });
+
+    // The second target still executes (was dropped by the old mis-parse).
+    assert.equal(output.y, 'v');
+    // The mode is parsed, but provisional execution is explicitly diagnosed.
+    assert.ok(warnings.some(w => /list mode "first"/.test(w) && /not faithfully implemented/.test(w)));
+  });
+});
+
+
+describe('fml_base_conv: unsupported top-level constructs warn cleanly', function () {
+  it('emits one clear warning for `let` and skips it (rest still runs)', function () {
+    const fml = [
+      'let base = src.url;',
+      'group TestRes(source src, target tgt) {',
+      '  src.a -> tgt.b;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, { resourceType: 'TestRes', a: 'x' });
+
+    // The following group still parses and runs.
+    assert.equal(output.b, 'x');
+    // Exactly one clear "not yet supported" message; no token-by-token noise.
+    assert.equal(warnings.filter(w => /'let' constants are not yet supported/.test(w)).length, 1);
+    assert.deepEqual(warnings.filter(w => /unexpected token/.test(w)), []);
+  });
+
+  it('emits one clear warning for inline `conceptmap` and skips the block', function () {
+    const fml = [
+      'conceptmap "http://x" {',
+      '  prefix s = "http://sys"',
+      '  s:foo == t:bar',
+      '}',
+      'group TestRes(source src, target tgt) {',
+      '  src.a -> tgt.b;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, { resourceType: 'TestRes', a: 'x' });
+
+    assert.equal(output.b, 'x');
+    assert.equal(warnings.filter(w => /inline 'conceptmap' is not yet supported/.test(w)).length, 1);
+    assert.deepEqual(warnings.filter(w => /unexpected token/.test(w)), []);
+  });
+});
+
+
+describe('fml_base_conv: datatype-internal array wrapping', function () {
+  it('wraps a datatype-internal array field via datatype re-rooting', function () {
+    // Mirrors R4B->R5 Encounter.class: build a CodeableConcept and fill its
+    // `coding`, which is 0..* on the CodeableConcept datatype. The engine
+    // composes the resource-rooted path `TestRes.field.coding`, which is not
+    // in arrayPaths; it must re-root at the datatype boundary
+    // (`TestRes.field` -> CodeableConcept) to find `CodeableConcept.coding`.
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      "  src.c as s -> tgt.field = create('CodeableConcept') as t, t.coding as tc then FillCoding(s, tc);",
+      '}',
+      'group FillCoding(source src, target tgt) {',
+      '  src.code -> tgt.code;',
+      '}',
+    ].join('\n');
+
+    const tgtDefs = {
+      arrayPaths: ['CodeableConcept.coding'],
+      elementTypes: { 'TestRes.field': 'CodeableConcept' },
+    };
+    const engine = compileFmlXver({ fmlText: fml, tgtDefs });
+    const { resource: output } = engine.convert({
+      input: { resourceType: 'TestRes', c: { code: 'x' } },
+    });
+
+    // `coding` is wrapped as an array; the scalar `code` inside stays scalar.
+    assert.ok(Array.isArray(output.field.coding), 'field.coding should be an array');
+    assert.equal(output.field.coding.length, 1);
+    assert.equal(output.field.coding[0].code, 'x');
+  });
+});
+
+
+describe('fml_base_conv: create() resourceType handling', function () {
+  const fml = [
+    'group TestRes(source src, target tgt) {',
+    "  src.a -> tgt.dt = create('CodeableConcept');",
+    "  src.b -> tgt.res = create('CareTeam');",
+    "  src.c -> tgt.prim = create('boolean');",
+    '}',
+  ].join('\n');
+
+  it('omits resourceType for datatypes and primitives, keeps it for resources', function () {
+    // Resource classification is read from the FHIR defs (resourceTypes);
+    // pass a minimal tgtDefs so CareTeam is recognised as a resource.
+    const engine = compileFmlXver({ fmlText: fml, tgtDefs: { resourceTypes: ['CareTeam'] } });
+    const { resource: output } = engine.convert({
+      input: { resourceType: 'TestRes', a: 1, b: 1, c: 1 },
+    });
+
+    // Datatype and primitive: bare object, no resourceType.
+    assert.deepEqual(output.dt, {});
+    assert.deepEqual(output.prim, {});
+    // Resource: carries resourceType.
+    assert.deepEqual(output.res, { resourceType: 'CareTeam' });
+  });
+});
+
+
+describe('fml_base_conv: log clause and backtick identifiers', function () {
+  it('parses a source `log (...)` clause without disrupting the rule', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.a as s log (s) -> tgt.b = s;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      a: 'v',
+    });
+
+    // The rule still runs: the log clause is parsed and ignored.
+    assert.equal(output.b, 'v');
+    assert.deepEqual(warnings, []);
+  });
+
+  it('tokenises a backtick-delimited identifier in a bare path', function () {
+    // `div` is a FHIRPath reserved word; backticks quote it as a field name.
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.`div` -> tgt.out;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      div: 'hello',
+    });
+
+    assert.equal(output.out, 'hello');
+    // No "unrecognised character" tokenizer warning.
+    assert.deepEqual(warnings, []);
+  });
+
+  it('emits a source `log (...)` value via onInfo', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.a as s log (s) -> tgt.b = s;',
+      '}',
+    ].join('\n');
+
+    const infos = [];
+    const engine = compileFmlXver({ fmlText: fml, onInfo: m => infos.push(m) });
+    engine.convert({ input: { resourceType: 'TestRes', a: 'v' } });
+
+    // The log clause value is surfaced as an info-level diagnostic.
+    assert.ok(infos.some(m => /^log: v$/.test(m)), `infos: ${JSON.stringify(infos)}`);
+  });
+
+  it('accepts an unparenthesized string literal in log', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      "  src.a as s log 'processing item' -> tgt.b = s;",
+      '}',
+    ].join('\n');
+
+    const infos = [];
+    const warnings = [];
+    const engine = compileFmlXver({
+      fmlText: fml,
+      onInfo: m => infos.push(m),
+      onWarning: m => warnings.push(m),
+    });
+    const { resource: output } = engine.convert({
+      input: { resourceType: 'TestRes', a: 'v' },
+    });
+
+    // Parses (no throw), the rule runs, and the literal is logged.
+    assert.equal(output.b, 'v');
+    assert.ok(infos.some(m => /^log: processing item$/.test(m)), `infos: ${JSON.stringify(infos)}`);
+    assert.deepEqual(warnings, []);
+  });
+
+  it('evaluates check and log per item for a source-only array then rule', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.items as s where (s.include) check (s.ok) log (s.value) then Copy(s, tgt);',
+      '}',
+      'group Copy(source src, target tgt) {',
+      '  src.value -> tgt.out;',
+      '}',
+    ].join('\n');
+
+    const infos = [];
+    const warnings = [];
+    const engine = compileFmlXver({
+      fmlText: fml,
+      onInfo: m => infos.push(m),
+      onWarning: m => warnings.push(m),
+    });
+    const { resource: output } = engine.convert({
+      input: {
+        resourceType: 'TestRes',
+        items: [
+          { value: 'filtered', include: false, ok: false },
+          { value: 'passed', include: true, ok: true },
+          { value: 'failed', include: true, ok: false },
+        ],
+      },
+    });
+
+    // `where` filters before diagnostics. A failed `check` warns but does not
+    // short-circuit the then-clause, and `log` runs for every selected item.
+    assert.equal(output.out, 'failed');
+    assert.deepEqual(warnings, ['check failed in iteration (s)']);
+    assert.deepEqual(infos, ['log: passed', 'log: failed']);
+  });
+});
+
+
+describe('fml_base_conv: target list mode single', function () {
+  it('preserves every source occurrence and warns about provisional behavior', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.items as s -> tgt.out as t single then Fill(s, t);',
+      '}',
+      'group Fill(source src, target tgt) {',
+      '  src.text -> tgt.text;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      items: [{ text: 'A' }, { text: 'B' }],
+    });
+
+    // Provisional fallback preserves both occurrences instead of truncating.
+    assert.equal(output.out.length, 2);
+    assert.equal(output.out[0].text, 'A');
+    assert.equal(output.out[1].text, 'B');
+    assert.equal(warnings.filter(w => /list mode "single"/.test(w)).length, 1);
+    assert.ok(warnings.some(w =>
+      /not faithfully implemented/.test(w) &&
+      /produced values are not truncated/.test(w) &&
+      /may exceed target cardinality/.test(w),
+    ));
+  });
+
+  it('warns even when one source occurrence makes the fallback look harmless', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.items as s -> tgt.out as t single then Fill(s, t);',
+      '}',
+      'group Fill(source src, target tgt) {',
+      '  src.text -> tgt.text;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      items: [{ text: 'A' }],
+    });
+
+    assert.equal(output.out.length, 1);
+    assert.equal(output.out[0].text, 'A');
+    assert.equal(warnings.filter(w => /list mode "single"/.test(w)).length, 1);
+    assert.ok(warnings.some(w => /instance sharing/.test(w)));
+  });
+});
+
+
+describe('fml_base_conv: target list mode first/last provisional fallback', function () {
+  for (const mode of ['first', 'last']) {
+    it(`appends every source occurrence and warns for ${mode}`, function () {
+      const fml = [
+        'group TestRes(source src, target tgt) {',
+        '  src.a as s -> tgt.list as t, t.x as v then Fill(s, v);',
+        `  src.b as s -> tgt.list as t ${mode}, t.y as v then Fill(s, v);`,
+        '}',
+        'group Fill(source src, target tgt) {',
+        '  src.text -> tgt.text;',
+        '}',
+      ].join('\n');
+
+      const { output, warnings } = runRawFml(fml, {
+        resourceType: 'TestRes',
+        a: [{ text: 'A1' }, { text: 'A2' }],
+        b: [{ text: 'B1' }, { text: 'B2' }],
+      }, {
+        arrayPaths: ['TestRes.list'],
+      });
+
+      assert.equal(output.list.length, 4);
+      assert.equal(output.list[0].x.text, 'A1');
+      assert.equal(output.list[1].x.text, 'A2');
+      assert.equal(output.list[2].y.text, 'B1');
+      assert.equal(output.list[3].y.text, 'B2');
+      assert.equal(warnings.filter(w => new RegExp(`list mode "${mode}"`).test(w)).length, 1);
+      assert.ok(warnings.some(w => /target ordering is not honored/.test(w)));
+    });
+  }
+});
+
+
+describe('fml_base_conv: provisional target list mode diagnostics', function () {
+  it('warns for every parsed target mode without changing source values', function () {
+    for (const mode of ['first', 'last', 'single', 'share', 'collate']) {
+      const fml = [
+        'group TestRes(source src, target tgt) {',
+        `  src.value as s -> tgt.out = s ${mode};`,
+        '}',
+      ].join('\n');
+
+      const { output, warnings } = runRawFml(fml, {
+        resourceType: 'TestRes',
+        value: 'kept',
+      });
+
+      assert.equal(output.out, 'kept');
+      assert.equal(warnings.filter(w => new RegExp(`list mode "${mode}"`).test(w)).length, 1);
+      assert.ok(warnings.some(w => /not faithfully implemented/.test(w)));
+      assert.ok(warnings.some(w => /target ordering/.test(w)));
+    }
+  });
+
+  it('warns once per conversion when a compiled engine is reused', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.items as s -> tgt.out = s share;',
+      '}',
+    ].join('\n');
+    const warnings = [];
+    const engine = compileFmlXver({
+      fmlText: fml,
+      onWarning: message => warnings.push(message),
+    });
+
+    engine.convert({
+      input: { resourceType: 'TestRes', items: ['a', 'b'] },
+    });
+    assert.equal(warnings.filter(w => /list mode "share"/.test(w)).length, 1);
+
+    warnings.length = 0;
+    engine.convert({
+      input: { resourceType: 'TestRes', items: ['c', 'd'] },
+    });
+    assert.equal(warnings.filter(w => /list mode "share"/.test(w)).length, 1);
+  });
+
+  it('does not warn for a source-side list mode', function () {
+    const fml = [
+      'group TestRes(source src, target tgt) {',
+      '  src.items first as s -> tgt.out = s;',
+      '}',
+    ].join('\n');
+
+    const { output, warnings } = runRawFml(fml, {
+      resourceType: 'TestRes',
+      items: ['A', 'B'],
+    });
+
+    assert.equal(output.out, 'A');
+    assert.deepEqual(warnings.filter(w => /target list mode/.test(w)), []);
+  });
+});

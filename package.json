@@ -1,6 +1,6 @@
 {
   "name": "@lhncbc/fml-resource-version-converter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "For converting FHIR resources between FHIR versions.",
   "keywords": [
     "fhir",
@@ -23,11 +23,11 @@
     "data/fhir-cross-version/",
     "data/fhir-defs/",
     "data/fhir-spec-downloads/README.md",
-    "tools/",
     "README.md",
     "CHANGELOG.md",
     "COVERAGE.md",
     "CONTRIBUTING.md",
+    "CONVERSION-AMBIGUITY.md",
     "LICENSE.md"
   ],
   "homepage": "https://github.com/LHNCBC/fml-resource-version-converter",
@@ -46,14 +46,14 @@
     "node": ">=20.11.0"
   },
   "scripts": {
-    "test": "mocha test/mocha --recursive",
+    "test": "mocha test/mocha --recursive --timeout 15000",
     "build": "npm run build:coverage",
     "build:coverage": "node tools/build-coverage.js",
     "build:fhir-defs": "node tools/build-fhir-defs.js"
   },
   "devDependencies": {
     "jszip": "^3.10.1",
-    "mocha": "^11.7.6"
+    "mocha": "^11.8.0"
   },
   "dependencies": {
     "fhirpath": "^4.11.0"

@@ -1,11 +1,11 @@
 /**
- * @fileoverview Detection rules used by tools/build_fhir_tables.js.
+ * @fileoverview Detection rules used by tools/fhir-spec-parser.js.
  *
  * Extracted from the CLI script so the rules can be unit-tested in
  * isolation, away from zip-reading and file-writing side effects. Keep
  * this module pure: no I/O, no globals, no top-level work.
  *
- * @module tools/fhir_tables_lib
+ * @module tools/fhir-tables-lib
  */
 
 /** Matches "profiles-resources.json" or "profiles-types.json" anywhere in a zip entry name. */

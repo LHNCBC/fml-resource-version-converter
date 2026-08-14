@@ -1,5 +1,5 @@
 /**
- * @fileoverview Unit tests for tools/fhir_tables_lib.js detection rules.
+ * @fileoverview Unit tests for tools/fhir-tables-lib.js detection rules.
  *
  * Pins down each rule in classifyElement() and the accumulator behavior
  * in processElements(), so plausible-looking edits to the detection
@@ -8,9 +8,9 @@
  */
 import { strict as assert } from 'node:assert';
 import { classifyElement, processElements, BUNDLE_ENTRY_RE }
-  from '../../../tools/fhir_tables_lib.js';
+  from '../../../tools/fhir-tables-lib.js';
 
-describe('fhir_tables_lib: classifyElement', () => {
+describe('fhir-tables-lib: classifyElement', () => {
 
   it('strips [x] suffix when forming the path key', () => {
     const c = classifyElement({ path: 'Observation.value[x]', type: [{ code: 'string' }] });
@@ -118,7 +118,7 @@ describe('fhir_tables_lib: classifyElement', () => {
   });
 });
 
-describe('fhir_tables_lib: processElements', () => {
+describe('fhir-tables-lib: processElements', () => {
 
   it('merges types from multiple elements that share a path key', () => {
     const polyMap = new Map();
@@ -201,7 +201,7 @@ describe('fhir_tables_lib: processElements', () => {
   });
 });
 
-describe('fhir_tables_lib: BUNDLE_ENTRY_RE', () => {
+describe('fhir-tables-lib: BUNDLE_ENTRY_RE', () => {
 
   it('matches the two relevant bundle filenames at the zip root', () => {
     assert.ok(BUNDLE_ENTRY_RE.test('profiles-resources.json'));

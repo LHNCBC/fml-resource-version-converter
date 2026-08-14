@@ -113,9 +113,8 @@ the same command with `--download-missing`:
 npm run build:fhir-defs -- --download-missing
 ```
 
-A single run produces `data/fhir-defs/<VER>.json` for each known version,
-including `polyPaths`, `arrayPaths`, and `elementTypes`. The underlying extractor
-is `tools/build_fhir_tables.js`.
+A single run produces `data/fhir-defs/<VER>.json` for each known version.
+The underlying extractor is `tools/fhir-spec-parser.js`.
 
 Raw spec zip archives live under `data/fhir-spec-downloads/` and are gitignored.
 The extractor reads the StructureDefinition bundles directly out of each zip; no

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { COVERAGE } from '../../../../src/converter/coverage.js';
 import { MESSAGE_TYPE, STATUS } from '../../../../src/converter/diagnostics.js';
-import { convertSingleHop } from '../../../../src/converter/singleHopConverter.js';
+import { singleHopConverter } from '../../../../src/converter/singleHopConverter.js';
 import { conv_R5_to_R4 } from '../../../../src/postprocessors/R4_R5/Questionnaire.js';
 
 const TEST_DATA = path.resolve(import.meta.dirname, '../../../data');
@@ -29,11 +29,11 @@ function item(resource, linkId) {
 describe('postprocessors/R4_R5 Questionnaire R5 -> R4', function () {
 
   // -------- through the single-hop pipeline --------------------------------
-  describe('via convertSingleHop', function () {
+  describe('via singleHopConverter.convert', function () {
     let result;
 
     before(function () {
-      result = convertSingleHop(r5Questionnaire, 'R5', 'R4');
+      result = singleHopConverter.convert(r5Questionnaire, 'R5', 'R4');
     });
 
     it('registers the postprocessor and reports FML known gaps + best-effort hop', function () {

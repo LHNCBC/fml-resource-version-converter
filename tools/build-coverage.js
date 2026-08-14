@@ -154,15 +154,20 @@ function buildDocument() {
     + 'the supported adjacent FHIR version pairs.',
     '',
   );
-  out.push('A conversion runs in up to two steps:', '');
+  out.push('A conversion runs in up to three steps:', '');
+  out.push(
+    '- **Preprocessing** (optional) - caller-supplied preprocessors may adjust the source resource '
+    + 'before the FML mapping runs. The package supplies none, and preprocessors carry no coverage '
+    + 'level, so they are not reported below.',
+  );
   out.push(
     '- **FML mapping** - the FHIR Mapping Language (FML) mapping file is executed, handling most '
     + '(sometimes all) data elements.',
   );
   out.push(
-    '- **Postprocessing** - where the FML mapping falls short, one or more postprocessors may be '
-    + 'used to refine the result and complete the conversion. At this point, the package only '
-    + 'supplies postprocessors in very limited cases.',
+    '- **Postprocessing** (optional) - where the FML mapping falls short, one or more '
+    + 'postprocessors may be used to refine the result and complete the conversion. At this point, '
+    + 'the package only supplies postprocessors in very limited cases.',
   );
   out.push('');
   out.push(
@@ -171,8 +176,9 @@ function buildDocument() {
     '',
   );
   out.push(
-    '> _Generated file - do not edit by hand. Regenerate with `npm run build:coverage` '
-    + '(see `tools/build-coverage.js`)._',
+    '> _Generated file - do not edit by hand. Maintainers regenerate it with '
+    + '`npm run build:coverage` (see `tools/build-coverage.js` in the source '
+    + 'repository)._',
     '',
   );
 
