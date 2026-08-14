@@ -8,6 +8,7 @@
  */
 import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R4B_to_R5 as convCodeSystem_R4B_to_R5 } from './CodeSystem.js';
+import { conv_R4B_to_R5 as convLibrary_R4B_to_R5 } from './Library.js';
 
 export const registry = {
   // Binary has the same element set and cardinalities in R4B and R5. The FML
@@ -62,5 +63,22 @@ export const registry = {
         + 'by the CodeSystem_R4B_to_R5 postprocessor.',
     },
     processors: [convCodeSystem_R4B_to_R5],
+  },
+
+  // R4B and R4 have identical Library, Attachment, DataRequirement, and
+  // RelatedArtifact element sets for this review. Their FML maps have the same
+  // gaps: RelatedArtifact.url is dropped because R5 has no equivalent, and
+  // version-specific DataRequirement.type resource names are left unchanged.
+  // The R4 transform is reused to normalize or remove those requirements and
+  // report the URL loss and R5 cnl-0/cnl-1 warning incompatibilities.
+  Library: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML silently drops RelatedArtifact.url, leaves version-specific '
+        + 'DataRequirement.type resource names unchanged, and does not report R4B identity '
+        + 'values that trip R5 warning invariants cnl-0 or cnl-1.',
+    },
+    processors: [convLibrary_R4B_to_R5],
   },
 };

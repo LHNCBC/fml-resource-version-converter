@@ -11,6 +11,7 @@ This project follows [Semantic Versioning](http://semver.org/).
   R4 <-> R5, and R4B <-> R5.
 - Completed CodeSystem conversion onboarding for STU3 <-> R4, R4 <-> R5, and
   R4B <-> R5.
+- Completed Library conversion onboarding for R4 <-> R5 and R4B <-> R5.
 - Added reusable functions `removePrimitiveArrayEntries()` and
   `addDataAbsentReasonExtension()` in `postprocessors/util/elements.js`, and the
   reusable canonical helper `stripCanonicalVersion()`.

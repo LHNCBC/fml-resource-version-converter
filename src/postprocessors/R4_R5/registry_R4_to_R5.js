@@ -8,6 +8,7 @@
  */
 import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R4_to_R5 as convCodeSystem_R4_to_R5 } from './CodeSystem.js';
+import { conv_R4_to_R5 as convLibrary_R4_to_R5 } from './Library.js';
 
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
@@ -63,5 +64,26 @@ export const registry = {
         + 'by the CodeSystem_R4_to_R5 postprocessor.',
     },
     processors: [convCodeSystem_R4_to_R5],
+  },
+
+  // Reviewed against Library plus the Attachment, DataRequirement, and
+  // RelatedArtifact structures it embeds. The FML silently drops
+  // RelatedArtifact.url: R5 retains the independent canonical resource field
+  // but has no equivalent for the general artifact-access URL, and redirecting
+  // it there would conflate two fields an R4 entry may carry at once. Its
+  // generic type ConceptMap also does not cover renamed or removed resource
+  // names used by DataRequirement.type. R5 additionally tightens warning
+  // invariants cnl-0 and cnl-1 for canonical resource identity. The
+  // postprocessor applies exact resource renames, removes requirements that
+  // cannot conform, and reports the remaining losses and incompatibilities.
+  Library: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML silently drops RelatedArtifact.url, leaves version-specific '
+        + 'DataRequirement.type resource names unchanged, and does not report R4 identity '
+        + 'values that trip R5 warning invariants cnl-0 or cnl-1.',
+    },
+    processors: [convLibrary_R4_to_R5],
   },
 };

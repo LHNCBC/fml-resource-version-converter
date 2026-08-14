@@ -1,35 +1,55 @@
 # FML-based FHIR Resource Version Converter
 
 This FML-based FHIR Resource Version Converter is a JavaScript package
-for converting FHIR resources between FHIR versions.
+designed to be a general, extensible framework to support the conversion
+of FHIR resources between versions by leveraging the HL7 FHIR cross-version
+FML (FHIR Mapping Language) mapping files.
 
-The conversion starts with HL7's FHIR cross-version FML (FHIR Mapping Language)
-mapping files. At this point, the FML mapping files handle most, and sometimes
-all, data elements in a conversion. When a mapping is incomplete, postprocessors
-may be used to refine the converted resource.
+At the core of the package is an FML engine that executes these mappings.
+The mappings handle most data elements, but some still contain gaps. The
+package provides a framework for:
+- documenting FML mapping coverage and limitations
+- adding postprocessors incrementally to improve conversions
+- chaining conversions between non-adjacent versions, such as R3 to R5
 
-Reviewed conversions currently cover
-  **Binary (DSTU2 <-> STU3, STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**,
-  **Questionnaire (STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**,
-  **ValueSet (STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**, and
-  **CodeSystem (STU3 <-> R4, R4 <-> R5, and R4B <-> R5)**.
-For other resource types, the FML mappings have not been reviewed and no package
-postprocessors have been provided. However, the converter can still handle most
-data elements through FML, and callers can supply postprocessors as needed.
+As a baseline, this package supports every conversion for which a bundled
+FML mapping is available, to the extent covered by that mapping. Building on
+that baseline:
 
-This project is designed as a general, extensible framework to support all
-FHIR resource types and versions for which FML mapping files exist.
-Postprocessors can be added incrementally and cleanly in future releases
-as the FML mappings are reviewed.
+- Individual FML mappings need to be reviewed and gaps identified.
+- Identified gaps can be addressed with postprocessors where possible.
+- This package currently ships with postprocessors for a limited number of
+  resource types and version pairs.
+- The community is encouraged to contribute by reviewing the FML conversions
+  and by providing postprocessors to improve the conversion. Detailed instructions
+  for contributing are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-For non-adjacent version pairs such as R3 -> R5, the conversion can be
-completed through a hop via R4, that is, R3 -> R4 and then R4 -> R5.
-The `chainedConverter` entry point performs this hop chaining for you.
+Here are a few key terms used in this package:
 
-The community is encouraged to contribute by reviewing the conversions for
-other resource types and version pairs, and by providing postprocessors
-as needed to make the conversions complete. Detailed instructions
-for contributing are in [CONTRIBUTING.md](CONTRIBUTING.md).
+**Conversion tuple:** A combination of resource type, source version, and target
+version. Where the context is clear, this document uses **conversion** as
+shorthand. For a single-hop conversion, the versions are adjacent and a bundled
+FML mapping exists for that combination. For example,
+`data/fhir-cross-version/input/R4toR5/Patient4to5.fml`
+is the FML mapping file for converting a Patient resource from R4 to R5.
+
+**Onboarding:** the term onboarding is used to describe the process of
+reviewing an FML conversion mapping and adding postprocessors as needed to
+achieve the best conversion currently practical. Therefore, a fully
+onboarded conversion is one that meets the following criteria:
+- the FML mapping has been reviewed for completeness and correctness
+- any known gaps in the FML mapping have been addressed to the fullest extent
+  possible with postprocessors
+- the review status and postprocessors (where applicable) have been documented and
+  registered in the postprocessor registry (see [CONTRIBUTING.md](CONTRIBUTING.md)
+  for details).
+
+Reviewed conversions currently cover:
+- **Binary (R2 <-> R3, R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
+- **CodeSystem (R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
+- **Library (R4 <-> R5 and R4B <-> R5)**
+- **Questionnaire (R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
+- **ValueSet (R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
 
 As a historical note, this project evolved from the now-deprecated
 [questionnaire-version-converter](https://github.com/LHNCBC/questionnaire-version-converter),

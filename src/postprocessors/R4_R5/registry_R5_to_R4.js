@@ -10,6 +10,7 @@ import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R5_to_R4 } from './Questionnaire.js';
 import { conv_R5_to_R4 as convValueSet_R5_to_R4 } from './ValueSet.js';
 import { conv_R5_to_R4 as convCodeSystem_R5_to_R4 } from './CodeSystem.js';
+import { conv_R5_to_R4 as convLibrary_R5_to_R4 } from './Library.js';
 
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
@@ -72,5 +73,25 @@ export const registry = {
         + 'R5-only filter operators that do not conform to the R4 binding.',
     },
     processors: [convCodeSystem_R5_to_R4],
+  },
+
+  // Reviewed against Library and every datatype structure reachable through
+  // its declared elements. The FML maps all shared content but silently drops
+  // R5 versionAlgorithm[x] and copyrightLabel; Attachment media metadata under
+  // content and relatedArtifact.document; DataRequirement.valueFilter; and the
+  // R5 RelatedArtifact classifier, publication metadata, and resourceReference.
+  // It also preserves R5-only codes from the required DataRequirement.type and
+  // RelatedArtifact.type bindings, yielding invalid R4. The postprocessor
+  // applies exact resource type renames, removes unrepresentable requirements
+  // and related artifacts, and reports every loss without fabricating values.
+  Library: {
+    fml: {
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML silently drops R5-only Library and nested datatype content and preserves '
+        + 'version-specific DataRequirement.type and RelatedArtifact.type codes that do not '
+        + 'conform to R4 required bindings.',
+    },
+    processors: [convLibrary_R5_to_R4],
   },
 };
