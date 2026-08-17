@@ -9,6 +9,7 @@
 import { COVERAGE } from '../../converter/coverage.js';
 import { conv_R4_to_R5 as convCodeSystem_R4_to_R5 } from './CodeSystem.js';
 import { conv_R4_to_R5 as convLibrary_R4_to_R5 } from './Library.js';
+import { conv_R4_to_R5 as convQuestionnaire_R4_to_R5 } from './Questionnaire.js';
 
 // Final cumulative coverage per conversion is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
@@ -23,15 +24,20 @@ export const registry = {
     processors: [],
   },
 
-  // Reviewed and determined that the FML mapping fully performs the Questionnaire
-  // R4->R5 conversion for valid input, including item type
-  // choice/open-choice -> coding with the appropriate answerConstraint.
+  // The FML maps all shared content, including item type choice/open-choice ->
+  // coding with the appropriate answerConstraint. However, the bundled R4
+  // constraint has the known que-12 machine-expression defect (>2 rather than
+  // >1), so valid R4 can omit enableBehavior with exactly two enableWhen while
+  // R5 rejects the result. The postprocessor uses data-absent-reason because R4
+  // provides no basis for choosing all or any.
   Questionnaire: {
     fml: {
-      coverage: COVERAGE.COMPLETE,
-      description: 'FML fully covers R4->R5 for valid input; no postprocessor needed.',
+      coverage: COVERAGE.KNOWN_GAPS,
+      description:
+        'FML maps shared Questionnaire content but can emit exactly two enableWhen '
+        + 'entries without the enableBehavior required by R5 que-12.',
     },
-    processors: [],
+    processors: [convQuestionnaire_R4_to_R5],
   },
 
   // The R4->R5 FML maps every shared ValueSet element. R5-only additions do

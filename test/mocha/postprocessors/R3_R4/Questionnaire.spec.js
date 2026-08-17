@@ -348,6 +348,15 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       assert.ok(warnings.some(m => /\/X-006/.test(m.text) && /no STU3 equivalent/.test(m.text)));
     });
 
+    it('warns about Questionnaire.derivedFrom dropped by the FML', function () {
+      const warnings = result.postprocessors[0].messages
+        .filter(message => message.type === MESSAGE_TYPE.WARNING);
+
+      assert.ok(warnings.some(message =>
+        /Questionnaire\.derivedFrom/.test(message.text)
+        && /source content dropped/.test(message.text)));
+    });
+
     it('does not inject a conversion provenance meta.tag', function () {
       const inputTags = (r4Questionnaire.meta?.tag ?? []).length;
       const outputTags = (result.resource.meta?.tag ?? []).length;
@@ -773,6 +782,33 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       assert.deepEqual(res.resource.item[0].enableWhen, [{ question: 'q1', answerString: 's1' }]);
       assert.ok(!res.messages.some(m => /enableBehavior/.test(m.text)));
       assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /operator/.test(m.text)));
+    });
+
+    it('reports bare and extension-only derivedFrom content', function () {
+      const extension = { extension: [{ url: 'http://example.org/metadata', valueString: 'x' }] };
+      const bare = run(
+        { resourceType: 'Questionnaire' },
+        { resourceType: 'Questionnaire', derivedFrom: ['Questionnaire/base'] },
+      );
+      const extensionOnly = run(
+        { resourceType: 'Questionnaire' },
+        { resourceType: 'Questionnaire', _derivedFrom: [extension] },
+      );
+
+      assert.equal(bare.status, STATUS.WARNING);
+      assert.equal(extensionOnly.status, STATUS.WARNING);
+      assert.ok(bare.messages.some(message => /Questionnaire\.derivedFrom/.test(message.text)));
+      assert.ok(extensionOnly.messages.some(message => /Questionnaire\.derivedFrom/.test(message.text)));
+    });
+
+    it('does not treat an id-only derivedFrom companion as valid content', function () {
+      const res = run(
+        { resourceType: 'Questionnaire' },
+        { resourceType: 'Questionnaire', _derivedFrom: [{ id: 'invalid-alone' }] },
+      );
+
+      assert.equal(res.status, STATUS.OK);
+      assert.equal(res.messages.length, 0);
     });
   });
 });

@@ -6,13 +6,13 @@
  * compare only the resource, otherwise the envelope wrapper reports as a total
  * mismatch (every field a false diff). These tests drive the real tool as a
  * subprocess and assert:
- *   1. A conversion with no package postprocessor reports MATCH and exits 0.
+ *   1. A conversion whose package postprocessor is a no-op reports MATCH and exits 0.
  *   2. A postprocessed conversion reports only real resource-level differences
  *      (never the envelope wrapper) and exits 1.
  *
  * The R4 fixture is the same one the postprocessor unit tests use. It has no
- * postprocessor for R4 -> R5 (clean MATCH) and a real one for R4 -> R3 (drops
- * enableWhen entries with no STU3 equivalent).
+ * no-op postprocessor for this fixture in R4 -> R5 (clean MATCH) and a mutating
+ * one for R4 -> R3 (drops enableWhen entries with no STU3 equivalent).
  */
 import { strict as assert } from 'node:assert';
 import { spawnSync } from 'node:child_process';
@@ -32,11 +32,12 @@ function runTool(args) {
 }
 
 describe('tools/comp-fml-vs-full.js FML-vs-Full comparison', function () {
-  it('reports MATCH and exits 0 when no postprocessor runs (Questionnaire R4 -> R5)', function () {
+  it('reports MATCH and exits 0 when the postprocessor is a no-op (Questionnaire R4 -> R5)', function () {
     const res = runTool(['R4', 'R5', FIXTURE]);
 
     assert.equal(res.status, 0, res.stdout + res.stderr);
-    assert.match(res.stdout, /Postprocessors: none/);
+    assert.match(res.stdout, /Postprocessors: 1/);
+    assert.match(res.stdout, /Questionnaire_R4_to_R5/);
     assert.match(res.stdout, /FML vs Full: MATCH/);
     // The engine envelope must never leak into the comparison.
     assert.doesNotMatch(res.stdout, /\$\.resource\b/);

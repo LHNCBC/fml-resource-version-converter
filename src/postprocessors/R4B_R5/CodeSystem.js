@@ -50,5 +50,3 @@ export const conv_R4B_to_R5 = {
     + 'unknown rather than invented. Reuses the R4->R5 transform. Does not handle '
     + 'inter-version extensions.',
 };
-
-

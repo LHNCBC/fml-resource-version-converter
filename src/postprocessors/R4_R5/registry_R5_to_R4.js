@@ -27,8 +27,10 @@ export const registry = {
 
   // FML alone has KNOWN_GAPS for R5->R4: it mis-narrows Questionnaire item.type
   // (over-produces open-choice) and emits a malformed type: { value: "..." }
-  // whenever answerConstraint was involved. The postprocessor recomputes the
-  // R4 item.type from the R5 source, bringing the conversion to BEST_EFFORT.
+  // whenever answerConstraint was involved. It also silently drops R5-only
+  // versionAlgorithm[x], copyrightLabel, and recursively nested disabledDisplay.
+  // The postprocessor recomputes the R4 item.type and reports those losses,
+  // bringing the conversion to BEST_EFFORT.
   // Inter-version-extension include is deferred (see the design documents,
   // "Inter-version extensions").
   Questionnaire: {
@@ -36,7 +38,8 @@ export const registry = {
       coverage: COVERAGE.KNOWN_GAPS,
       description:
         'FML mis-narrows item.type (over-produces open-choice) and emits a '
-        + 'malformed type object; corrected by the Questionnaire_R5_to_R4 postprocessor.',
+        + 'malformed type object, and silently drops R5-only Questionnaire '
+        + 'content; corrected and reported by the Questionnaire_R5_to_R4 postprocessor.',
     },
     processors: [conv_R5_to_R4],
   },

@@ -90,6 +90,29 @@ describe('postprocessors/R4B_R5 Questionnaire R5 -> R4B', function () {
 
     assert.match(text, /R5 allows any coding but R4B open-choice/);
   });
+
+  it('reports R5-only Questionnaire content dropped by the shared transform', function () {
+    const source = {
+      resourceType: 'Questionnaire',
+      status: 'active',
+      versionAlgorithmCoding: { code: 'semver' },
+      copyrightLabel: 'Example copyright',
+      item: [{ linkId: 'a', type: 'string', disabledDisplay: 'hidden' }],
+    };
+    const converted = singleHopConverter.convert(source, 'R5', 'R4B');
+    const text = converted.postprocessors[0].messages
+      .map(message => message.text)
+      .join('\n');
+
+    assert.equal(converted.status, STATUS.WARNING);
+    assert.equal('versionAlgorithmCoding' in converted.resource, false);
+    assert.equal('copyrightLabel' in converted.resource, false);
+    assert.equal('disabledDisplay' in converted.resource.item[0], false);
+    assert.match(text, /Questionnaire\.versionAlgorithm\[x\]/);
+    assert.match(text, /Questionnaire\.copyrightLabel/);
+    assert.match(text, /Questionnaire\.item\.disabledDisplay/);
+    assert.match(text, /no R4B equivalent/);
+  });
 });
 
 

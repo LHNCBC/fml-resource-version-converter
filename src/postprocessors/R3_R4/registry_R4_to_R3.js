@@ -86,8 +86,9 @@ export const registry = {
         + 'non-representable operators, drops answerOption.initialSelected, '
         + 'leaves an empty option entry for answerOption.valueReference, and '
         + 'keeps the last (not first) of multiple initial values; corrected by '
-        + 'the Questionnaire_R4_to_R3 postprocessor. Some R4-only data elements '
-        + '(e.g. derivedFrom, enableBehavior) have no R3 mapping and are dropped.',
+        + 'the Questionnaire_R4_to_R3 postprocessor. R4-only derivedFrom loss is '
+        + 'reported, while enableBehavior is diagnosed where its removal can '
+        + 'change conditional-display behavior.',
     },
     processors: [conv_R4_to_R3],
   },

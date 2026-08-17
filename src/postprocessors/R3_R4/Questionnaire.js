@@ -452,6 +452,24 @@ function convertItems(targetItems, sourceByLinkId, messages) {
   }
 }
 
+/**
+ * Return whether repeating primitive Questionnaire.derivedFrom carries a value
+ * or a valid extension-only occurrence.
+ *
+ * @param {Object|undefined} source R4 source Questionnaire.
+ * @returns {boolean} True when derivedFrom content will be lost in STU3.
+ */
+function hasDerivedFromContent(source) {
+  if (!source || typeof source !== 'object') return false;
+
+  const values = source.derivedFrom;
+  if (Array.isArray(values) && values.some(value => value != null)) return true;
+
+  const companions = source._derivedFrom;
+  return Array.isArray(companions) && companions.some(companion =>
+    Array.isArray(companion?.extension) && companion.extension.length > 0);
+}
+
 /*
  * FML issues handled (R4 -> R3):
  * - answerValueSet -> options: the FML emits a malformed primitive
@@ -472,6 +490,8 @@ function convertItems(targetItems, sourceByLinkId, messages) {
  *   the FML lets the last value win. The first is kept here (rest dropped).
  * - enableBehavior: R4-only; STU3 combines multiple enableWhen with implicit OR.
  *   Dropping "any" is lossless (info); dropping "all" changes behavior (warning).
+ * - derivedFrom: R4-only; source content is dropped by the FML and reported,
+ *   including extension-only entries in the repeating primitive.
  */
 
 /**
@@ -489,7 +509,8 @@ export const conv_R4_to_R3 = {
     + 'enableWhen (dropping operators with no STU3 equivalent), fixes options to '
     + 'the STU3 Reference shape, and re-derives initial[x] from '
     + 'answerOption.initialSelected. Warns when enableBehavior "all" cannot be '
-    + 'represented in STU3. Does not handle inter-version extensions.',
+    + 'represented in STU3 and when derivedFrom content is dropped. Does not '
+    + 'handle inter-version extensions.',
 
   /**
    * @param {Object} target FML-converted STU3 Questionnaire (mutated in place).
@@ -498,6 +519,11 @@ export const conv_R4_to_R3 = {
    */
   execute(target, ctx) {
     const messages = [];
+    if (hasDerivedFromContent(ctx?.sourceResource)) {
+      messages.push(warningMessage(
+        'Questionnaire.derivedFrom has no STU3 equivalent; source content dropped',
+      ));
+    }
     const sourceByLinkId = indexSourceItemsByLinkId(ctx?.sourceResource?.item, new Map());
     convertItems(target.item, sourceByLinkId, messages);
     return { resource: target, status: statusFromMessages(messages), messages };

@@ -13,6 +13,8 @@ This project follows [Semantic Versioning](http://semver.org/).
   R4B <-> R5.
 - Completed Library conversion onboarding for R3 <-> R4, R4 <-> R5, and
   R4B <-> R5.
+- Completed ValueSet conversion onboarding for R3 <-> R4, R4 <-> R5, and
+  R4B <-> R5.
 - Added reusable functions `removePrimitiveArrayEntries()`,
   `hasPrimitiveValueOrExtension()`, and `addDataAbsentReasonExtension()` in
   `postprocessors/util/elements.js`, and the reusable canonical helper
@@ -20,12 +22,22 @@ This project follows [Semantic Versioning](http://semver.org/).
 - `CONTRIBUTING.md` guidance on handling a target version that adds a constraint
   the source does not have.
 
+### Fixed
+
+- R4 -> R5 Questionnaire conversion now repairs the two-`enableWhen` que-12
+  invariant gap without guessing `enableBehavior` semantics.
+- Questionnaire downgrades now warn when R5-only `versionAlgorithm[x]`,
+  `copyrightLabel`, or nested `item.disabledDisplay` content is dropped on the
+  way to R4/R4B, and when R4 `derivedFrom` content is dropped on the way to R3.
+- FML engine schema metadata now resolves through StructureDefinition
+  `contentReference` paths, preserving typed polymorphic names, primitive
+  companions, scalar types, and cardinality below recursive backbone elements
+  such as nested `Questionnaire.item` nodes.
+
 ## [0.2.0] - 2026-08-13
 
 ### Added
 
-- Completed ValueSet conversion onboarding for R3 <-> R4, R4 <-> R5, and
-  R4B <-> R5.
 - `chainedConverter.convert(resource, fromVer, toVer, opts?)`: a multi-hop
   conversion entry point that chains adjacent FML hops as needed (for example,
   R3 -> R5 runs as R3 -> R4 -> R5) and returns a per-hop `hops[]` report.
@@ -94,10 +106,6 @@ This project follows [Semantic Versioning](http://semver.org/).
 - FML engine: datatype-internal array fields written through a type/`then`
   conversion (e.g. `Encounter.class.coding`, `PractitionerRole.contact.telecom`)
   are now correctly wrapped as arrays.
-- FML engine: schema metadata now resolves through StructureDefinition
-  `contentReference` paths, preserving typed polymorphic names, primitive
-  companions, scalar types, and cardinality below recursive backbone elements
-  such as nested `Questionnaire.item` nodes.
 - Companion fields (the `_name` object that carries the `id` and extensions of a
   primitive value, such as `_status` for `status`) are now carried over
   correctly in a number of cases where they were previously dropped or

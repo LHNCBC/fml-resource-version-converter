@@ -26,14 +26,17 @@ export const registry = {
   // Reviewed against the FHIR spec. R4B is identical to R4 for Questionnaire.item
   // (no answerConstraint, same type set), so the FML mis-narrows item.type the
   // same way as R5->R4: a malformed wrapped primitive when answerConstraint is
-  // involved, and over-widening to open-choice. The postprocessor recomputes
-  // item.type from the R5 source, bringing the conversion to BEST_EFFORT.
+  // involved, and over-widening to open-choice. It also silently drops R5-only
+  // versionAlgorithm[x], copyrightLabel, and recursively nested disabledDisplay.
+  // The postprocessor recomputes item.type and reports those losses, bringing
+  // the conversion to BEST_EFFORT.
   Questionnaire: {
     fml: {
       coverage: COVERAGE.KNOWN_GAPS,
       description:
         'FML mis-narrows item.type (malformed wrapped primitive and over-widened '
-        + 'open-choice); corrected by the Questionnaire_R5_to_R4B postprocessor.',
+        + 'open-choice) and silently drops R5-only Questionnaire content; corrected '
+        + 'and reported by the Questionnaire_R5_to_R4B postprocessor.',
     },
     processors: [conv_R5_to_R4B],
   },

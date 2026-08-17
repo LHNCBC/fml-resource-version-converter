@@ -1,9 +1,9 @@
 /**
  * @fileoverview Questionnaire postprocessors for the R4 <-> R5 version pair.
  *
- * Provides the R5 -> R4 direction only. The R4 -> R5 direction needs no
- * postprocessor for the necessary (non-IVE) conversions: the FML mapping covers
- * it.
+ * Provides both directions. R4 -> R5 repairs the que-12 invariant gap in the
+ * bundled R4 mapping, while R5 -> R4 corrects item.type narrowing and reports
+ * R5-only content that the target cannot represent.
  *
  * The R5 -> R4 item.type narrowing here is also reused verbatim by R5 -> R4B
  * (R4B is identical to R4 for Questionnaire.item); see
@@ -21,7 +21,115 @@ import {
   statusFromMessages,
   warningMessage,
 } from '../../converter/diagnostics.js';
+import {
+  addDataAbsentReasonExtension,
+  hasAnyContent,
+  hasPrimitiveValueOrExtension,
+} from '../util/elements.js';
 import { indexSourceItemsByLinkId } from '../util/questionnaire.js';
+
+/**
+ * Ensure R5 que-12 can be satisfied after an R4 -> R5 conversion.
+ *
+ * The bundled R4 mapping only requires enableBehavior above two enableWhen
+ * entries, while R5 requires it above one. R4 does not define a default from
+ * which "all" or "any" can be inferred, so mark the primitive absent rather
+ * than inventing behavior.
+ *
+ * @param {Array<Object>|undefined} items Target R5 items, mutated in place.
+ * @param {Array<Object>} messages Diagnostic messages to append to.
+ */
+function repairEnableBehavior(items, messages) {
+  if (!Array.isArray(items)) return;
+
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+
+    if (Array.isArray(item.enableWhen)
+        && item.enableWhen.length > 1
+        && !hasPrimitiveValueOrExtension(item, 'enableBehavior')) {
+      addDataAbsentReasonExtension(item, 'enableBehavior');
+      messages.push(warningMessage(
+        `item "${item.linkId}": R5 requires enableBehavior for multiple enableWhen `
+        + 'conditions; marked it unknown because R4 does not define the missing behavior',
+      ));
+    }
+
+    repairEnableBehavior(item.item, messages);
+  }
+}
+
+/*
+ * FML issue handled (R4 -> R5):
+ * - que-12: the bundled R4 map follows R4's incorrect machine expression and
+ *   can emit exactly two enableWhen entries without enableBehavior. R5 requires
+ *   the element whenever more than one condition exists. The missing primitive
+ *   is represented truthfully with data-absent-reason instead of guessing all
+ *   or any.
+ */
+
+/**
+ * R4 -> R5 Questionnaire postprocessor descriptor.
+ */
+export const conv_R4_to_R5 = {
+  name: 'Questionnaire_R4_to_R5',
+  coverage: COVERAGE.COMPLETE,
+  description:
+    'Repairs R5 que-12 when an R4 Questionnaire has multiple enableWhen entries '
+    + 'but no enableBehavior, using data-absent-reason rather than inventing all/any.',
+
+  /**
+   * @param {Object} target FML-converted R5 Questionnaire (mutated in place).
+   * @returns {{resource: Object, status: string, messages: Array<Object>}} Result.
+   */
+  execute(target) {
+    const messages = [];
+    repairEnableBehavior(target.item, messages);
+    return { resource: target, status: statusFromMessages(messages), messages };
+  },
+};
+
+/**
+ * Collect R5-only Questionnaire paths that carry source content.
+ *
+ * Primitive checks recognize extension-only occurrences while rejecting an
+ * invalid id-only companion. Repeated item content is reported once by logical
+ * path, regardless of nesting depth or occurrence count.
+ *
+ * @param {Object|undefined} source R5 source Questionnaire.
+ * @returns {string[]} Sorted logical paths containing unrepresentable content.
+ */
+function findDroppedR5Content(source) {
+  const paths = new Set();
+
+  if (hasPrimitiveValueOrExtension(source, 'versionAlgorithmString')
+      || hasAnyContent(source, ['versionAlgorithmCoding'])) {
+    paths.add('Questionnaire.versionAlgorithm[x]');
+  }
+  if (hasPrimitiveValueOrExtension(source, 'copyrightLabel')) {
+    paths.add('Questionnaire.copyrightLabel');
+  }
+
+  /**
+   * Inspect nested R5 items for R5-only primitive content.
+   *
+   * @param {Array<Object>|undefined} items R5 source items.
+   */
+  function inspectItems(items) {
+    if (!Array.isArray(items)) return;
+
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      if (hasPrimitiveValueOrExtension(item, 'disabledDisplay')) {
+        paths.add('Questionnaire.item.disabledDisplay');
+      }
+      inspectItems(item.item);
+    }
+  }
+
+  inspectItems(source?.item);
+  return [...paths].sort();
+}
 
 /**
  * Return whether an R5 item carries answer options (answerOption/answerValueSet).
@@ -151,6 +259,9 @@ function convertItems(targetItems, sourceByLinkId, messages, sourceVersion, targ
  *   `coding` item constrained to a value set should be `choice`, and a
  *   non-coding item such as `integer` with options should keep its base type.
  * Both are corrected by recomputing item.type from the R5 source item.
+ * - versionAlgorithm[x], copyrightLabel, and item.disabledDisplay: R5-only
+ *   elements are dropped by the FML. Source occurrences are reported,
+ *   including extension-only primitives and recursively nested items.
  */
 
 /**
@@ -167,9 +278,9 @@ export const conv_R5_to_R4 = {
   description:
     'Corrects Questionnaire item.type for R5->R4 (coding/answerConstraint -> '
     + 'choice/open-choice) from the R5 source, fixing the FML step\'s malformed '
-    + 'and over-widened narrowing. Also reused verbatim by R5->R4B (R4B is '
-    + 'identical to R4 for Questionnaire.item). Does not handle inter-version '
-    + 'extensions.',
+    + 'and over-widened narrowing. Reports dropped R5-only versionAlgorithm[x], '
+    + 'copyrightLabel, and nested item.disabledDisplay content. Also reused '
+    + 'verbatim by R5->R4B. Does not handle inter-version extensions.',
 
   /**
    * @param {Object} target FML-converted R4 Questionnaire (mutated in place).
@@ -181,6 +292,13 @@ export const conv_R5_to_R4 = {
     const sourceByLinkId = indexSourceItemsByLinkId(ctx?.sourceResource?.item, new Map());
     const sourceVersion = ctx?.fromVer || 'R5';
     const targetVersion = ctx?.toVer || 'target version';
+    const droppedPaths = findDroppedR5Content(ctx?.sourceResource);
+    if (droppedPaths.length > 0) {
+      messages.push(warningMessage(
+        `${droppedPaths.join(', ')} ${droppedPaths.length === 1 ? 'has' : 'have'} no `
+        + `${targetVersion} equivalent; source content dropped`,
+      ));
+    }
     convertItems(target.item, sourceByLinkId, messages, sourceVersion, targetVersion);
     return { resource: target, status: statusFromMessages(messages), messages };
   },
