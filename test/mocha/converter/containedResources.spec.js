@@ -81,7 +81,7 @@ describe('converter contained resources', function () {
         assert.equal(child.fml_base_conv.name, '_FML_');
       }
 
-      assert.equal(result.coverage, COVERAGE.COMPLETE);
+      assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
       assert.equal(result.contained[4].coverage, COVERAGE.BEST_EFFORT);
     });
 
@@ -156,7 +156,7 @@ describe('converter contained resources', function () {
       assert.equal(library.postprocessors.some(report => report.name === 'child-post'), true);
     });
 
-    it('keeps child coverage separate while rolling a child warning into parent status', function () {
+    it('rolls child coverage and warnings into the invocation result', function () {
       const source = makeMixedQuestionnaire();
       const warn = {
         name: 'warn-on-library',
@@ -172,7 +172,7 @@ describe('converter contained resources', function () {
         postprocs: { Library: [warn] },
       });
 
-      assert.equal(result.coverage, COVERAGE.COMPLETE);
+      assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
       assert.equal(result.contained[4].coverage, COVERAGE.BEST_EFFORT);
       assert.equal(result.contained[4].status, STATUS.WARNING);
       assert.equal(result.status, STATUS.WARNING);
@@ -197,6 +197,34 @@ describe('converter contained resources', function () {
   });
 
   describe('chained conversion and reports', function () {
+    it('includes child resource-hops in effective coverage across the chain', function () {
+      const parent = {
+        resourceType: 'CodeSystem',
+        id: 'parent-codesystem',
+        status: 'active',
+        content: 'complete',
+      };
+      const child = {
+        resourceType: 'Library',
+        id: 'child-library',
+        status: 'active',
+        type: {
+          coding: [{
+            system: 'http://hl7.org/fhir/library-type',
+            code: 'logic-library',
+          }],
+        },
+      };
+
+      const parentOnly = chainedConverter.convert(parent, 'R3', 'R5');
+      const withChild = chainedConverter.convert({ ...parent, contained: [child] }, 'R3', 'R5');
+
+      assert.equal(parentOnly.coverage, COVERAGE.COMPLETE);
+      assert.equal(withChild.coverage, COVERAGE.BEST_EFFORT);
+      assert.equal(withChild.hops[0].contained[0].coverage, COVERAGE.BEST_EFFORT);
+      assert.equal(withChild.hops[1].contained[0].coverage, COVERAGE.BEST_EFFORT);
+    });
+
     it('reports the children converted independently inside each parent hop', function () {
       const result = chainedConverter.convert(makeMixedQuestionnaire(), 'R3', 'R5');
 
@@ -212,6 +240,7 @@ describe('converter contained resources', function () {
         assert.equal(hop.contained.every(child => child.fml_base_conv.name === '_FML_'), true);
       }
       assert.equal(result.hops[1].contained[0].resource.item[0].type, 'coding');
+      assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
     });
 
     it('does not require child reports to stay aligned across parent hops', function () {
@@ -322,6 +351,7 @@ describe('converter contained resources', function () {
 
       assert.equal('contained' in result.resource, false);
       assert.equal(result.contained.length, 5);
+      assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
     });
   });
 });

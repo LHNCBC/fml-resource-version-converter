@@ -7,13 +7,14 @@
  * @module postprocessors/R3_R4/registry_R4_to_R3
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { assertDeclaredCoverage } from '../../converter/processorDescriptor.js';
 import { conv_R4_to_R3 as convBinary_R4_to_R3 } from './Binary.js';
 import { conv_R4_to_R3 as convCodeSystem_R4_to_R3 } from './CodeSystem.js';
 import { conv_R4_to_R3 as convLibrary_R4_to_R3 } from './Library.js';
 import { conv_R4_to_R3 } from './Questionnaire.js';
 import { conv_R4_to_R3 as convValueSet_R4_to_R3 } from './ValueSet.js';
 
-// Final cumulative coverage per conversion is generated into COVERAGE.md,
+// Final declared coverage for each default resource-hop is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
 export const registry = {
   // Reviewed against the FHIR spec and bundled mapping. R4 data is optional,
@@ -29,7 +30,7 @@ export const registry = {
         + 'primitive when optional R4 data is absent; repaired by the '
         + 'Binary_R4_to_R3 postprocessor.',
     },
-    processors: [convBinary_R4_to_R3],
+    processors: [assertDeclaredCoverage(convBinary_R4_to_R3, COVERAGE.COMPLETE)],
   },
 
   // Reviewed against the FHIR spec and bundled mapping. The FML does not
@@ -48,7 +49,7 @@ export const registry = {
         + 'CodeSystem differences unresolved; corrected or approximated with '
         + 'diagnostics by the CodeSystem_R4_to_R3 postprocessor.',
     },
-    processors: [convCodeSystem_R4_to_R3],
+    processors: [assertDeclaredCoverage(convCodeSystem_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
 
   // Reviewed against Library and the embedded Contributor,
@@ -67,7 +68,7 @@ export const registry = {
         + 'drops R4-only content silently; repaired or reported by the '
         + 'Library_R4_to_R3 postprocessor.',
     },
-    processors: [convLibrary_R4_to_R3],
+    processors: [assertDeclaredCoverage(convLibrary_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
 
   // FML alone has KNOWN_GAPS for R4->R3: it emits a malformed options string
@@ -90,7 +91,7 @@ export const registry = {
         + 'reported, while enableBehavior is diagnosed where its removal can '
         + 'change conditional-display behavior.',
     },
-    processors: [conv_R4_to_R3],
+    processors: [assertDeclaredCoverage(conv_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
 
   // Reviewed against the FHIR spec. No R4 ValueSet element was added relative
@@ -114,6 +115,6 @@ export const registry = {
         + 'and drops expansion parameter dateTime values without a diagnostic; '
         + 'corrected and reported by the ValueSet_R4_to_R3 postprocessor.',
     },
-    processors: [convValueSet_R4_to_R3],
+    processors: [assertDeclaredCoverage(convValueSet_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
 };

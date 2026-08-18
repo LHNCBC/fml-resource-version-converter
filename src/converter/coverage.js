@@ -1,8 +1,9 @@
 /**
  * @fileoverview Coverage-level helpers for conversion reports.
  *
- * Coverage describes the claimed completeness of a converter component. It is
- * advisory and separate from runtime status.
+ * Declared coverage describes the claimed completeness of a converter
+ * component. Effective coverage aggregates the declarations that apply to a
+ * particular invocation. Both are advisory and separate from runtime status.
  */
 
 /**
@@ -12,18 +13,10 @@
  * standard, valid input from the source version to the target version - that is,
  * the top-level resource's own elements.
  *
- * Two cross-cutting concerns are NOT factors in a primary component's coverage
- * level:
- *   - inter-version-extension (IVE) round-trip preservation, and
- *   - the coverage of separately converted contained[] resources.
- *
- * Contained resources are converted and reported independently because
- * contained[] may hold ANY resource type. Their warnings raise the primary
- * result's runtime status, but their coverage does not lower the primary
- * resource's coverage claim.
- *
- * A primary component may therefore be COMPLETE even when one of its contained
- * resource conversions has lower coverage, or without handling IVE.
+ * Inter-version-extension (IVE) round-trip preservation is not a factor in a
+ * component's declared coverage. Contained resources have their own component
+ * declarations; their resource-hop coverage participates when effective
+ * coverage is aggregated for an invocation.
  *
  * - NOT_REVIEWED: completeness has not been assessed (functional default).
  * - KNOWN_GAPS: known conversion gaps remain.
@@ -139,16 +132,16 @@ export function rollupHopCoverage(initialCoverage, coverages = []) {
 }
 
 /**
- * Return the lowest ordered coverage across a chain of hops.
+ * Return the lowest ordered coverage across independent resource-hop results.
  *
  * Neutral hop coverage is ignored because it makes no completeness claim. At
  * least one ordered hop coverage is required.
  *
- * @param {string[]} hopCoverages Governing coverage for each hop.
- * @returns {string} Overall chain coverage.
+ * @param {string[]} hopCoverages Effective coverage for each resource-hop.
+ * @returns {string} Effective coverage across the resource-hops.
  * @throws {Error} If no ordered coverage is present.
  */
-export function rollupChainCoverage(hopCoverages) {
+export function rollupEffectiveCoverage(hopCoverages) {
   if (!Array.isArray(hopCoverages) || hopCoverages.length === 0) {
     throw new Error('At least one hop coverage is required');
   }

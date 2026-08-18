@@ -8,11 +8,13 @@
  * Flat result shape:
  *   { resource, coverage, status, preprocessors?, fml_base_conv,
  *     postprocessors?, contained? }
+ * `coverage` is effective coverage across the primary and contained
+ * resource-hop conversions performed.
  * The multi-hop chainedConverter nests per-hop reports under hops[]; the two
  * entry points intentionally have different result shapes.
  *
  * Pipeline: clone the caller input once, then delegate the single hop to the
- * shared runHop core (pre -> FML -> post). Processor options
+ * shared runHop core (pre -> FML -> contained -> post). Processor options
  * (preproc/preprocs/postproc/postprocs) are normalized once into the canonical
  * (type, v1, v2) lookups; for a single hop the versions are fixed to that hop.
  *
@@ -20,7 +22,6 @@
  */
 import { normalizeProcessorOptions, resolveSingleHopOptionKeys } from './processorOptions.js';
 import { runHop } from './runHop.js';
-import { rollupChainCoverage } from './coverage.js';
 import { planHops } from '../fml_base_conv/create_converter.js';
 
 /**
@@ -107,7 +108,7 @@ function convert(resource, fromVer, toVer, opts = {}) {
 function flattenHopResult(hop) {
   const result = {
     resource: hop.resource,
-    coverage: rollupChainCoverage([hop.hopCoverage]),
+    coverage: hop.hopCoverage,
     status: hop.status,
   };
   if (hop.fragment.preprocessors) result.preprocessors = hop.fragment.preprocessors;

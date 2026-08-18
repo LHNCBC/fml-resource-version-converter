@@ -3,9 +3,9 @@
  * @fileoverview Generate COVERAGE.md from the postprocessor registry.
  *
  * Walks the consolidated registry (one section per directed FHIR version pair)
- * and emits a Markdown report of conversion coverage per resource type: the FML
- * mapping's coverage, the package postprocessors, the rolled-up cumulative
- * coverage, and the combined descriptions.
+ * and emits a Markdown report of declared coverage per resource type: the FML
+ * mapping's declaration, the package postprocessors, the final default-pipeline
+ * declaration, and the combined descriptions.
  *
  * The registry is the single source of truth; this file only renders it, so the
  * report can never drift from the code. Output is deterministic (resource types
@@ -28,14 +28,14 @@ import { COVERAGE, rollupHopCoverage } from '../src/converter/coverage.js';
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 
 /**
- * Turn a direction key like 'R4->R5' into a display label 'R4 -> R5'.
+ * Turn a direction key like 'R4->R5' into a display label 'R4 => R5'.
  *
  * @param {string} key Direction key.
  * @returns {string} Display label.
  */
 function directionLabel(key) {
   const [from, to] = key.split('->');
-  return `${from} -> ${to}`;
+  return `${from} => ${to}`;
 }
 
 /**
@@ -76,7 +76,7 @@ function describeCell(entry) {
 }
 
 /**
- * Effective postprocessor coverage: the last non-neutral coverage declared by
+ * Final declared postprocessor coverage: the last non-neutral coverage declared by
  * the postprocessors (each declares the cumulative level after it runs), or
  * null when there are no postprocessors or all are neutral.
  *
@@ -93,13 +93,12 @@ function postprocessorCoverage(entry) {
 }
 
 /**
- * Overall coverage: the FML coverage rolled up with the postprocessors', using
- * the same rollup the runtime uses.
+ * Final declared coverage for the package's default resource-hop pipeline.
  *
  * @param {Object} entry Registry entry.
- * @returns {string} Overall coverage level.
+ * @returns {string} Final declared coverage level.
  */
-function overallCoverage(entry) {
+function overallDeclaredCoverage(entry) {
   return rollupHopCoverage(entry.fml.coverage, entry.processors.map(p => p.coverage));
 }
 
@@ -117,7 +116,7 @@ function renderSection(key, table) {
   const label = directionLabel(key);
   const lines = [`## ${label}`, ''];
 
-  lines.push('| Resource | FML coverage | Postprocessor coverage | Overall coverage | Description |');
+  lines.push('| Resource | FML declared coverage | Final postprocessor declared coverage | Final declared coverage | Description |');
   lines.push('| --- | --- | --- | --- | --- |');
 
   for (const rt of Object.keys(table).sort()) {
@@ -125,7 +124,7 @@ function renderSection(key, table) {
     const pp = postprocessorCoverage(entry);
     lines.push(
       `| ${mdCell(rt)} | ${entry.fml.coverage} | ${pp || '-'} `
-      + `| ${overallCoverage(entry)} | ${describeCell(entry)} |`,
+      + `| ${overallDeclaredCoverage(entry)} | ${describeCell(entry)} |`,
     );
   }
 
@@ -148,9 +147,9 @@ function buildDocument() {
   const directions = registeredDirections();
   const out = [];
 
-  out.push('# Conversion Coverage', '');
+  out.push('# Declared Conversion Coverage', '');
   out.push(
-    'This document reports the package\'s conversion coverage for each FHIR resource type across '
+    'This document reports the package\'s declared conversion coverage for each FHIR resource type across '
     + 'the supported adjacent FHIR version pairs.',
     '',
   );
@@ -171,8 +170,15 @@ function buildDocument() {
   );
   out.push('');
   out.push(
-    'For each resource type, the tables report the coverage of the FML step, of the postprocessors '
-    + '(when any apply), and of the two combined as the overall coverage.',
+    'For each resource type, the tables report the declared coverage of the FML step, of the '
+    + 'postprocessors (when any apply), and of the package\'s default resource-hop pipeline. This '
+    + 'is static package capability information, not the effective coverage of a particular invocation.',
+    '',
+  );
+  out.push(
+    'See [Declared coverage, effective coverage, and runtime status]'
+    + '(README.md#declared-coverage-effective-coverage-and-runtime-status) in `README.md` for the '
+    + 'canonical definitions.',
     '',
   );
   out.push(
@@ -226,4 +232,3 @@ function main() {
 }
 
 main();
-

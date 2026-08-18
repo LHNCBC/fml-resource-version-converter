@@ -7,12 +7,13 @@
  * @module postprocessors/R3_R4/registry_R3_to_R4
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { assertDeclaredCoverage } from '../../converter/processorDescriptor.js';
 import { conv_R3_to_R4 as convCodeSystem_R3_to_R4 } from './CodeSystem.js';
 import { conv_R3_to_R4 as convLibrary_R3_to_R4 } from './Library.js';
 import { conv_R3_to_R4 } from './Questionnaire.js';
 import { conv_R3_to_R4 as convValueSet_R3_to_R4 } from './ValueSet.js';
 
-// Final cumulative coverage per conversion is generated into COVERAGE.md,
+// Final declared coverage for each default resource-hop is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
 export const registry = {
   // Reviewed against the FHIR spec and bundled mapping. The FML renames the
@@ -42,7 +43,7 @@ export const registry = {
         + 'postprocessor reports names that do not satisfy R4 warning invariant '
         + 'csd-0 without changing them.',
     },
-    processors: [convCodeSystem_R3_to_R4],
+    processors: [assertDeclaredCoverage(convCodeSystem_R3_to_R4, COVERAGE.COMPLETE)],
   },
 
   // Reviewed against Library and the embedded Contributor,
@@ -60,7 +61,7 @@ export const registry = {
         + 'LibraryType code-system canonical, and DataRequirement code-filter differences '
         + 'unresolved; repaired or reported by the Library_R3_to_R4 postprocessor.',
     },
-    processors: [convLibrary_R3_to_R4],
+    processors: [assertDeclaredCoverage(convLibrary_R3_to_R4, COVERAGE.BEST_EFFORT)],
   },
 
   // Reviewed against the FHIR spec. FML has KNOWN_GAPS for enableWhen answer types
@@ -75,7 +76,7 @@ export const registry = {
         + 'leaves a malformed entry for answerAttachment; corrected by the '
         + 'Questionnaire_R3_to_R4 postprocessor.',
     },
-    processors: [conv_R3_to_R4],
+    processors: [assertDeclaredCoverage(conv_R3_to_R4, COVERAGE.BEST_EFFORT)],
   },
 
   // Reviewed against the FHIR spec and the bundled mapping. STU3 and R4 share
@@ -94,6 +95,6 @@ export const registry = {
         + 'general R4 tools need not understand; reported by the '
         + 'ValueSet_R3_to_R4 postprocessor.',
     },
-    processors: [convValueSet_R3_to_R4],
+    processors: [assertDeclaredCoverage(convValueSet_R3_to_R4, COVERAGE.BEST_EFFORT)],
   },
 };

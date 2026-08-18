@@ -12,6 +12,10 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 ### Changed
 
+- `result.coverage` now reports effective coverage across every resource-hop
+  conversion performed, including contained resources. This is a behavioral
+  breaking change: a result's coverage can be lower than in previous releases
+  when a contained-resource conversion has lower coverage.
 - Keyed preprocessor and postprocessor maps may contain unused resource types
   and supported direct hops, allowing one map to be reused across dynamic
   conversions. Malformed and unsupported-hop keys remain errors.

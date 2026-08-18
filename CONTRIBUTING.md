@@ -64,9 +64,10 @@ A single-hop conversion (between adjacent versions) runs in this order:
 
 Conversions are defined only between adjacent versions and per direction (for
 example, R3->R4 and R4->R3 are separate). A non-adjacent conversion such as
-R3->R5 runs as a chain of single hops (R3->R4->R5), and the chain's coverage
-rolls up to the lowest hop. Each hop is therefore reviewed and labeled
-independently.
+R3->R5 runs as a chain of single hops (R3->R4->R5). Effective coverage is the
+lowest coverage across every resource-hop conversion performed, including
+contained resources. Each FML mapping and postprocessor is still reviewed and
+labeled independently.
 
 The FML engine code under `src/fml_base_conv/` should faithfully execute the
 FML mappings. When an FML mapping is found to be incomplete or erroneous, either:
@@ -75,12 +76,12 @@ FML mappings. When an FML mapping is found to be incomplete or erroneous, either
 - fix the FML mapping file itself and work with HL7 to get the fix into the
   official fhir-cross-version project.
 
-## Coverage levels
+## Coverage
 
-Coverage describes the level of completeness of conversions. It is separate
-from runtime status. The coverage levels are **not_reviewed**, **known_gaps**,
-**best_effort**, and **complete**. See [Coverage levels](README.md#coverage-levels)
-in `README.md` for their definitions.
+For the definitions and relationship of declared coverage, effective coverage,
+and runtime status, see
+[Declared coverage, effective coverage, and runtime status](README.md#declared-coverage-effective-coverage-and-runtime-status)
+and [Coverage levels](README.md#coverage-levels) for the complete definitions.
 
 The postprocessor registry files, e.g. `src/postprocessors/R4_R5/registry_R4_to_R5.js`,
 are the source of truth - these files are manually maintained. An entry is added
@@ -92,12 +93,13 @@ described above. Please do not manually edit `COVERAGE.md`.
 When you assign a coverage level:
 
 - Judge completeness against the resource's own top-level elements for valid
-  input. Inter-version extensions (IVE) are out of scope. Contained resources
-  are converted and reported independently, so their coverage does not lower
-  the primary resource's coverage claim; their warnings do raise runtime status.
+  input. Inter-version extension (IVE) round-trip preservation is out of scope
+  for declared coverage.
 - "Lossy but unavoidable" (source content with no target representation) is
   conventionally best_effort, not complete.
-- A postprocessor must never lower the running coverage level.
+- By default, a postprocessor must not lower the running declared coverage
+  within its resource-hop. This check is applied independently to every primary
+  and contained resource-hop, not across separate hops or resources.
 
 ### Target validity and best-effort conversion
 
@@ -346,6 +348,7 @@ Then, in `registry_R4_to_R5.js`, add a registry entry for ResourceTypeX:
 
 ```js
 import { COVERAGE } from '../../converter/coverage.js';
+import { assertDeclaredCoverage } from '../../converter/processorDescriptor.js';
 import { conv_R4_to_R5 } from './ResourceTypeX.js';
 
 const registry = {
@@ -357,7 +360,7 @@ registry.ResourceTypeX = {
     coverage: COVERAGE.KNOWN_GAPS,
     description: 'FML mapping has issues converting someFieldFoo.',
   },
-  processors: [conv_R4_to_R5],
+  processors: [assertDeclaredCoverage(conv_R4_to_R5, COVERAGE.COMPLETE)],
 };
 
 export { registry };
@@ -371,8 +374,9 @@ which are objects with the following properties:
 - `execute`: required postprocessor function. It receives the
   FML-converted target resource and a conversion context, and returns
   `{ resource, status, messages }`.
-- `coverage`: optional coverage level after this postprocessor runs. Omit it or
-  use `COVERAGE.NEUTRAL` when the processor does not change the coverage claim.
+- `coverage`: optional declared coverage after this postprocessor runs. Omit it
+  or use `COVERAGE.NEUTRAL` when the processor does not change the running
+  coverage claim.
 - `description`: optional human-readable explanation of what the processor does
   and any important limitations.
 
@@ -411,7 +415,9 @@ restructure the contained array before the next hop.
 ## Updating the registry
 
 Register reviewed resource coverage in the direction-specific registry file.
-For example:
+Use the internal `assertDeclaredCoverage()` helper when registering a
+postprocessor. It returns the descriptor unchanged and throws if its declared
+coverage differs from the registry's explicit expectation. For example:
 
 ```text
 src/postprocessors/R4_R5/registry_R5_to_R4.js
@@ -431,7 +437,7 @@ export const registry = {
 };
 ```
 
-If FML has known gaps and a postprocessor completes the conversion:
+If FML has known gaps and a postprocessor improves the conversion to best effort:
 
 ```js
 export const registry = {
@@ -440,7 +446,7 @@ export const registry = {
       coverage: COVERAGE.KNOWN_GAPS,
       description: 'FML leaves item.type incomplete',
     },
-    processors: [conv_R5_to_R4],
+    processors: [assertDeclaredCoverage(conv_R5_to_R4, COVERAGE.BEST_EFFORT)],
   },
 };
 ```

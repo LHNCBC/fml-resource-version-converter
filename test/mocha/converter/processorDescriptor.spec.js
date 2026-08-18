@@ -6,6 +6,7 @@ import {
   COVERAGE,
 } from '../../../src/converter/coverage.js';
 import {
+  assertDeclaredCoverage,
   makeProcessor,
   validateProcessorDescriptor,
 } from '../../../src/converter/processorDescriptor.js';
@@ -25,6 +26,38 @@ describe('converter/processorDescriptor', function () {
     };
 
     assert.equal(validateProcessorDescriptor(descriptor), descriptor);
+  });
+
+  it('asserts declared coverage and returns the same descriptor', function () {
+    const descriptor = {
+      name: 'completeProcessor',
+      coverage: COVERAGE.COMPLETE,
+      execute,
+    };
+
+    assert.equal(assertDeclaredCoverage(descriptor, COVERAGE.COMPLETE), descriptor);
+  });
+
+  it('rejects a declared coverage mismatch or invalid expectation', function () {
+    const descriptor = {
+      name: 'completeProcessor',
+      coverage: COVERAGE.COMPLETE,
+      execute,
+    };
+    const missing = { name: 'missingCoverage', execute };
+
+    assert.throws(
+      () => assertDeclaredCoverage(descriptor, COVERAGE.BEST_EFFORT),
+      /Declared coverage for completeProcessor is complete; registry expects best_effort/,
+    );
+    assert.throws(
+      () => assertDeclaredCoverage(missing, COVERAGE.NEUTRAL),
+      /Declared coverage for missingCoverage is <missing>; registry expects neutral/,
+    );
+    assert.throws(
+      () => assertDeclaredCoverage(descriptor, 'invalid'),
+      /Invalid expectedCoverage/,
+    );
   });
 
   it('makeProcessor rejects non-function input', function () {
@@ -114,5 +147,4 @@ describe('converter/processorDescriptor', function () {
     assert.deepEqual(descriptor.random, { foo: 'bar' });
   });
 });
-
 

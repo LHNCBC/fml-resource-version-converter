@@ -89,7 +89,7 @@ const result = chainedConverter.convert(questionnaireR4, 'R4', 'R5');
 
 console.log(result.resource);  // the converted R5 Questionnaire
 console.log(result.status);    // 'ok' or 'warning'
-console.log(result.coverage);  // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
+console.log(result.coverage);  // effective coverage for this invocation
 ```
 
 **chainedConverter.convert(resource, fromVer, toVer)** throws when the request
@@ -218,18 +218,18 @@ hop:
 ```text
 {
   resource,       // converted resource
-  coverage,       // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
+  coverage,       // effective coverage for the entire invocation
   status,         // 'ok' or 'warning'
   hops: [
     {
       fromVer,
       toVer,
       preprocessors,  // omitted when none ran for the hop
-      fml_base_conv,  // report for the FML mapping step
+      fml_base_conv,  // FML report; coverage here is declared coverage
       contained: [    // omitted when no children were converted in this hop
         {
           resource,   // child output before the parent postprocessors
-          coverage,
+          coverage,   // effective coverage for this child resource-hop
           status,
           preprocessors,
           fml_base_conv,
@@ -244,18 +244,56 @@ hop:
 
 `singleHopConverter.convert()` returns the same per-hop report fields flattened
 onto the top-level result, without a `hops` array, so its `contained[]` reports
-also appear at the top level. A contained warning raises the primary result's
-status, but a contained resource's coverage does not lower the primary
-resource's coverage.
+also appear at the top level.
 
-The two most important fields are:
+The key fields are:
 
 - **resource**: the converted FHIR resource.
+- **coverage**: the effective coverage of all resource-hop conversions performed.
 - **status**: whether the conversion completed without warnings (**ok**) or with
-  warnings (**warning**). Hard failures throw instead of returning a result.
+  warnings (**warning**). Info messages are reported but do not affect status.
+  Hard failures throw instead of returning a result.
 
-Coverage is separate from runtime status. It describes the capability and
-completeness of the FML mapping and any related postprocessors.
+### Declared coverage, effective coverage, and runtime status
+
+On the subject of conversion completeness, there are three key concepts:
+declared coverage, effective coverage, and runtime status.
+
+**Declared coverage:** A static, input-independent completeness claim made by
+the author for an FML mapping or postprocessor. It describes general conversion
+capabilities regardless of a particular invocation.
+
+- When adding a postprocessor to the registry, use
+  `assertDeclaredCoverage()`. It verifies the descriptor's declared coverage,
+  returns the descriptor unchanged, and throws if the declaration does not
+  match the registry's expectation. This makes the coverage visible in the
+  registry and protects against unintended descriptor changes.
+
+**Effective coverage:** Coverage derived for the conversion pipelines used by
+a particular invocation.
+
+- It is based on the declared coverage of the FML mappings and postprocessors
+  actually used.
+- It depends on the conversion's structure and configuration: resource types,
+  contained-resource types, source and target versions, and caller-provided
+  postprocessors. Bundle entry resources will participate once their conversion
+  is supported. It does not depend on input values or runtime diagnostics.
+- There are two types of coverage aggregations: (1) Within one resource-hop,
+  effective coverage is the last non-neutral coverage declaration in this
+  sequence: the FML declaration, followed by the declarations of the ordered
+  postprocessors. By default, a postprocessor may improve the running coverage
+  but may not lower it. (2) Across separate resource-hop conversions, effective
+  coverage is the lowest resource-hop coverage. The aggregation includes every
+  resource-hop conversion performed: each primary or child resource converted
+  at each version hop, such as R3 -> R4 and R4 -> R5.
+
+**Runtime status:** What was observed while processing the input. The returned
+status is ok when no warnings were reported and warning when any warning was
+reported. Info messages are reported but do not affect status. A hard failure
+throws.
+
+Together, effective coverage and runtime status provide the fullest available
+assessment of a conversion result, subject to the declared coverage claims.
 
 ### Coverage levels
 
@@ -274,16 +312,15 @@ completeness of the FML mapping and any related postprocessors.
   processors that add metadata, tags, logging, or other changes that do not
   affect conversion completeness.
 
-The top-level `result.coverage` is normally one of the ordered levels:
+The top-level `result.coverage` is effective coverage and is normally one of
+the ordered levels:
 **not_reviewed**, **known_gaps**, **best_effort**, or **complete**.
 The **neutral** level is mostly seen on individual processor reports,
 especially for caller-provided processors.
 
-Specifically, inter-version extension is not a factor in determining the coverage
-level. A data element preserved solely via an inter-version extension is still
-considered "loss" for coverage purposes, because the target version's tools may
-not be able to interpret it.
-
+Inter-version extension (IVE) round-trip preservation is not part of declared
+coverage. A data element preserved solely through an IVE is still considered
+lost for coverage purposes because target-version tools may not interpret it.
 
 See [COVERAGE.md](COVERAGE.md) for the current coverage level report.
 
@@ -313,6 +350,10 @@ for that hop:
   them in your list (in any order you deem appropriate). The package
   postprocessors may be obtained using the `getRegistryEntry()`
   function in the public API.
+
+`getRegistryEntry()` returns the FML declaration and package postprocessor
+descriptors. It does not return an overall coverage field; effective coverage
+can only be derived from the pipeline actually used by an invocation.
 
 For a specific hop, use keyed `preprocs` or `postprocs`:
 
@@ -403,9 +444,9 @@ You can also read the input resource from stdin:
 cat questionnaire-r4.json | node bin/convert.js R4 R5 > questionnaire-r5.json
 ```
 
-The converted JSON is written to stdout. A short status summary and any parent
-or contained-resource warnings are written to stderr. Use `--verbose` to
-include info messages:
+The converted JSON is written to stdout. A short summary with effective
+coverage and runtime status, plus any parent or contained-resource warnings,
+is written to stderr. Use `--verbose` to include info messages:
 
 ```bash
 node bin/convert.js --verbose R3 R4 questionnaire-r3.json > questionnaire-r4.json

@@ -9,7 +9,7 @@
  * Unified result shape:
  *   {
  *     resource,                 // final converted resource (intermediates dropped)
- *     coverage,                 // lowest hop coverage across the chain
+ *     coverage,                 // effective coverage for this invocation
  *     status,                   // highest runtime severity across all hops
  *     hops: [                   // one entry per hop, in order
  *       { fromVer, toVer, preprocessors?, fml_base_conv, contained?, postprocessors? },
@@ -20,8 +20,8 @@
  * Pipeline: plan the hops (planHops validates the version pair, incl. rejecting
  * same-version and unsupported pairs), normalize the processor options once
  * against that plan, deep-clone the caller input once, then run each hop through
- * the shared runHop core, mutating the single working copy. Overall coverage and
- * status are rolled up from the per-hop results.
+ * the shared runHop core, mutating the single working copy. Effective coverage
+ * and status are rolled up from the per-hop results.
  *
  * Processors are per hop. The singular `preproc`/`postproc` are conveniences for
  * the outer boundaries: `preproc` (PRP) is applied to the first hop for the
@@ -36,7 +36,7 @@
 import { planHops } from '../fml_base_conv/create_converter.js';
 import { normalizeProcessorOptions } from './processorOptions.js';
 import { runHop } from './runHop.js';
-import { rollupChainCoverage } from './coverage.js';
+import { rollupEffectiveCoverage } from './coverage.js';
 import { rollupStatus } from './diagnostics.js';
 
 /**
@@ -52,7 +52,7 @@ import { rollupStatus } from './diagnostics.js';
  * @param {*} [opts.postproc]  PSP: an unkeyed PSPE applied to the last hop.
  * @param {*} [opts.postprocs] PSPs: a keyed map/lookup for postprocessors.
  * @param {boolean} [opts.checkCoverage=true] Enforce non-decreasing coverage
- *   within each hop.
+ *   within each resource-hop.
  *
  * Keyed `preprocs`/`postprocs` maps may contain entries for any supported
  * direct hop and resource type. Entries unused by this invocation are ignored,
@@ -111,13 +111,12 @@ function convert(resource, fromVer, toVer, opts = {}) {
     statuses.push(hop.status);
   }
 
-  const result = {
+  return {
     resource: working,
-    coverage: rollupChainCoverage(hopCoverages),
+    coverage: rollupEffectiveCoverage(hopCoverages),
     status: rollupStatus(statuses),
     hops: hopReports,
   };
-  return result;
 }
 
 /**

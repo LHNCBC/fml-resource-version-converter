@@ -7,12 +7,13 @@
  * @module postprocessors/R4_R5/registry_R5_to_R4
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { assertDeclaredCoverage } from '../../converter/processorDescriptor.js';
 import { conv_R5_to_R4 } from './Questionnaire.js';
 import { conv_R5_to_R4 as convValueSet_R5_to_R4 } from './ValueSet.js';
 import { conv_R5_to_R4 as convCodeSystem_R5_to_R4 } from './CodeSystem.js';
 import { conv_R5_to_R4 as convLibrary_R5_to_R4 } from './Library.js';
 
-// Final cumulative coverage per conversion is generated into COVERAGE.md,
+// Final declared coverage for each default resource-hop is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
 export const registry = {
   // Binary has the same element set and cardinalities in R5 and R4. The FML
@@ -41,7 +42,7 @@ export const registry = {
         + 'malformed type object, and silently drops R5-only Questionnaire '
         + 'content; corrected and reported by the Questionnaire_R5_to_R4 postprocessor.',
     },
-    processors: [conv_R5_to_R4],
+    processors: [assertDeclaredCoverage(conv_R5_to_R4, COVERAGE.BEST_EFFORT)],
   },
 
   // The FML maps all shared ValueSet elements, but silently drops R5-only
@@ -55,7 +56,7 @@ export const registry = {
         'FML maps shared ValueSet content but drops R5-only elements and retains '
         + 'R5-only filter operators that do not conform to the R4 binding.',
     },
-    processors: [convValueSet_R5_to_R4],
+    processors: [assertDeclaredCoverage(convValueSet_R5_to_R4, COVERAGE.BEST_EFFORT)],
   },
 
   // Reviewed against the FHIR spec. The FML maps every element R4 and R5 share
@@ -75,7 +76,7 @@ export const registry = {
         'FML maps shared CodeSystem content but drops R5-only elements and retains '
         + 'R5-only filter operators that do not conform to the R4 binding.',
     },
-    processors: [convCodeSystem_R5_to_R4],
+    processors: [assertDeclaredCoverage(convCodeSystem_R5_to_R4, COVERAGE.BEST_EFFORT)],
   },
 
   // Reviewed against Library and every datatype structure reachable through
@@ -96,6 +97,6 @@ export const registry = {
         + 'version-specific ParameterDefinition.type, DataRequirement.type, and '
         + 'RelatedArtifact.type codes that do not conform to R4 required bindings.',
     },
-    processors: [convLibrary_R5_to_R4],
+    processors: [assertDeclaredCoverage(convLibrary_R5_to_R4, COVERAGE.BEST_EFFORT)],
   },
 };

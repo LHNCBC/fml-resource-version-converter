@@ -41,7 +41,7 @@ function summarize(label, result) {
   console.log(`\n== ${label} ==`);
   console.log(`  resourceType: ${result.resource.resourceType}`);
   console.log(`  status:       ${result.status}`);
-  console.log(`  coverage:     ${result.coverage}`);
+  console.log(`  effective coverage: ${result.coverage}`);
   console.log(`  hops:         ${hops}`);
 }
 

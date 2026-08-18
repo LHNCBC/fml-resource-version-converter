@@ -7,6 +7,7 @@
  * @module postprocessors/R4B_R5/registry_R5_to_R4B
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { assertDeclaredCoverage } from '../../converter/processorDescriptor.js';
 import { conv_R5_to_R4B } from './Questionnaire.js';
 import { conv_R5_to_R4B as convValueSet_R5_to_R4B } from './ValueSet.js';
 import { conv_R5_to_R4B as convCodeSystem_R5_to_R4B } from './CodeSystem.js';
@@ -38,7 +39,7 @@ export const registry = {
         + 'open-choice) and silently drops R5-only Questionnaire content; corrected '
         + 'and reported by the Questionnaire_R5_to_R4B postprocessor.',
     },
-    processors: [conv_R5_to_R4B],
+    processors: [assertDeclaredCoverage(conv_R5_to_R4B, COVERAGE.BEST_EFFORT)],
   },
 
   // Reviewed against the FHIR spec. R4B and R4 have the same ValueSet element
@@ -55,7 +56,7 @@ export const registry = {
         'FML maps shared ValueSet content but drops R5-only elements and retains '
         + 'R5-only filter operators that do not conform to the R4B binding.',
     },
-    processors: [convValueSet_R5_to_R4B],
+    processors: [assertDeclaredCoverage(convValueSet_R5_to_R4B, COVERAGE.BEST_EFFORT)],
   },
 
   // Reviewed against the FHIR spec. R4B and R4 declare the same CodeSystem
@@ -72,7 +73,7 @@ export const registry = {
         'FML maps shared CodeSystem content but drops R5-only elements and retains '
         + 'R5-only filter operators that do not conform to the R4B binding.',
     },
-    processors: [convCodeSystem_R5_to_R4B],
+    processors: [assertDeclaredCoverage(convCodeSystem_R5_to_R4B, COVERAGE.BEST_EFFORT)],
   },
 
   // R4B and R4 have the same relevant structures, so R5->R4B has the same
@@ -89,6 +90,6 @@ export const registry = {
         + 'version-specific ParameterDefinition.type, DataRequirement.type, and '
         + 'RelatedArtifact.type codes that do not conform to R4B required bindings.',
     },
-    processors: [convLibrary_R5_to_R4B],
+    processors: [assertDeclaredCoverage(convLibrary_R5_to_R4B, COVERAGE.BEST_EFFORT)],
   },
 };

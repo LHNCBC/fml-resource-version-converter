@@ -12,7 +12,8 @@
  *      replace the copies made by the parent FML mapping.
  *   6. Run the parent's postprocessors, in order.
  *   7. Return the working resource plus a hop report fragment (including flat
- *      child reports), the hop's governing coverage, and rolled-up status.
+ *      child reports), effective coverage across all resource-hops performed,
+ *      and rolled-up status.
  *
  * It does not clone the primary input: the public entry point owns that clone,
  * so a multi-hop chain mutates one primary working copy. Each child is cloned
@@ -31,6 +32,7 @@ import {
 import {
   assertNonDecreasingCoverage,
   COVERAGE,
+  rollupEffectiveCoverage,
   rollupHopCoverage,
 } from './coverage.js';
 import {
@@ -60,8 +62,8 @@ import {
  * @returns {{resource: Object, fragment: Object, hopCoverage: string, status: string}}
  *   The converted resource, the hop report fragment
  *   (`{ fromVer, toVer, preprocessors?, fml_base_conv, contained?,
- *   postprocessors? }`), the hop's governing coverage, and its rolled-up
- *   runtime status.
+ *   postprocessors? }`), effective coverage across the resource-hop
+ *   conversions performed, and their rolled-up runtime status.
  * @throws {Error} On unknown resource type / missing FML mapping, decreasing
  *   coverage, a warning-invariant violation, or any hard error from a processor
  *   or the engine.
@@ -225,10 +227,14 @@ function runResourceHop(resource, fromVer, toVer, opts) {
   if (containedReports.length > 0) fragment.contained = containedReports;
   if (postReports.length > 0) fragment.postprocessors = postReports;
 
-  const hopCoverage = rollupHopCoverage(
+  const resourceHopCoverage = rollupHopCoverage(
     fmlCoverage,
     postprocessors.map(p => p.coverage),
   );
+  const hopCoverage = rollupEffectiveCoverage([
+    resourceHopCoverage,
+    ...containedResults.map(result => result.hopCoverage),
+  ]);
   const status = rollupStatus([
     ...preReports.map(p => p.status),
     fmlStatus,

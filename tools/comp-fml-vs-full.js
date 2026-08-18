@@ -290,7 +290,7 @@ try {
   fullResult = singleHopConverter.convert(input, fromVer, toVer);
   fullOutput = fullResult.resource;
   console.log(
-    `Full pipeline: OK (coverage=${fullResult.coverage}, status=${fullResult.status}, `
+    `Full pipeline: OK (effectiveCoverage=${fullResult.coverage}, status=${fullResult.status}, `
     + `fmlCoverage=${fullResult.fml_base_conv.coverage})`,
   );
   reportPostprocessors(fullResult, resourceType, fromVer, toVer);

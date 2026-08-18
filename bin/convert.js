@@ -5,9 +5,9 @@
  * A minimal, dependency-free harness for trying out chainedConverter.convert
  * from the shell. Reads a FHIR resource from a JSON file (or stdin), converts it
  * across one or more version hops, prints the converted resource to stdout, and
- * prints a short diagnostics summary, aggregated across all conversion stages
- * and hops, to stderr. Bundle entry.resource values are not recursively
- * converted.
+ * prints effective coverage and a diagnostics summary, aggregated across all
+ * conversion stages and resource-hops, to stderr. Bundle entry.resource values
+ * are not recursively converted.
  *
  * Usage:
  *   node bin/convert.js <fromVer> <toVer> [inputFile] [options]

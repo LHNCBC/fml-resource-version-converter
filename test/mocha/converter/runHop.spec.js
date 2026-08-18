@@ -151,10 +151,12 @@ describe('converter/runHop', function () {
     });
 
     it('accepts decreasing coverage when checkCoverage is false', function () {
-      assert.doesNotThrow(() => runHop(q(), 'R4', 'R5', {
+      const out = runHop(q(), 'R4', 'R5', {
         checkCoverage: false,
         postLookup: postLookupFor('Questionnaire', 'R4', 'R5', decreasing),
-      }));
+      });
+
+      assert.equal(out.hopCoverage, COVERAGE.KNOWN_GAPS);
     });
   });
 
