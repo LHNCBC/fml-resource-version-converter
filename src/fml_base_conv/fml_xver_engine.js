@@ -2995,8 +2995,9 @@ export function compileFmlXver({
    * Exact source/target pairs may use either `<<types>>` or `<<type+>>`;
    * polymorphic targets select a compatible `<<type+>>` group by source type.
    *
-   * Nested resource instances deliberately remain plain copies until recursive
-   * contained/Bundle conversion is supported by the public conversion pipeline.
+   * Nested resource instances deliberately remain plain copies. The public
+   * integration layer converts contained resources; Bundle recursion remains
+   * outside this pure FML engine.
    *
    * @param {Target} tgt The target clause being written to.
    * @param {Object} primary The primary source binding.

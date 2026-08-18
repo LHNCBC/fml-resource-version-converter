@@ -12,19 +12,18 @@
  * standard, valid input from the source version to the target version - that is,
  * the top-level resource's own elements.
  *
- * Two cross-cutting concerns are NOT factors in a component's coverage level:
+ * Two cross-cutting concerns are NOT factors in a primary component's coverage
+ * level:
  *   - inter-version-extension (IVE) round-trip preservation, and
- *   - version conversion of contained[] resources (currently carried through
- *     as-is; see the README "Limitations").
+ *   - the coverage of separately converted contained[] resources.
  *
- * Contained-resource conversion is intentionally excluded because contained[]
- * may hold ANY resource type, so converting it completely would require the
- * entire package to be COMPLETE for every resource type. Automatic contained
- * conversion is planned for a future release, at which point the conversion
- * report will surface a per-contained-resource status the caller can check.
+ * Contained resources are converted and reported independently because
+ * contained[] may hold ANY resource type. Their warnings raise the primary
+ * result's runtime status, but their coverage does not lower the primary
+ * resource's coverage claim.
  *
- * A component may therefore be COMPLETE without converting contained resources
- * or handling IVE.
+ * A primary component may therefore be COMPLETE even when one of its contained
+ * resource conversions has lower coverage, or without handling IVE.
  *
  * - NOT_REVIEWED: completeness has not been assessed (functional default).
  * - KNOWN_GAPS: known conversion gaps remain.
@@ -195,4 +194,3 @@ export function assertNonDecreasingCoverage(initialCoverage, processors = []) {
     current = coverage;
   }
 }
-

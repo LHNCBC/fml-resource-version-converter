@@ -12,7 +12,7 @@
  *     coverage,                 // lowest hop coverage across the chain
  *     status,                   // highest runtime severity across all hops
  *     hops: [                   // one entry per hop, in order
- *       { fromVer, toVer, preprocessors?, fml_base_conv, postprocessors? },
+ *       { fromVer, toVer, preprocessors?, fml_base_conv, contained?, postprocessors? },
  *       ...
  *     ],
  *   }
@@ -53,6 +53,10 @@ import { rollupStatus } from './diagnostics.js';
  * @param {*} [opts.postprocs] PSPs: a keyed map/lookup for postprocessors.
  * @param {boolean} [opts.checkCoverage=true] Enforce non-decreasing coverage
  *   within each hop.
+ *
+ * Keyed `preprocs`/`postprocs` maps may contain entries for any supported
+ * direct hop and resource type. Entries unused by this invocation are ignored,
+ * which permits callers to reuse one map across dynamic conversions.
  * @returns {Object} Unified result object; see the module overview for the shape.
  * @throws {Error} On same-version / unsupported version pairs, an unsupported
  *   `targetResourceType` option, unknown resource type / missing FML mapping for
@@ -77,7 +81,12 @@ function convert(resource, fromVer, toVer, opts = {}) {
   // pairs, and unknown versions all throw here, before any work).
   const hops = planHops(fromVer, toVer);
 
-  const { preLookup, postLookup } = normalizeProcessorOptions(opts, {
+  const {
+    preLookup,
+    postLookup,
+    containedPreLookup,
+    containedPostLookup,
+  } = normalizeProcessorOptions(opts, {
     hops,
     primaryType: resource?.resourceType,
   });
@@ -89,20 +98,26 @@ function convert(resource, fromVer, toVer, opts = {}) {
   const statuses = [];
 
   for (const [v1, v2] of hops) {
-    const hop = runHop(working, v1, v2, { preLookup, postLookup, checkCoverage });
+    const hop = runHop(working, v1, v2, {
+      preLookup,
+      postLookup,
+      containedPreLookup,
+      containedPostLookup,
+      checkCoverage,
+    });
     working = hop.resource;
     hopReports.push(hop.fragment);
     hopCoverages.push(hop.hopCoverage);
     statuses.push(hop.status);
   }
 
-
-  return {
+  const result = {
     resource: working,
     coverage: rollupChainCoverage(hopCoverages),
     status: rollupStatus(statuses),
     hops: hopReports,
   };
+  return result;
 }
 
 /**

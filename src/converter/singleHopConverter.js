@@ -6,7 +6,8 @@
  * the building block for custom multi-hop chains (compose it over planHops()).
  *
  * Flat result shape:
- *   { resource, coverage, status, preprocessors?, fml_base_conv, postprocessors? }
+ *   { resource, coverage, status, preprocessors?, fml_base_conv,
+ *     postprocessors?, contained? }
  * The multi-hop chainedConverter nests per-hop reports under hops[]; the two
  * entry points intentionally have different result shapes.
  *
@@ -39,7 +40,13 @@ import { planHops } from '../fml_base_conv/create_converter.js';
  *   type. Required only when the source resource maps to more than one target on
  *   the hop (e.g. ServiceRequest R4->R3 maps to ProcedureRequest or
  *   ReferralRequest); optional for a one-to-one mapping. When supplied, it is
- *   checked against the target declared by the FML StructureMap.
+ *   checked against the target declared by the FML StructureMap. This option
+ *   applies only to the primary resource; target types for ambiguous contained
+ *   resources cannot currently be selected, so such a child causes an error.
+ *
+ * Keyed `preprocs`/`postprocs` maps may contain entries for any supported
+ * direct hop and resource type. Entries unused by this invocation are ignored,
+ * which permits callers to reuse one map across dynamic conversions.
  * @returns {Object} Flat result object; see the module overview for the shape.
  * @throws {Error} On unknown / same / unsupported / non-adjacent versions,
  *   unknown resource type / missing FML mapping, invalid processor options,
@@ -67,7 +74,12 @@ function convert(resource, fromVer, toVer, opts = {}) {
   // Single-hop convenience: accept type-only keyed map options by canonicalizing
   // them to "type:v1->v2" before the (single-/multi-hop-agnostic) normalizer.
   const resolvedOpts = resolveSingleHopOptionKeys(opts, hops[0]);
-  const { preLookup, postLookup } = normalizeProcessorOptions(resolvedOpts, {
+  const {
+    preLookup,
+    postLookup,
+    containedPreLookup,
+    containedPostLookup,
+  } = normalizeProcessorOptions(resolvedOpts, {
     hops,
     primaryType: resource?.resourceType,
   });
@@ -77,11 +89,22 @@ function convert(resource, fromVer, toVer, opts = {}) {
   const hop = runHop(working, fromVer, toVer, {
     preLookup,
     postLookup,
+    containedPreLookup,
+    containedPostLookup,
     checkCoverage,
     targetResourceType,
   });
 
+  return flattenHopResult(hop);
+}
 
+/**
+ * Convert an internal one-hop result to the public flat result shape.
+ *
+ * @param {Object} hop Internal result returned by runHop.
+ * @returns {Object} Public single-hop result, including flat child reports.
+ */
+function flattenHopResult(hop) {
   const result = {
     resource: hop.resource,
     coverage: rollupChainCoverage([hop.hopCoverage]),
@@ -90,6 +113,9 @@ function convert(resource, fromVer, toVer, opts = {}) {
   if (hop.fragment.preprocessors) result.preprocessors = hop.fragment.preprocessors;
   result.fml_base_conv = hop.fragment.fml_base_conv;
   if (hop.fragment.postprocessors) result.postprocessors = hop.fragment.postprocessors;
+  if (hop.fragment.contained?.length > 0) {
+    result.contained = hop.fragment.contained;
+  }
   return result;
 }
 

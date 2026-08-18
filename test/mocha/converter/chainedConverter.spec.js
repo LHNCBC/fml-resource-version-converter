@@ -138,7 +138,7 @@ describe('converter/chainedConverter', function () {
       );
     });
 
-    it('rejects a misspelled renamed-hop type before that hop processor runs', function () {
+    it('ignores an unused resource-type key while running a matching entry', function () {
       let processorRan = false;
       const shouldNotRun = {
         name: 'shouldNotRun',
@@ -148,8 +148,7 @@ describe('converter/chainedConverter', function () {
         },
       };
 
-      assert.throws(
-        () => convert({
+      const result = convert({
           resourceType: 'Sequence',
           id: 'sequence-r3',
           type: 'dna',
@@ -159,18 +158,28 @@ describe('converter/chainedConverter', function () {
             'MolecularSequence:R4->R5': [shouldNotRun],
             'MolecularSequnce:R4->R5': [],
           },
-        }),
-        /no resource of type "MolecularSequnce" enters the R4->R5 hop.*entering type: "MolecularSequence"/,
+        });
+      assert.equal(processorRan, true);
+      assert.equal(
+        result.hops[1].postprocessors.some(processor => processor.name === 'shouldNotRun'),
+        true,
       );
-      assert.equal(processorRan, false);
     });
 
-    it('throws on a postprocs key that is not a planned hop', function () {
-      assert.throws(
+    it('allows a valid direct-hop key outside the current path', function () {
+      assert.doesNotThrow(
         () => convert(r3Questionnaire, 'R3', 'R5', {
           postprocs: { 'Questionnaire:R2->R3': [] },
         }),
-        /not a hop in this conversion/,
+      );
+    });
+
+    it('rejects a processor key that is not one supported direct hop', function () {
+      assert.throws(
+        () => convert(r3Questionnaire, 'R3', 'R5', {
+          postprocs: { 'Questionnaire:R2->R4': [] },
+        }),
+        /must name one supported direct hop/,
       );
     });
 

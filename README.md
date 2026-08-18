@@ -117,6 +117,11 @@ only when the source resource maps to more than one target on the hop (as with
 supplied, it is checked against the target type declared by the FML
 StructureMap, so a mismatched value is rejected rather than silently ignored.
 
+`targetResourceType` applies only to the primary resource. Target types for
+ambiguous contained-resource mappings cannot currently be selected; such a
+contained conversion throws. A child-specific target selector is planned for a
+future release.
+
 Naming a target type does not always identify a single mapping: `ProcedureRequest`
 R3 -> R2 targeting `DiagnosticOrder` is served by two FML StructureMaps and
 therefore cannot be run. See [Limitations](#limitations).
@@ -147,26 +152,40 @@ between **R4 <-> R4B** (not needed).
 For conversions between **R3 <-> R4B**, use **R4** instead of
 **R4B** when that is acceptable.
 
+## Contained resources
+
+The public converters automatically version-convert each resource in a
+resource's `contained[]` array. On every hop, the parent FML mapping runs first,
+then each contained resource is converted through its own preprocessor, FML,
+and postprocessor stages. The converted children are written back before the
+parent's postprocessors run, so those processors see children in the target
+version.
+
+FHIR prohibits a contained resource from containing other resources. The
+contained-resource orchestration does not renumber or reorder children, or
+rewrite local `#id` references. FML mappings and postprocessors remain
+responsible for their own output.
+
+For chained conversion, each parent hop contains the flat reports for the
+children converted during that hop. Reports are not correlated across hops;
+callers that need a child's history can correlate entries by id. This lets a
+parent postprocessor add, remove, or reorder children without imposing a report
+synchronization rule on the next hop.
+
 ## Limitations
 
-This initial release focuses on top-level resource conversion. Please keep the
-following in mind:
+Please keep the following in mind:
 
-- **Contained resources are not version-converted.** A resource's `contained[]`
-  entries are carried through as-is and are not converted to the target version.
-  If your resource holds contained resources that must match the target version,
-  convert them separately for now. Automatic conversion of contained resources
-  is planned for a future release, at which point the conversion report will
-  include a per-contained-resource status you can check.
 - **Bundle entry resources are not version-converted.** Bundle structure is
   mapped, but each `entry.resource` is carried through as-is. Recursive
   conversion of Bundle entries is planned for a future release.
 - **One-to-many conversion is not yet supported.** A future release will handle
   cases such as R2 -> R3 `CarePlan` -> `CarePlan` + `CareTeam` when needed.
-- **Ambiguous target selection with `targetResourceType` (or the CLI option
-  `--target-resource-type`) is supported only for a single hop.** Support for
-  selecting targets within a multi-hop conversion may be added in a future
-  release.
+- **Ambiguous target selection is limited.** `targetResourceType` (and the CLI
+  option `--target-resource-type`) applies only to the primary resource of a
+  single-hop conversion. It cannot select targets for contained resources, and
+  chained conversion does not support target selection. Child-specific target
+  selection may be added in a future release.
 - **Reviewed conversions** currently cover a few resource types and versions.
   The FML conversions for other resource types and versions have not been
   reviewed (see [COVERAGE.md](COVERAGE.md)).
@@ -207,6 +226,16 @@ hop:
       toVer,
       preprocessors,  // omitted when none ran for the hop
       fml_base_conv,  // report for the FML mapping step
+      contained: [    // omitted when no children were converted in this hop
+        {
+          resource,   // child output before the parent postprocessors
+          coverage,
+          status,
+          preprocessors,
+          fml_base_conv,
+          postprocessors,
+        },
+      ],
       postprocessors, // omitted when none ran for the hop
     },
   ],
@@ -214,7 +243,10 @@ hop:
 ```
 
 `singleHopConverter.convert()` returns the same per-hop report fields flattened
-onto the top-level result, without a `hops` array.
+onto the top-level result, without a `hops` array, so its `contained[]` reports
+also appear at the top level. A contained warning raises the primary result's
+status, but a contained resource's coverage does not lower the primary
+resource's coverage.
 
 The two most important fields are:
 
@@ -292,6 +324,16 @@ const result = chainedConverter.convert(resource, 'R3', 'R5', {
 });
 ```
 
+Keyed maps are reusable configuration. They may contain entries for any
+supported direct hop and resource type; entries unused by the current request
+or absent from its `contained[]` resources are ignored. Malformed keys and keys
+that do not identify a supported direct hop are still rejected.
+
+The same keyed maps are used for the primary resource and contained resources.
+An entry runs for every resource whose entering type and hop match its key. If a
+parent and one of its contained resources have the same type, the entry runs for
+both. The singular `preproc` and `postproc` options remain primary-only.
+
 In a keyed `preprocs` or `postprocs` entry, the resource type is the type
 entering that hop. This also applies when a mapping renames the resource: for
 `Sequence` R3 -> `MolecularSequence` R4, use the postprocessor key
@@ -337,8 +379,8 @@ node examples/conversions.js
 
 It demonstrates a single adjacent-hop conversion, a simple multi-hop chain with
 one boundary preprocessor and postprocessor, a non-trivial chain (**R3 -> R5**)
-with per-hop postprocessors, and - commented out - how contained resource types
-would be targeted once contained-resource support is available.
+with per-hop postprocessors, and contained resources targeted by their own
+type-and-hop keys.
 
 ## Command line
 
@@ -361,8 +403,9 @@ You can also read the input resource from stdin:
 cat questionnaire-r4.json | node bin/convert.js R4 R5 > questionnaire-r5.json
 ```
 
-The converted JSON is written to stdout. A short status summary and any per-hop
-warnings are written to stderr. Use `--verbose` to include info messages:
+The converted JSON is written to stdout. A short status summary and any parent
+or contained-resource warnings are written to stderr. Use `--verbose` to
+include info messages:
 
 ```bash
 node bin/convert.js --verbose R3 R4 questionnaire-r3.json > questionnaire-r4.json
@@ -375,6 +418,10 @@ with `--target-resource-type`:
 node bin/convert.js R4 R3 service-request-r4.json \
   --target-resource-type ProcedureRequest > procedure-request-r3.json
 ```
+
+`--target-resource-type` applies only to the primary resource in an adjacent
+conversion. The CLI cannot currently select a target type for an ambiguous
+contained resource; that conversion fails with a contextual error.
 
 ## Coverage and contributions
 

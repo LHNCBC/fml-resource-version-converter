@@ -67,6 +67,27 @@ describe('bin/convert.js CLI diagnostics', function () {
     assert.doesNotMatch(res.stderr, /info messages hidden/);
   });
 
+  it('counts and labels diagnostics from contained resources', function () {
+    const input = JSON.stringify({
+      resourceType: 'Questionnaire',
+      status: 'active',
+      contained: [{
+        resourceType: 'ValueSet',
+        id: 'answer-options',
+        status: 'active',
+      }],
+    });
+    const res = runCli(['R4', 'R3'], input);
+
+    assert.equal(res.status, 0);
+    assert.match(res.stderr, /status=warning/);
+    assert.doesNotMatch(res.stderr, /warnings=0/);
+    assert.match(
+      res.stderr,
+      /R4 -> R3 contained\[0\] ValueSet#answer-options ValueSet_R4_to_R3\] warning:/,
+    );
+  });
+
   it('selects an ambiguous target with --target-resource-type', function () {
     const input = JSON.stringify({
       resourceType: 'ServiceRequest',

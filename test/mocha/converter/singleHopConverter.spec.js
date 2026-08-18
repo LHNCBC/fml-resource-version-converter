@@ -458,20 +458,34 @@ describe('converter/singleHopConverter', function () {
       assert.equal(result.postprocessors.some(p => p.name === 'tag'), true);
     });
 
-    it('throws when a keyed postprocs resource type never matches (typo)', function () {
-      const post = { name: 'tag', execute: t => ({ resource: t, status: STATUS.OK }) };
-      assert.throws(
+    it('ignores a keyed postprocs resource type absent from this input', function () {
+      let ran = false;
+      const post = {
+        name: 'tag',
+        execute: target => {
+          ran = true;
+          return { resource: target, status: STATUS.OK };
+        },
+      };
+      assert.doesNotThrow(
         () => convert(r4Questionnaire, 'R4', 'R5', { postprocs: { Questionaire: [post] } }),
-        /postprocs: no resource of type "Questionaire" enters the R4->R5 hop/,
       );
+      assert.equal(ran, false);
     });
 
-    it('throws when a keyed preprocs resource type never matches (typo)', function () {
-      const pre = { name: 'pre', execute: r => ({ resource: r, status: STATUS.OK }) };
-      assert.throws(
+    it('ignores a keyed preprocs resource type absent from this input', function () {
+      let ran = false;
+      const pre = {
+        name: 'pre',
+        execute: resource => {
+          ran = true;
+          return { resource, status: STATUS.OK };
+        },
+      };
+      assert.doesNotThrow(
         () => convert(r4Questionnaire, 'R4', 'R5', { preprocs: { Observation: [pre] } }),
-        /preprocs: no resource of type "Observation" enters the R4->R5 hop/,
       );
+      assert.equal(ran, false);
     });
 
     it('runs a correctly-typed keyed entry and does not flag it as unused', function () {

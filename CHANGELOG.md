@@ -3,6 +3,19 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Public converters now convert every resource in `contained[]` along with its
+  parent.
+
+### Changed
+
+- Keyed preprocessor and postprocessor maps may contain unused resource types
+  and supported direct hops, allowing one map to be reused across dynamic
+  conversions. Malformed and unsupported-hop keys remain errors.
+
 ## [0.3.0] - 2026-08-17
 
 ### Added

@@ -1,21 +1,25 @@
 /**
  * @fileoverview The per-hop conversion core, shared by both entry points.
  *
- * `runHop` performs one adjacent-version hop for a single resource:
+ * `runHop` performs one adjacent-version hop for a resource and its contained
+ * resources:
  *   1. Run this hop's preprocessors (from the caller pre lookup), in order.
  *   2. Snapshot the FML input as `sourceResource` (post-preproc).
  *   3. Resolve postprocessors (registry + caller, per policy) and optionally
  *      enforce non-decreasing coverage.
  *   4. Run the FML engine, capturing warnings/info into the `_FML_` report.
- *   5. Run postprocessors, in order.
- *   6. Return the working resource plus a hop report fragment, the hop's
- *      governing coverage, and the hop's rolled-up runtime status.
+ *   5. Convert each contained resource through the same stages for this hop and
+ *      replace the copies made by the parent FML mapping.
+ *   6. Run the parent's postprocessors, in order.
+ *   7. Return the working resource plus a hop report fragment (including flat
+ *      child reports), the hop's governing coverage, and rolled-up status.
  *
- * It does NOT clone its input: the caller (single-hop or multi-hop entry point)
- * owns the one-time deep clone, so a multi-hop chain clones once and each hop
- * mutates the shared working copy. Processor selection arrives pre-normalized as
- * two `(type, v1, v2)` lookups (see processorOptions.js), so this core deals
- * with exactly one processor-spec shape.
+ * It does not clone the primary input: the public entry point owns that clone,
+ * so a multi-hop chain mutates one primary working copy. Each child is cloned
+ * before its preprocessors run so the parent's `sourceResource` snapshot keeps
+ * the source-version child unchanged. Processor selection arrives
+ * pre-normalized as primary and contained `(type, v1, v2)` lookups (see
+ * processorOptions.js), so this core deals with one processor-spec shape.
  *
  * @module converter/runHop
  */
@@ -38,7 +42,7 @@ import {
 } from './diagnostics.js';
 
 /**
- * Run one adjacent-version hop for a single resource.
+ * Run one adjacent-version hop for a resource and its contained resources.
  *
  * @param {Object} resource FHIR resource entering this hop; `resourceType` must
  *   be a non-empty string. Mutation-safe: the caller has cloned already.
@@ -47,14 +51,17 @@ import {
  * @param {Object} [opts]
  * @param {Function} [opts.preLookup]  `(type, v1, v2) -> preDescriptor[]|undefined`.
  * @param {Function} [opts.postLookup] `(type, v1, v2) -> { policy, processors }|undefined`.
+ * @param {Function} [opts.containedPreLookup] Preprocessor lookup for contained resources.
+ * @param {Function} [opts.containedPostLookup] Postprocessor lookup for contained resources.
  * @param {boolean}  [opts.checkCoverage=true] Enforce non-decreasing coverage
  *   along the resolved postprocessor list.
  * @param {string} [opts.targetResourceType] Intended target FHIR resource type.
  *   Required when the source maps to more than one target on this hop.
  * @returns {{resource: Object, fragment: Object, hopCoverage: string, status: string}}
  *   The converted resource, the hop report fragment
- *   (`{ fromVer, toVer, preprocessors?, fml_base_conv, postprocessors? }`), the
- *   hop's governing coverage, and its rolled-up runtime status.
+ *   (`{ fromVer, toVer, preprocessors?, fml_base_conv, contained?,
+ *   postprocessors? }`), the hop's governing coverage, and its rolled-up
+ *   runtime status.
  * @throws {Error} On unknown resource type / missing FML mapping, decreasing
  *   coverage, a warning-invariant violation, or any hard error from a processor
  *   or the engine.
@@ -63,8 +70,46 @@ export function runHop(resource, fromVer, toVer, opts = {}) {
   const {
     preLookup,
     postLookup,
+    containedPreLookup,
+    containedPostLookup,
     checkCoverage = true,
     targetResourceType,
+  } = opts;
+
+  return runResourceHop(resource, fromVer, toVer, {
+    preLookup,
+    postLookup,
+    containedPreLookup,
+    containedPostLookup,
+    checkCoverage,
+    targetResourceType,
+    convertContained: true,
+  });
+}
+
+/**
+ * Run the conversion stages for one resource.
+ *
+ * The primary invocation converts one level of contained resources between its
+ * FML and postprocessor stages. Child invocations set `convertContained` false;
+ * FHIR prohibits contained resources from containing other resources.
+ *
+ * @param {Object} resource Resource entering this hop.
+ * @param {string} fromVer Source version.
+ * @param {string} toVer Target version.
+ * @param {Object} opts Normalized execution options.
+ * @returns {{resource: Object, fragment: Object, hopCoverage: string, status: string}}
+ *   Per-resource hop result.
+ */
+function runResourceHop(resource, fromVer, toVer, opts) {
+  const {
+    preLookup,
+    postLookup,
+    containedPreLookup,
+    containedPostLookup,
+    checkCoverage,
+    targetResourceType,
+    convertContained,
   } = opts;
 
   // ---- 1. Validate resource + mapping gate ------------------------------
@@ -85,11 +130,6 @@ export function runHop(resource, fromVer, toVer, opts = {}) {
     targetResourceType,
   });
 
-  // Reject keyed processor entries whose resource type does not enter this hop
-  // (typically a resource-type typo) before doing any work for the hop.
-  preLookup?.assertTypeForHop?.(resType, fromVer, toVer);
-  postLookup?.assertTypeForHop?.(resType, fromVer, toVer);
-
   let working = resource;
 
   // ---- 2. Preprocessors for this hop ------------------------------------
@@ -104,6 +144,9 @@ export function runHop(resource, fromVer, toVer, opts = {}) {
   // The hop's sourceResource is the FML input (post-preproc). Read-only for
   // postprocessors by contract.
   const sourceResource = working;
+  const sourceContained = convertContained
+    ? validateContained(sourceResource.contained, fromVer, toVer)
+    : undefined;
 
   // ---- 3. Resolve postprocessors + coverage check -----------------------
   const registryEntry = registry.lookup(resType, fromVer, toVer);
@@ -129,7 +172,37 @@ export function runHop(resource, fromVer, toVer, opts = {}) {
   working = engineResult.resource;
   const fmlStatus = statusFromMessages(fmlMessages);
 
-  // ---- 5. Postprocessors ------------------------------------------------
+  // ---- 5. Contained resources -------------------------------------------
+  const containedResults = [];
+  if (sourceContained !== undefined) {
+    const converted = sourceContained.map((child, index) => {
+      try {
+        const childResult = runResourceHop(
+          structuredClone(child),
+          fromVer,
+          toVer,
+          {
+            preLookup: containedPreLookup,
+            postLookup: containedPostLookup,
+            checkCoverage,
+            targetResourceType: undefined,
+            convertContained: false,
+          },
+        );
+        containedResults.push(childResult);
+        return childResult.resource;
+      } catch (error) {
+        throw new Error(
+          `runHop: ${containedLabel(child, index, fromVer, toVer)}: ${error.message}`,
+          { cause: error },
+        );
+      }
+    });
+    working.contained = converted;
+  }
+  const containedReports = containedResults.map(toFlatContainedReport);
+
+  // ---- 6. Postprocessors ------------------------------------------------
   const postReports = [];
   const postCtx = { sourceResource, fromVer, toVer };
   for (const post of postprocessors) {
@@ -138,7 +211,7 @@ export function runHop(resource, fromVer, toVer, opts = {}) {
     });
   }
 
-  // ---- 6. Assemble the hop fragment -------------------------------------
+  // ---- 7. Assemble the hop fragment -------------------------------------
   const fmlReport = {
     name: '_FML_',
     coverage: fmlCoverage,
@@ -149,6 +222,7 @@ export function runHop(resource, fromVer, toVer, opts = {}) {
   const fragment = { fromVer, toVer };
   if (preReports.length > 0) fragment.preprocessors = preReports;
   fragment.fml_base_conv = fmlReport;
+  if (containedReports.length > 0) fragment.contained = containedReports;
   if (postReports.length > 0) fragment.postprocessors = postReports;
 
   const hopCoverage = rollupHopCoverage(
@@ -158,10 +232,94 @@ export function runHop(resource, fromVer, toVer, opts = {}) {
   const status = rollupStatus([
     ...preReports.map(p => p.status),
     fmlStatus,
+    ...containedResults.map(result => result.status),
     ...postReports.map(p => p.status),
   ]);
 
   return { resource: working, fragment, hopCoverage, status };
+}
+
+/**
+ * Convert one internal child-hop result to the flat public report shape.
+ *
+ * The child resource is snapshotted before the parent postprocessors run. A
+ * parent processor may subsequently restructure the target's contained array;
+ * the hop report remains an execution record of the child conversion itself.
+ *
+ * @param {Object} child Internal child-hop result.
+ * @returns {Object} Flat contained-resource report.
+ */
+function toFlatContainedReport(child) {
+  const report = {
+    resource: structuredClone(child.resource),
+    coverage: child.hopCoverage,
+    status: child.status,
+  };
+  if (child.fragment.preprocessors) report.preprocessors = child.fragment.preprocessors;
+  report.fml_base_conv = child.fragment.fml_base_conv;
+  if (child.fragment.postprocessors) report.postprocessors = child.fragment.postprocessors;
+  return report;
+}
+
+/**
+ * Validate the structural rules needed for contained-resource orchestration.
+ *
+ * This is deliberately not general FHIR validation. It checks only that the
+ * field can be traversed safely and rejects nested contained input because
+ * child conversion is intentionally not recursive.
+ *
+ * @param {*} contained Value of the parent resource's contained field.
+ * @param {string} fromVer Source version for diagnostics.
+ * @param {string} toVer Target version for diagnostics.
+ * @returns {Array<Object>|undefined} The validated array, or undefined.
+ * @throws {Error} If the field or an entry is malformed, or an entry contains
+ *   another contained resource.
+ */
+function validateContained(contained, fromVer, toVer) {
+  if (contained === undefined) return undefined;
+  if (!Array.isArray(contained)) {
+    throw new Error(`runHop: resource.contained must be an array for ${fromVer}->${toVer}`);
+  }
+
+  for (const [index, child] of contained.entries()) {
+    if (!child || typeof child !== 'object' || Array.isArray(child)) {
+      throw new Error(
+        `runHop: contained[${index}] ${fromVer}->${toVer} must be a resource object`,
+      );
+    }
+    if (typeof child.resourceType !== 'string' || child.resourceType.length === 0) {
+      throw new Error(
+        `runHop: contained[${index}] ${fromVer}->${toVer} resourceType is required`,
+      );
+    }
+    if (child.contained !== undefined && !Array.isArray(child.contained)) {
+      throw new Error(
+        `runHop: ${containedLabel(child, index, fromVer, toVer)}: contained must be an array`,
+      );
+    }
+    if (child.contained?.length > 0) {
+      throw new Error(
+        `runHop: ${containedLabel(child, index, fromVer, toVer)} cannot contain resources `
+        + '(FHIR invariant dom-2)',
+      );
+    }
+  }
+
+  return contained;
+}
+
+/**
+ * Build a stable diagnostic label for a contained resource.
+ *
+ * @param {Object} child Contained resource.
+ * @param {number} index Array index.
+ * @param {string} fromVer Source version.
+ * @param {string} toVer Target version.
+ * @returns {string} Label with position, type/id, and hop.
+ */
+function containedLabel(child, index, fromVer, toVer) {
+  const id = typeof child.id === 'string' && child.id.length > 0 ? `#${child.id}` : '';
+  return `contained[${index}] (${child.resourceType}${id}) ${fromVer}->${toVer}`;
 }
 
 /**

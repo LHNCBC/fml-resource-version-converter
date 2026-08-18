@@ -56,8 +56,11 @@ A single-hop conversion (between adjacent versions) runs in this order:
 2. Deep-clone the caller's input resource.
 3. Run caller preprocessors, if any.
 4. Run the FML mapping.
-5. Run package and/or caller postprocessors.
-6. Return the converted resource plus coverage, status, and diagnostics.
+5. Convert each `contained[]` resource through the same hop pipeline and write
+   the converted children back to the target.
+6. Run package and/or caller postprocessors. Parent postprocessors therefore
+   see contained resources in the target version.
+7. Return the converted resource plus coverage, status, and diagnostics.
 
 Conversions are defined only between adjacent versions and per direction (for
 example, R3->R4 and R4->R3 are separate). A non-adjacent conversion such as
@@ -89,8 +92,9 @@ described above. Please do not manually edit `COVERAGE.md`.
 When you assign a coverage level:
 
 - Judge completeness against the resource's own top-level elements for valid
-  input. Inter-version extensions (IVE) and `contained[]` conversion are out of
-  scope and do not lower a coverage claim.
+  input. Inter-version extensions (IVE) are out of scope. Contained resources
+  are converted and reported independently, so their coverage does not lower
+  the primary resource's coverage claim; their warnings do raise runtime status.
 - "Lossy but unavoidable" (source content with no target representation) is
   conventionally best_effort, not complete.
 - A postprocessor must never lower the running coverage level.
@@ -395,6 +399,15 @@ The postprocessor context includes:
 - `fromVer`: source version token.
 - `toVer`: target version token.
 
+For a parent resource, postprocessors run after contained conversion. The
+target therefore holds target-version children, while `sourceResource` retains
+the source-version children. Caller keyed processor maps may include entries
+for resource types or supported direct hops unused by a particular invocation;
+those entries are ignored so the same map can be reused dynamically.
+For chained conversion, contained reports live inside the parent hop that ran
+them. They are not correlated across hops, so parent postprocessors may
+restructure the contained array before the next hop.
+
 ## Updating the registry
 
 Register reviewed resource coverage in the direction-specific registry file.
@@ -454,7 +467,7 @@ Useful test locations include:
 - `test/mocha/postprocessors/` for resource-specific postprocessors and registry
   coverage.
 - `test/mocha/converter/` for pipeline, coverage, diagnostics, and descriptor
-  behavior.
+  behavior, including contained-resource orchestration.
 - `test/mocha/fml_base_conv/` for FML parser and engine behavior.
 - `test/data/` for representative FHIR input resources.
 

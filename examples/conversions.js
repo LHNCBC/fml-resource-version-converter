@@ -12,9 +12,8 @@
  *   1. A single adjacent hop (singleHopConverter.convert) - flat result.
  *   2. A simple multi-hop chain (chainedConverter.convert) with one boundary
  *      preprocessor and one boundary postprocessor.
- *   3. A non-trivial multi-hop chain with per-hop, per-type postprocessors. It
- *      also shows (commented out) how contained-resource types would be targeted
- *      once contained-resource support lands.
+ *   3. A non-trivial multi-hop chain with per-hop, per-type postprocessors for
+ *      both the parent and contained resources.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -60,11 +59,28 @@ function printHops(result) {
       `  hop ${hop.fromVer}->${hop.toVer}: ` +
       `fml=${hop.fml_base_conv.coverage}, preprocessors=[${pre}], postprocessors=[${post}]`,
     );
+    for (const [index, child] of (hop.contained || []).entries()) {
+      console.log(
+        `    contained[${index}] ${child.resource.resourceType}#${child.resource.id}: `
+        + `coverage=${child.coverage}, status=${child.status}`,
+      );
+    }
   }
 }
 
 const r4Questionnaire = load('qn-ver-conv-test-r4base.json');
 const r3Questionnaire = load('qn-ver-conv-test-stu3base.json');
+const r3QuestionnaireWithContained = structuredClone(r3Questionnaire);
+r3QuestionnaireWithContained.contained = [{
+  resourceType: 'Binary',
+  id: 'example-payload',
+  contentType: 'text/plain',
+  content: 'Y29udGFpbmVkIGV4YW1wbGU=',
+}, {
+  resourceType: 'ValueSet',
+  id: 'example-options',
+  status: 'active',
+}];
 
 // ---------------------------------------------------------------------------
 // 1. Single adjacent hop: R4 -> R5.
@@ -145,7 +161,20 @@ const noteR4toR5 = {
   }),
 };
 
-const perHopChain = chainedConverter.convert(r3Questionnaire, 'R3', 'R5', {
+const noteContainedValueSet = {
+  name: 'example_note_contained_ValueSet',
+  coverage: COVERAGE.NEUTRAL,
+  description: 'Example postprocessor selected for a contained ValueSet.',
+  execute: (target, ctx) => ({
+    resource: target,
+    status: 'ok',
+    messages: [infoMessage(
+      `example postproc ran on contained ValueSet during ${ctx.fromVer}->${ctx.toVer}`,
+    )],
+  }),
+};
+
+const perHopChain = chainedConverter.convert(r3QuestionnaireWithContained, 'R3', 'R5', {
   preproc: [notePrimarySource],
   // Keyed `preprocs` could run a preprocessor on a SPECIFIC hop - including an
   // intermediate hop - e.g. preprocs: { 'Questionnaire:R4->R5': [somePre] }.
@@ -158,20 +187,12 @@ const perHopChain = chainedConverter.convert(r3Questionnaire, 'R3', 'R5', {
   postprocs: {
     'Questionnaire:R3->R4': [noteR3toR4],
     'Questionnaire:R4->R5': [noteR4toR5],
+    'ValueSet:R3->R4': [noteContainedValueSet],
+    'ValueSet:R4->R5': [noteContainedValueSet],
 
-    // --- Contained resource types (NOT YET SUPPORTED) ---------------------
-    // If this Questionnaire contained other resources (say an Observation and
-    // a ValueSet), you would target THEIR conversions on each hop of the path
-    // in exactly the same way - one entry per (type, hop). This depends on
-    // contained-resource orchestration, which is planned but NOT yet available:
-    // the converter does not currently convert a resource's contained[] entries,
-    // so the entries below are commented out (today they would simply never run,
-    // because no contained Observation/ValueSet is ever converted).
-    //
-    // 'Observation:R3->R4': [fixObservationR3toR4],
-    // 'Observation:R4->R5': [fixObservationR4toR5],
-    // 'ValueSet:R3->R4':    [fixValueSetR3toR4],
-    // 'ValueSet:R4->R5':    [fixValueSetR4toR5],
+    // Maps are reusable: a valid entry for an unused type or direct hop is
+    // ignored by this invocation rather than rejected.
+    'Binary:R2->R3': [],
   },
 
   checkCoverage: true,
