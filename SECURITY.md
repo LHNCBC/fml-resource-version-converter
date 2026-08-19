@@ -23,7 +23,7 @@ Please include:
 
 ## Authorization
 
-*Issued under the [HHS VDP — Authorization](https://www.hhs.gov/vulnerability-disclosure-policy/index.html#authorization).*
+*Issued under the [HHS VDP - Authorization](https://www.hhs.gov/vulnerability-disclosure-policy/index.html#authorization).*
 
 Good faith research conducted under this policy is authorized. NIH and HHS will work with you to resolve issues quickly and will not pursue legal action related to your research.
 
@@ -31,13 +31,13 @@ Good faith research conducted under this policy is authorized. NIH and HHS will 
 
 ## Guidelines
 
-*Issued under the [HHS VDP — Guidelines](https://www.hhs.gov/vulnerability-disclosure-policy/index.html#guidelines).*
+*Issued under the [HHS VDP - Guidelines](https://www.hhs.gov/vulnerability-disclosure-policy/index.html#guidelines).*
 
 Authorized research means you:
 
 - Notify us as soon as possible after discovering a real or potential security issue
 - Avoid privacy violations, user experience degradation, production system disruption, and data destruction or manipulation
-- Use exploits only to the extent necessary to confirm a vulnerability — do not exfiltrate data, establish access or persistence, or pivot to other systems
+- Use exploits only to the extent necessary to confirm a vulnerability - do not exfiltrate data, establish access or persistence, or pivot to other systems
 - Allow a reasonable amount of time to resolve the issue before public disclosure
 - Do not compromise the privacy, safety, intellectual property, or financial interests of HHS/NIH personnel or third parties
 
@@ -47,9 +47,9 @@ If you discover a vulnerability or encounter any sensitive data (PII, financial,
 
 ## Scope
 
-*Issued under the [HHS VDP — Scope](https://www.hhs.gov/vulnerability-disclosure-policy/index.html#scope).*
+*Issued under the [HHS VDP - Scope](https://www.hhs.gov/vulnerability-disclosure-policy/index.html#scope).*
 
-`nih.gov` and all its subdomains are in scope. Vendor systems are out of scope — report those to the vendor directly.
+`nih.gov` and all its subdomains are in scope. Vendor systems are out of scope - report those to the vendor directly.
 
 Unsure if a system is in scope? Contact [support@responsibledisclosure.com](mailto:support@responsibledisclosure.com) before testing.
 
@@ -57,7 +57,7 @@ Unsure if a system is in scope? Contact [support@responsibledisclosure.com](mail
 
 ## Rules of Engagement
 
-*Issued under the [HHS VDP — Rules of Engagement](https://www.hhs.gov/vulnerability-disclosure-policy/index.html#rules-engagement).*
+*Issued under the [HHS VDP - Rules of Engagement](https://www.hhs.gov/vulnerability-disclosure-policy/index.html#rules-engagement).*
 
 **Must not:**
 - Test systems outside the scope above
@@ -81,7 +81,7 @@ Unsure if a system is in scope? Contact [support@responsibledisclosure.com](mail
 
 ## Disclosure
 
-*Issued under the [HHS VDP — Disclosure](https://www.hhs.gov/vulnerability-disclosure-policy/index.html#disclosure).*
+*Issued under the [HHS VDP - Disclosure](https://www.hhs.gov/vulnerability-disclosure-policy/index.html#disclosure).*
 
 Do not share details about discovered vulnerabilities for **90 calendar days** after receiving our acknowledgment. If you believe earlier disclosure is warranted, coordinate with us in advance.
 
