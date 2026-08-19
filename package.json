@@ -1,6 +1,6 @@
 {
   "name": "@lhncbc/fml-resource-version-converter",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "For converting FHIR resources between FHIR versions.",
   "keywords": [
     "fhir",
