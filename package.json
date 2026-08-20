@@ -3,9 +3,13 @@
   "version": "0.2.1",
   "description": "For converting FHIR resources between FHIR versions.",
   "keywords": [
+    "fml",
     "fhir",
+    "mapping",
+    "language",
     "resource",
     "version",
+    "versions",
     "converter",
     "convert",
     "conversion"
