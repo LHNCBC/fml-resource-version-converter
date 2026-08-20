@@ -289,16 +289,22 @@ contributors and advanced users.
 
 ## Examples
 
-A runnable example script is included in the repository:
+A more elaborate example may be found in the repository (not shipped in the
+installed npm package). Find it on GitHub at
+[examples/conversions.js](examples/conversions.js), then run it from a repo
+checkout:
 
 ```bash
 node examples/conversions.js
 ```
 
-It demonstrates a single adjacent-hop conversion, a simple multi-hop chain with
-one boundary preprocessor and postprocessor, a non-trivial chain (**R3 -> R5**)
-with per-hop postprocessors, and - commented out - how contained resource types
-would be targeted once contained-resource support is available.
+It demonstrates:
+
+- a single adjacent hop (**R4 -> R5**) that prints a leaf-level diff of what the
+  mapping changed,
+- a multi-hop chain (**R3 -> R5**) with a real postprocessor applied to one
+  specific hop (keyed `Questionnaire:R4->R5`), and
+- how to read the result objects.
 
 ## Command line
 
