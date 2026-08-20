@@ -34,6 +34,10 @@ This project follows [Semantic Versioning](http://semver.org/).
   companions, scalar types, and cardinality below recursive backbone elements
   such as nested `Questionnaire.item` nodes.
 
+## [0.2.1] - 2026-08-19
+### Added
+- Added SECURITY.md
+
 ## [0.2.0] - 2026-08-13
 
 ### Added
