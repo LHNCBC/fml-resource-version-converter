@@ -25,8 +25,8 @@ import {
  * what a conversion added, removed, or changed.
  *
  * @param {*} value  The value to flatten (object, array, or primitive).
- * @param {string} prefix  Path prefix for the current value (internal use).
- * @param {Object<string, *>} out  Accumulator map (internal use).
+ * @param {string} [prefix='']  Path prefix for the current value (internal use).
+ * @param {Object<string, *>} [out={}]  Accumulator map (internal use).
  * @returns {Object<string, *>} Map of leaf path to primitive value.
  */
 function flattenLeaves(value, prefix = '', out = {}) {
@@ -186,24 +186,37 @@ printDiff(r4Questionnaire, singleHopResult.resource);
 //    planned path; a bare list appends to the package's registered
 //    postprocessors for that same key.
 // ---------------------------------------------------------------------------
+/**
+ * Stamp a provenance tag onto a converted resource.
+ *
+ * This is the example postprocessor's execute function (see the
+ * provenanceTagPostprocessor descriptor below). It mutates the resource in
+ * place and returns the standard postprocessor result.
+ *
+ * @param {Object} target  Converted FHIR resource, mutated in place.
+ * @returns {{resource: Object, status: string, messages: Array<Object>}}
+ *   Postprocessor result carrying the tagged resource and a diagnostic message.
+ */
+function stampProvenanceTag(target) {
+  target.meta = target.meta || {};
+  target.meta.tag = target.meta.tag || [];
+  target.meta.tag.push({
+    system: 'http://example.org/conversion',
+    code: 'converted-by-example',
+  });
+
+  return {
+    resource: target,
+    status: 'ok',
+    messages: [infoMessage('example postproc stamped a provenance tag')],
+  };
+}
+
 const provenanceTagPostprocessor = {
   name: 'example_stamp_tag',
   coverage: COVERAGE.NEUTRAL,
   description: 'Example postprocessor: stamps a provenance tag onto meta.tag.',
-  execute: target => {
-    target.meta = target.meta || {};
-    target.meta.tag = target.meta.tag || [];
-    target.meta.tag.push({
-      system: 'http://example.org/conversion',
-      code: 'converted-by-example',
-    });
-
-    return {
-      resource: target,
-      status: 'ok',
-      messages: [infoMessage('example postproc stamped a provenance tag')],
-    };
-  },
+  execute: stampProvenanceTag,
 };
 
 const chainResult = chainedConverter.convert(r3Questionnaire, 'R3', 'R5', {
