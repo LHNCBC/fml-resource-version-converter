@@ -44,8 +44,9 @@ The package is published as an ES module.
 
 ## Quick start
 
+
 ```js
-import { chainedConverter, singleHopConverter } from '@lhncbc/fml-resource-version-converter';
+import { singleHopConverter } from '@lhncbc/fml-resource-version-converter';
 
 const questionnaireR4 = {
   resourceType: 'Questionnaire',
@@ -62,16 +63,23 @@ const questionnaireR4 = {
   ],
 };
 
-const result = chainedConverter.convert(questionnaireR4, 'R4', 'R5');
+const result = singleHopConverter.convert(questionnaireR4, 'R4', 'R5');
 
 console.log(result.resource);  // the converted R5 Questionnaire
 console.log(result.status);    // 'ok' or 'warning'
 console.log(result.coverage);  // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
 ```
 
-**chainedConverter.convert(resource, fromVer, toVer)** throws when the request
-cannot be run, such as an unknown version token, the same source and target
-version, an unknown resource type, or an unsupported version path.
+The singleHopConverter shown above is for converting resources between adjacent
+versions (single hop), e.g., R4 -> R5. For conversion between non-adjacent
+versions, use
+  `chainedConverter.convert(resource, fromVer, toVer)`,
+which automatically creates a conversion chain and performs the end-to-end conversion.
+For example, R3 -> R5 is run as R3 -> R4 followed by R4 -> R5.
+
+Note that the converters throw when the request cannot be run, such as an unknown
+version token, the same source and target version, an unknown resource type, or
+an unsupported version path.
 
 The input resource is deep-cloned before conversion. Your original resource object
 is not modified.
@@ -279,34 +287,24 @@ and `statusFromMessages`.
 The processor contract is documented in [CONTRIBUTING.md](CONTRIBUTING.md) for
 contributors and advanced users.
 
-## Migration notes
-
-- `convertSingleHop(resource, fromVer, toVer)` is now
-  `singleHopConverter.convert(resource, fromVer, toVer)` for adjacent one-hop
-  conversions with the flat result shape.
-- For normal one-shot conversion, use
-  `chainedConverter.convert(resource, fromVer, toVer)`. It supports multi-hop
-  paths and always returns `hops[]`.
-- Manual chains such as **R3 -> R4** followed by **R4 -> R5** can usually become
-  one `chainedConverter.convert(resource, 'R3', 'R5')` call.
-- Old single-hop `preprocs: [...]` and `postprocs: [...]` array options are now
-  `preproc: [...]` and `postproc: [...]` for outer-boundary processors. Keyed
-  `preprocs` and `postprocs` are maps or lookup functions.
-- `postprocessPolicy` is now part of the postprocessor entry:
-  `{ policy: 'append' | 'replace', psps: [...] }`.
-
 ## Examples
 
-A runnable example script is included in the repository:
+A more elaborate example may be found in the repository (not shipped in the
+installed npm package). Find it on GitHub at
+[examples/conversions.js](examples/conversions.js), then run it from a repo
+checkout:
 
 ```bash
 node examples/conversions.js
 ```
 
-It demonstrates a single adjacent-hop conversion, a simple multi-hop chain with
-one boundary preprocessor and postprocessor, a non-trivial chain (**R3 -> R5**)
-with per-hop postprocessors, and - commented out - how contained resource types
-would be targeted once contained-resource support is available.
+It demonstrates:
+
+- a single adjacent hop (**R4 -> R5**) that prints a leaf-level diff of what the
+  mapping changed,
+- a multi-hop chain (**R3 -> R5**) with a real postprocessor applied to one
+  specific hop (keyed `Questionnaire:R4->R5`), and
+- how to read the result objects.
 
 ## Command line
 

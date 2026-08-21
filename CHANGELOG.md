@@ -3,6 +3,18 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
+## [0.2.2] - 2026-08-20
+
+### Changed
+
+- Documentation: reviewed and cleaned up `README.md` and related docs for
+  clarity and consistency.
+- Examples: `examples/conversions.js` is now self-contained - it uses inline
+  resources instead of test fixtures, imports the package by its published name,
+  prints an input/output diff of what the conversion changed, and shows how to
+  read the result objects.
+- Added more npm package keywords to improve discoverability.
+
 ## [0.2.1] - 2026-08-19
 ### Added
 - Added SECURITY.md
