@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createFmlEngineFactory, planHops } from '../../../src/fml_base_conv/create_converter.js';
+import { createFmlMappingCatalog } from '../../../tools/fml-mapping-catalog.js';
 import { compileFmlXver } from '../../../src/fml_base_conv/fml_xver_engine.js';
 
 const { createEngine } = createFmlEngineFactory();
@@ -46,6 +47,13 @@ describe('fml_base_conv/createEngine', function () {
   it('throws for unknown FHIR version', function () {
     assert.throws(() => createEngine('Questionnaire', 'R4', 'R99'), /not found|Unknown/);
   });
+
+  it('rejects the removed xverInputRoot option', function () {
+    assert.throws(
+      () => createFmlEngineFactory({ xverInputRoot: '/tmp/alternate-root' }),
+      /options are no longer supported; xverInputRoot was removed/,
+    );
+  });
 });
 
 // ---------- resource mapping discovery and selection ------------------------
@@ -71,8 +79,8 @@ group Patient(source src : PatientR4, target tgt : PatientR5) extends DomainReso
       fs.writeFileSync(path.join(direction, 'AValid.fml'), validFml, 'utf-8');
       fs.writeFileSync(path.join(direction, 'ZInvalid.fml'), 'group Broken(', 'utf-8');
 
-      const factory = createFmlEngineFactory({ xverInputRoot: root });
-      const inspect = () => factory.hasMapping('Patient', 'R4', 'R5');
+      const catalog = createFmlMappingCatalog(root);
+      const inspect = () => catalog.hasMapping('Patient', 'R4', 'R5');
 
       assert.throws(inspect, /failed to inspect.*ZInvalid\.fml/);
       assert.throws(

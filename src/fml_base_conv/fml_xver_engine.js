@@ -59,27 +59,7 @@
  */
 
 import fhirpathLib from 'fhirpath';
-import dstu2Model from 'fhirpath/fhir-context/dstu2/index.js';
-import stu3Model  from 'fhirpath/fhir-context/stu3/index.js';
-import r4Model    from 'fhirpath/fhir-context/r4/index.js';
-import r5Model    from 'fhirpath/fhir-context/r5/index.js';
 import { parseFml } from './fml_parser.js';
-
-/**
- * FHIRPath model objects per FHIR version label. A model gives the
- * fhirpath.js evaluator FHIR-schema awareness (polymorphic JSON field
- * collapsing, `ofType(T)` / `is T` / `as T`, type-inheritance checks).
- * Without it, only plain field navigation and generic FHIRPath functions
- * work. R4B has no dedicated bundled model; we reuse R4 (the two are
- * structurally compatible for FHIRPath purposes).
- */
-const FHIRPATH_MODEL = {
-  R2:  dstu2Model,
-  R3:  stu3Model,
-  R4:  r4Model,
-  R4B: r4Model,
-  R5:  r5Model,
-};
 
 /**
  * Match a leading bare identifier in a FHIRPath expression. The FML
@@ -668,6 +648,7 @@ class Scope {
  *                                               descriptor. Factory-created
  *                                               engines always provide this;
  *                                               raw compiler callers may omit it.
+ * @param {Object}   [opts.fhirPathModel]         Source-version FHIRPath model.
  * @param {Function} [opts.onWarning]            (msg: string) => void
  * @param {Function} [opts.onInfo]               (msg: string) => void
  * @param {Function} [opts.onRuleExec]           ({rule, srcVal}) => void
@@ -687,6 +668,7 @@ export function compileFmlXver({
   mapping         = null,
   srcDefs         = null,
   tgtDefs         = null,
+  fhirPathModel   = null,
   onWarning       = null,
   onInfo          = null,
   onRuleExec      = null,
@@ -717,7 +699,7 @@ export function compileFmlXver({
    * undefined when fromVer is unknown, in which case fhirpath.js runs
    * in plain-JSON mode (no FHIR-schema awareness).
    */
-  const fpModel = fromVer ? FHIRPATH_MODEL[fromVer] : undefined;
+  const fpModel = fhirPathModel || undefined;
 
   /**
    * Evaluate a FHIRPath expression authored in an FML rule.
@@ -785,7 +767,7 @@ export function compileFmlXver({
    * Build the set of last-segment names that appear as polymorphic fields
    * anywhere in a FHIR version (e.g. "value", "initial", "deceased").
    *
-   * The input is the consolidated defs object (see data/fhir-defs/{VER}.json);
+   * The input is a consolidated FHIR-table payload;
    * its `polyPaths` keys are full dotted paths from the resource root,
    * e.g. "Observation.value", "Questionnaire.item.initial.value",
    * "Patient.deceased". Only the final segment is retained here.

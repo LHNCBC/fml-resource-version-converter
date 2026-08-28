@@ -84,6 +84,66 @@ an unsupported version path.
 The input resource is deep-cloned before conversion. Your original resource object
 is not modified.
 
+The conversion uses runtime data prepared from the HL7 FML mapping data
+and the FHIR spec. The default package entry preloads the runtime data
+for all supported conversions (resource types, source-target versions),
+which incurs moderate initialization time and memory cost. Applications
+that need fewer combinations of source-target version conversions, especially
+browser applications, may import the converter factory and only the
+required runtime data, as illustrated below.
+
+```js
+import { converterFactory } from
+  '@lhncbc/fml-resource-version-converter/converter-factory';
+import runtimeData from
+  '@lhncbc/fml-resource-version-converter/runtime/r4-to-r5';
+
+const { singleHopConverter } = converterFactory.create(runtimeData);
+const result = singleHopConverter.convert(questionnaireR4, 'R4', 'R5');
+```
+
+`converterFactory.create()` accepts one runtime data module or an array. The
+returned `singleHopConverter`, `chainedConverter`, and `getRegistryEntry` are
+all scoped to those modules. A chain is available only when every required hop
+was included:
+
+```js
+import r2ToR3 from
+  '@lhncbc/fml-resource-version-converter/runtime/r2-to-r3';
+import r3ToR4 from
+  '@lhncbc/fml-resource-version-converter/runtime/r3-to-r4';
+
+const { chainedConverter } = converterFactory.create([r2ToR3, r3ToR4]);
+const result = chainedConverter.convert(resourceR2, 'R2', 'R4');
+```
+
+The package also exports `runtime/all`, which contains the same complete runtime
+selection used internally by the default package entry. Pass it explicitly to
+`converterFactory.create()` when constructing an all-data converter; the factory
+requires one runtime data module or a non-empty array and has no implicit default.
+
+Runtime data objects are opaque and read-only by contract. Conversion remains
+synchronous; a dynamic import can be used when an application wants to defer
+loading and initialization.
+
+When a browser build emits sourcemaps, configure the builder not to embed
+dependency source text. Otherwise a builder can copy the large Base64 runtime
+payloads into `sourcesContent`. For Vite/Rollup:
+
+```js
+export default {
+  build: {
+    sourcemap: true,
+    rollupOptions: {
+      output: { sourcemapExcludeSources: true },
+    },
+  },
+};
+```
+
+This preserves sourcemap locations while keeping the runtime payload only in
+the JavaScript bundle.
+
 Because resources are sometimes renamed or split between FHIR versions, a
 source resource type can map to more than one target type on a single hop. Use
 `opts.targetResourceType` to assert the intended target:
@@ -367,6 +427,9 @@ import {
   planHops,
 } from '@lhncbc/fml-resource-version-converter/fml-engine';
 ```
+
+`createFmlEngineFactory()` takes no arguments and uses the complete committed
+runtime data. Raw FML roots are maintainer inputs, not runtime configuration.
 
 There is also a lower-level experimental CLI at
 `src/fml_base_conv/convert_cli.js` for engine-level testing.

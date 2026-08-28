@@ -1,10 +1,18 @@
 # Source
 
-The `input/` directory is a snapshot from the HL7 **fhir-cross-version** project:
+The `input/` directory is a snapshot from the HL7 **fhir-cross-version** project.
 
-- URL: https://github.com/HL7/fhir-cross-version
-- Commit: `72779598c1bbfffbfd99a901938af495ddd91ff1`
-- Snapshot date: 2026-02-24
+The authoritative source URL, commit, snapshot date, and license are recorded in
+`source.json`. Runtime artifact generation reads that file directly so the
+committed manifest and snapshot provenance cannot drift independently.
 
-The source files are checked into the repo because the upstream project has no
-clean versioning and is still a frequently changing, moving target.
+The source files are checked into the repo because the upstream project isn't
+as stable at this point.
+
+## Fork policy
+
+Forking the HL7 fhir-cross-version repo should be done as the last
+resort and do so only when it's absolutely necessary.
+
+If a fork is adopted, this project will recognize only one such fork
+and it must be approved by the maintainers.

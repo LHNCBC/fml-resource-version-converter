@@ -35,9 +35,9 @@
  * @module tools/check-data
  */
 import path from 'node:path';
-import { getAdjacentPairs } from '../src/fml_base_conv/create_converter.js';
-import { scanConceptMaps, DEFAULT_XVER_ROOT } from '../src/fml_base_conv/conceptmaps.js';
-import { scanResourceMappings } from '../src/fml_base_conv/fml_mapping_catalog.js';
+import { getAdjacentPairs } from '../src/fml_base_conv/version_graph.js';
+import { scanConceptMaps, DEFAULT_XVER_ROOT } from './conceptmaps.js';
+import { scanResourceMappings } from './fml-mapping-catalog.js';
 
 /**
  * Find the mapping-selection ambiguities declared for one version direction.
@@ -210,4 +210,3 @@ function main() {
 }
 
 main();
-

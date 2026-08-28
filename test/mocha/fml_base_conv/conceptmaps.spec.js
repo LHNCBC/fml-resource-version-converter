@@ -10,10 +10,10 @@ import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { scanConceptMaps } from '../../../src/fml_base_conv/conceptmaps.js';
-import { getAdjacentPairs } from '../../../src/fml_base_conv/create_converter.js';
+import { scanConceptMaps } from '../../../tools/conceptmaps.js';
+import { getAdjacentPairs } from '../../../src/fml_base_conv/version_graph.js';
 
-describe('fml_base_conv/conceptmaps: scanConceptMaps', function () {
+describe('tools/conceptmaps: scanConceptMaps', function () {
   let root;
 
   before(function () {
@@ -64,7 +64,7 @@ describe('fml_base_conv/conceptmaps: scanConceptMaps', function () {
 // Ship-time guarantee: the bundled cross-version data must reference no absent
 // or unparseable standalone ConceptMaps. This is the automated counterpart of
 // running tools/check-data.js against the default (bundled) data root.
-describe('fml_base_conv/conceptmaps: bundled data integrity', function () {
+describe('tools/conceptmaps: bundled data integrity', function () {
   it('every adjacent pair resolves all referenced standalone ConceptMaps', function () {
     for (const [from, to] of getAdjacentPairs()) {
       const { missingConceptMaps, parseErrors } = scanConceptMaps(from, to);
@@ -79,6 +79,4 @@ describe('fml_base_conv/conceptmaps: bundled data integrity', function () {
     }
   });
 });
-
-
 

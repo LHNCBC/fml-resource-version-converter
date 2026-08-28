@@ -1,21 +1,13 @@
 /**
  * @fileoverview Internal ConceptMap resolution and data-integrity scan.
  *
- * Owns the whole ConceptMap concern in one place:
- *   - Resolution primitives (extractConceptMapUrls, conceptMapPath,
- *     resolveConceptMaps) - used by the engine (create_converter.js buildEngine)
- *     to load the maps a conversion needs.
- *   - A static, per-version-pair scan (scanConceptMaps) - used by the maintainer
- *     data check (tools/check-data.js) and its test to audit a data root.
+ * Maintainer tools use these helpers to collect and audit raw upstream
+ * ConceptMaps while generating runtime artifacts. Runtime conversion consumes
+ * compact ConceptMaps from selected artifacts and does not import this module.
  *
- * This module is INTERNAL. It is not re-exported by the package barrels
- * (`./` or `./fml-engine`) - it is imported directly by the engine and by the
- * tools that need it. Keeping it separate keeps the engine pure (conversion
- * only) without exposing these details on any public API. (The engine imports
- * the resolution helpers from here; it does not depend on `tools/`, which is why
- * this shared code lives under `src/` rather than in the tool.)
+ * This module is internal and is not re-exported by package barrels.
  *
- * @module fml_base_conv/conceptmaps
+ * @module tools/conceptmaps
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,7 +20,7 @@ import path from 'node:path';
  * @type {string}
  */
 export const DEFAULT_XVER_ROOT =
-  path.resolve(import.meta.dirname, '../../data/fhir-cross-version/input');
+  path.resolve(import.meta.dirname, '../data/fhir-cross-version/input');
 
 /**
  * Scan FML text for ConceptMap URLs referenced by `translate(...)` calls.
@@ -189,6 +181,4 @@ export function scanConceptMaps(fromVer, toVer, xverRoot = DEFAULT_XVER_ROOT) {
   const { missingConceptMaps, parseErrors } = resolveConceptMaps(urls, xverRoot);
   return { missingConceptMaps, parseErrors };
 }
-
-
 

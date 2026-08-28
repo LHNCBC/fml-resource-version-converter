@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * @fileoverview Regenerate data/fhir-defs from official FHIR spec archives.
+ * @fileoverview Regenerate the ignored data/fhir-defs maintainer intermediate.
  *
  * By default, this script does not use the network. It checks that the expected
  * raw FHIR spec archives are present under data/fhir-spec-downloads/ and then
- * invokes tools/fhir-spec-parser.js once per version.
+ * invokes tools/fhir-spec-parser.js once per version. Runtime artifacts consume
+ * these files during regeneration; package runtime code does not use them.
  *
  * Use --download-missing to fetch missing archives before building.
  */
@@ -57,7 +58,7 @@ const SPECS = [
 function printUsage() {
   console.log(`Usage: node tools/build-fhir-defs.js [options]
 
-Regenerate data/fhir-defs/<VERSION>.json from official FHIR spec archives.
+Regenerate ignored data/fhir-defs/<VERSION>.json from official FHIR spec archives.
 
 Options:
   --download-missing     Download missing source archives before building.

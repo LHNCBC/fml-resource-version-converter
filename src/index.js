@@ -11,7 +11,7 @@
 // engine factory lives behind the package's "./fml-engine" subpath, not here.
 // Other internal machinery (coverage rollups, status ranking, validators) is
 // private.
-import { converterContext } from './converter/converterContext.js';
+import { getRegistryEntry as defaultGetRegistryEntry } from './converter/defaultConverters.js';
 
 // ----- Conversion entry points ---------------------------------------------
 export { singleHopConverter } from './converter/singleHopConverter.js';
@@ -39,11 +39,7 @@ export { chainedConverter } from './converter/chainedConverter.js';
  * @returns {{fml: {coverage: string, description?: string}, processors: Array<Object>}|null}
  *   The entry, or null when the tuple has no direct FML mapping.
  */
-export function getRegistryEntry(resourceType, fromVer, toVer) {
-  const { engineFactory, registry } = converterContext;
-  if (!engineFactory.hasMapping(resourceType, fromVer, toVer)) return null;
-  return registry.lookup(resourceType, fromVer, toVer);
-}
+export const getRegistryEntry = defaultGetRegistryEntry;
 
 // ----- Policy / report enums (used in options and result objects) ----------
 // COVERAGE / STATUS / MESSAGE_TYPE appear in the result object and its reports;

@@ -28,7 +28,8 @@ The build script can download the files automatically, e.g.,
 npm run build:fhir-defs -- --download-missing
 ```
 
-See ../fhir-defs/SOURCE.md for details.
+See `../runtime/README.md` and the repository-root `CONTRIBUTING.md` for source
+details and the complete regeneration workflow.
 
 To manually download the files, if needed:
 

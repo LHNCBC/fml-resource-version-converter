@@ -14,11 +14,11 @@ to V2 and this package's coverage status for this conversion is "not_reviewed"
 or "known_gaps", you can review the FML mapping/conversion, create a postprocessor
 if needed, and contribute your work back to this project. Thank you!
 
-This package ships with fhir-cross-version data (from HL7) and some data tables
-extracted from the official FHIR specification, which are needed at runtime.
-Normally you wouldn't need to update these datasets, but if you do, for example,
-to add support for a new FHIR version or to get the latest fhir-cross-version
-mapping files, please see the `Repository data` section for instructions.
+This repository retains an HL7 fhir-cross-version snapshot and specification
+inputs used to generate the compressed runtime data shipped by the package.
+Normally you would not need to update these datasets, but if you do, for
+example to add a FHIR version or adopt newer mapping files, see the
+`Repository data` section for instructions.
 
 
 ## Development setup
@@ -390,31 +390,60 @@ npm test
 
 ## Repository data
 
-The package ships two kinds of FHIR data. They have different purposes and
-different update procedures.
+The repository retains two categories of FHIR source data with different
+purposes and update procedures. The npm package ships only the generated runtime
+artifacts under `data/runtime/`.
 
 ### Directory `data/fhir-cross-version/`
 
 This directory contains a checked-in snapshot of HL7's
-`fhir-cross-version` project. The FML mapping files are required
-at runtime, so they are shipped with the package.
+`fhir-cross-version` project. It remains reviewable in the repository but is
+not published in the npm package. The runtime generator distills its FML and
+ConceptMap inputs into the committed modules under `data/runtime/`.
 
 Please exercise caution if you plan to update the snapshot. An update to the FML
 mapping files may invalidate some postprocessors, because they operate on the
 output of the FML mapping step. The fhir-cross-version project is also still at
 an early stage. That said, if an update is justified, go ahead.
 
+Use the canonical HL7 repository whenever practical. Adopting a fork is a last
+resort that requires explicit maintainer approval because the project must then
+keep that fork synchronized with upstream. See
+`data/fhir-cross-version/SOURCE.md` for the authoritative fork policy.
+
 To update this snapshot:
 
-1. Update `data/fhir-cross-version/SOURCE.md` with the source URL, commit, and
-   snapshot date.
+1. Update the authoritative `data/fhir-cross-version/source.json` source URL,
+   commit, snapshot date, and license. `SOURCE.md` explains this contract but
+   does not duplicate those values.
 2. Update the snapshot files in `data/fhir-cross-version/input` with the new
    files from the fhir-cross-version project.
-3. Run the data-integrity check (see below) and address anything it reports.
-4. Re-run the FML parser tests and conversion tests.
-5. Review behavior changes for any resource and version pair affected by the
+3. Generate a complete candidate runtime root while reusing the verified FHIR
+   tables from the committed root:
+
+   ```bash
+   npm run build:runtime-data -- \
+     --output /path/to/candidate-runtime \
+     --fhir-table-runtime-root data/runtime
+   ```
+
+4. Review the candidate, then atomically regenerate and replace the committed
+   root using the candidate's verified FHIR tables:
+
+   ```bash
+   npm run build:runtime-data -- \
+     --output data/runtime \
+     --fhir-table-runtime-root /path/to/candidate-runtime \
+     --replace
+   ```
+
+5. Run the non-rewriting runtime freshness check and the full table
+   source-equivalence check described below.
+6. Run the data-integrity check (see below) and address anything it reports.
+7. Re-run the FML parser tests and conversion tests.
+8. Review behavior changes for any resource and version pair affected by the
    new mappings.
-6. Update postprocessors as needed and regenerate (no hand editing) `COVERAGE.md`.
+9. Update postprocessors as needed and regenerate (no hand editing) `COVERAGE.md`.
 
 #### Checking the snapshot with `tools/check-data.js`
 
@@ -443,15 +472,15 @@ documented limitation changed. A new Type B ambiguity on an actively supported
 version pair is worth a closer look, since the converter cannot currently
 resolve one on its own.
 
-### Directories `data/fhir-defs/` and `data/fhir-spec-downloads/`
+### FHIR table sources and `data/fhir-spec-downloads/`
 
-The directory `data/fhir-spec-downloads/` contains the official FHIR spec zip
-files, which are themselves not shipped with the package but are needed to build
-the runtime files under `data/fhir-defs/`. The spec zip files may be downloaded
-into `data/fhir-spec-downloads/` using the provided build script.
+The directory `data/fhir-spec-downloads/` contains official FHIR specification
+archives. They are not shipped with the package, but maintainers use them to
+build the FHIR tables embedded in `data/runtime/`.
 
-The files under `data/fhir-defs/` are runtime tables derived from the official
-HL7 FHIR specification files described above. The FML engine uses these tables
+The build creates `data/fhir-defs/` as an ignored maintainer intermediate. The
+runtime generator compresses those tables into committed artifacts under
+`data/runtime/fhir-tables/`. The FML engine uses the runtime artifacts
 to understand FHIR JSON details that are not explicitly represented in the FML
 mappings, such as:
 
@@ -459,12 +488,12 @@ mappings, such as:
 - array/cardinality paths
 - scalar element types that may need type conversion
 
-Do not edit the generated JSON files by hand. The generated JSON files are
-shipped with the package because they are needed at runtime.
+Do not edit either generated form by hand.
 
-#### Regenerate the `data/fhir-defs/` tables
+#### Regenerate the FHIR table artifacts
 
-To download the FHIR spec files and regenerate `data/fhir-defs/`, run:
+To download missing specification archives and regenerate the intermediate
+tables, run:
 
 ```bash
 npm run build:fhir-defs -- --download-missing
@@ -474,6 +503,61 @@ If the FHIR spec files are already present, you can simply run:
 ```bash
 npm run build:fhir-defs
 ```
+
+Then generate a complete candidate runtime root for review:
+
+```bash
+npm run build:runtime-data -- --output /path/to/candidate-runtime
+```
+
+#### Alternate runtime roots
+
+To generate mappings from another `fhir-cross-version` snapshot while reusing
+the verified FHIR tables in the committed runtime root, run:
+
+```bash
+npm run build:runtime-data -- \
+  --output /path/to/alternate-runtime \
+  --xver-root /path/to/alternate/input \
+  --xver-source-uri https://github.com/HL7/fhir-cross-version \
+  --xver-source-commit <commit> \
+  --xver-source-date YYYY-MM-DD \
+  --fhir-table-runtime-root data/runtime
+```
+
+The generator validates the reused root completely before copying its FHIR
+table envelopes and provenance into the candidate. Loading an alternate root
+is Node-only and asynchronous; after loading, converter construction and
+conversion remain synchronous.
+
+Alternate runtime roots are trusted maintainer inputs. Loading their
+JavaScript artifact modules executes code from the selected root before the
+exported envelopes are decoded and checked. Do not load a root from an
+untrusted source.
+
+To check the committed mappings and artifact bytes without rewriting
+`data/runtime/`, reuse its verified tables and generate into an automatically
+removed temporary directory:
+
+```bash
+npm run build:runtime-data -- \
+  --check-root data/runtime \
+  --fhir-table-runtime-root data/runtime
+```
+
+This quick check proves mapping freshness and runtime-root integrity, but it
+reuses the existing FHIR tables. For full table source-equivalence, first run
+the dedicated maintainer command:
+
+```bash
+npm run check:runtime-data-sources
+```
+
+It requires all five ignored official archives. The command derives temporary
+FHIR definitions directly from those archives, regenerates all runtime
+artifacts in another temporary directory, compares the 14 indexed files, and
+removes both temporary directories. It does not create `data/fhir-defs/` or
+rewrite `data/runtime/`.
 
 Please feel free to reach out if you have any questions or need assistance -
 open an [issue](https://github.com/LHNCBC/fml-resource-version-converter/issues).

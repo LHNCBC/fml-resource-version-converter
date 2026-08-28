@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { COVERAGE } from '../../../src/converter/coverage.js';
 import { MESSAGE_TYPE, STATUS } from '../../../src/converter/diagnostics.js';
+import { createRunHop } from '../../../src/converter/boundConverters.js';
 import { runHop } from '../../../src/converter/runHop.js';
 
 const TEST_DATA = path.resolve(import.meta.dirname, '../../data');
@@ -64,6 +65,33 @@ describe('converter/runHop', function () {
       assert.equal('preprocessors' in out.fragment, false);
       assert.equal('postprocessors' in out.fragment, false);
     });
+  });
+
+  it('constructs exactly one FML engine for one hop', function () {
+    let engineCount = 0;
+    const engineFactory = {
+      hasMapping: () => true,
+      resolveMapping: () => ({ targetResourceType: 'Patient' }),
+      createEngine() {
+        engineCount++;
+
+        return {
+          convert: ({ input }) => ({ resource: { ...input, active: true } }),
+        };
+      },
+    };
+    const registry = {
+      lookup: () => ({
+        fml: { coverage: COVERAGE.NOT_REVIEWED },
+        processors: [],
+      }),
+    };
+    const boundRunHop = createRunHop({ engineFactory, registry });
+
+    const result = boundRunHop({ resourceType: 'Patient' }, 'R4', 'R5');
+
+    assert.equal(engineCount, 1);
+    assert.equal(result.resource.active, true);
   });
 
   describe('preprocessors (from preLookup)', function () {

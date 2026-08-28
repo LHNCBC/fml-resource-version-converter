@@ -10,3 +10,5 @@ test/data/output
 data/fhir-spec-downloads/*
 !data/fhir-spec-downloads/README.md
 
+# Generated maintainer intermediate; runtime uses data/runtime/fhir-tables/.
+data/fhir-defs/
