@@ -11,11 +11,9 @@
 import { unzlibSync } from 'fflate';
 import {
   ARTIFACT_CODEC,
-  ARTIFACT_KIND,
   canonicalStringify,
   validateArtifactEnvelope,
-  validateFhirTablePayload,
-  validateFmlMappingsPayload,
+  validateDecodedArtifact,
 } from './schema.js';
 
 const SHA256_INITIAL = new Uint32Array([
@@ -240,18 +238,15 @@ function decodeArtifactInternal(envelope, verifyEncoding) {
     }
   }
 
-  if (envelope.kind === ARTIFACT_KIND.FML_MAPPINGS) {
-    validateFmlMappingsPayload(data, envelope.id);
-  } else if (envelope.kind === ARTIFACT_KIND.FHIR_TABLE) {
-    validateFhirTablePayload(data, envelope.id);
-  }
-
-  return Object.freeze({
+  const decoded = Object.freeze({
     id: envelope.id,
     kind: envelope.kind,
     sha256: envelope.sha256,
     data,
   });
+  validateDecodedArtifact(decoded, envelope.kind, label, '$');
+
+  return decoded;
 }
 
 /**

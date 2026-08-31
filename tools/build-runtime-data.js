@@ -75,11 +75,7 @@ export function parseArgs(argv) {
     checkRoot: null,
     reviewOutput: null,
     xverRoot: path.join(PROJECT_ROOT, 'data/fhir-cross-version/input'),
-    xverSource: {
-      ...readCrossVersionSource(
-        path.join(PROJECT_ROOT, 'data/fhir-cross-version/source.json'),
-      ),
-    },
+    xverSource: {},
     fhirTableRuntimeRoot: null,
     fhirDefsRoot: path.join(PROJECT_ROOT, 'data/fhir-defs'),
     fhirSpecRoot: path.join(PROJECT_ROOT, 'data/fhir-spec-downloads'),
@@ -142,6 +138,15 @@ export function parseArgs(argv) {
     }
   }
 
+  if (!options.help) {
+    options.xverSource = {
+      ...readCrossVersionSource(
+        path.join(PROJECT_ROOT, 'data/fhir-cross-version/source.json'),
+      ),
+      ...options.xverSource,
+    };
+  }
+
   return options;
 }
 
@@ -172,7 +177,8 @@ export async function main(argv) {
         runtimeDataRoot: options.checkRoot,
       });
       console.error(
-        `Runtime data is fresh: ${path.resolve(options.checkRoot)} ` +
+        `Runtime mappings are fresh and the runtime root is valid: ` +
+        `${path.resolve(options.checkRoot)} ` +
         `(${result.filesCompared} indexed files)`,
       );
 

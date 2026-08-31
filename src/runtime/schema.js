@@ -53,6 +53,8 @@ const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const TOKEN_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const validatedDecodedArtifacts = new WeakSet();
+const validatedRuntimeData = new WeakSet();
 
 /**
  * Return whether a value is a plain object suitable for schema data.
@@ -842,7 +844,16 @@ export function validateManifest(value) {
  * @param {string} path Field path.
  * @returns {Object} The validated decoded artifact.
  */
-function validateDecodedArtifact(value, expectedKind, label, path) {
+export function validateDecodedArtifact(value, expectedKind, label, path) {
+  const cacheable = Object.isFrozen(value);
+  if (cacheable && validatedDecodedArtifacts.has(value)) {
+    if (value.kind !== expectedKind) {
+      fail(label, `${path}.kind`, `must be ${expectedKind}`);
+    }
+
+    return value;
+  }
+
   requireObject(value, label, path);
   requireFields(value, ['id', 'kind', 'sha256', 'data'], [], label, path);
   requireId(value.id, label, `${path}.id`);
@@ -857,6 +868,8 @@ function validateDecodedArtifact(value, expectedKind, label, path) {
     validateFhirTablePayload(value.data, value.id);
   }
 
+  if (cacheable) validatedDecodedArtifacts.add(value);
+
   return value;
 }
 
@@ -867,6 +880,9 @@ function validateDecodedArtifact(value, expectedKind, label, path) {
  * @returns {Object} The original validated runtime data.
  */
 export function validateRuntimeData(value) {
+  const cacheable = Object.isFrozen(value);
+  if (cacheable && validatedRuntimeData.has(value)) return value;
+
   const id = typeof value?.id === 'string' && value.id.length > 0 ? value.id : '<unknown>';
   const label = `Runtime data "${id}"`;
   requireObject(value, label, '$');
@@ -961,6 +977,8 @@ export function validateRuntimeData(value) {
       fail(label, '$.fhirPathModels', `${direction} requires a source model for ${from}`);
     }
   }
+
+  if (cacheable) validatedRuntimeData.add(value);
 
   return value;
 }

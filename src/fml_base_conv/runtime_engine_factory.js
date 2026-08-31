@@ -8,7 +8,7 @@
  * @module fml_base_conv/runtime_engine_factory
  */
 
-import { compileFmlXver } from './fml_xver_engine.js';
+import { compileFmlXver, createConceptMapIndex } from './fml_xver_engine.js';
 import { createMappingCatalog } from './mapping_catalog_core.js';
 import { indexRuntimeDataSelection } from '../runtime/assembler.js';
 
@@ -156,10 +156,11 @@ export function createRuntimeFmlEngineFactory(selection) {
       return null;
     }
 
+    const conceptMaps = payload.conceptMaps.map(expandConceptMap);
     const state = Object.freeze({
       payload,
       mappingsBySource: indexMappings(payload),
-      conceptMaps: Object.freeze(payload.conceptMaps.map(expandConceptMap)),
+      conceptMapIndex: createConceptMapIndex(conceptMaps),
     });
     directionStates.set(key, state);
 
@@ -228,7 +229,7 @@ export function createRuntimeFmlEngineFactory(selection) {
       const fhirPathModel = indexes.modelsBySourceVersion.get(fromVer);
       const engine = compileFmlXver({
         fmlText,
-        conceptMaps: state.conceptMaps,
+        conceptMapIndex: state.conceptMapIndex,
         importedFmlTexts: importedFmlTexts(state.payload.files, mapping.virtualFile, fmlText),
         strict: options.strict ?? false,
         fromVer,

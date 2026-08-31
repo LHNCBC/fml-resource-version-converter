@@ -18,6 +18,11 @@ This project follows [Semantic Versioning](http://semver.org/).
 - The default converters and low-level FML engine now use committed in-memory
   runtime artifacts instead of reading raw data files. The default package
   entry still loads all supported runtime data modules.
+- Mapping descriptors returned by the low-level engine now expose the portable
+  root-relative `virtualFile` field instead of the filesystem-only `filePath`.
+- Missing standalone ConceptMaps now fail runtime artifact generation. Strict
+  conversion still rejects missing or unmappable translations, but no longer
+  performs a separate filesystem-resolution check during engine construction.
 - The npm package now excludes the raw fhir-cross-version snapshot, FHIR
   specification inputs, and generated definition intermediates.
 

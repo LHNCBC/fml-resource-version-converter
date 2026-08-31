@@ -29,7 +29,7 @@ Artifact envelopes carry the identity, hash, source identities, codec, and
 uncompressed length needed for runtime assembly and strict maintainer
 validation.
 
-## Step 3 regression thresholds
+## Artifact regression thresholds
 
 The committed 13-artifact set should remain below 1.1 MB of Base64 payload and
 15% of its canonical uncompressed size. A representative R4-to-R5 selection

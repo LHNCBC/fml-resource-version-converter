@@ -261,12 +261,17 @@ export function createRunHop(converterContext) {
  * Create a single-hop converter bound to a runHop implementation.
  *
  * @param {RunHopFunction} runHop Bound hop runner.
+ * @param {Function|null} [hasDirection=null] Optional `(fromVer, toVer)` gate
+ *   used to reject an unselected runtime-data direction before conversion.
  * @returns {{convert: Function}} Frozen converter exposing `convert()`.
- * @throws {Error} If `runHop` is not a function.
+ * @throws {Error} If either supplied dependency has the wrong type.
  */
-export function createSingleHopConverter(runHop) {
+export function createSingleHopConverter(runHop, hasDirection = null) {
   if (typeof runHop !== 'function') {
     throw new Error('createSingleHopConverter: runHop function is required');
+  }
+  if (hasDirection !== null && typeof hasDirection !== 'function') {
+    throw new Error('createSingleHopConverter: hasDirection must be a function');
   }
 
   /**
@@ -292,6 +297,11 @@ export function createSingleHopConverter(runHop) {
       throw new Error(
         'singleHopConverter.convert requires an adjacent version pair; ' +
         `use chainedConverter.convert for ${fromVer}->${toVer}`,
+      );
+    }
+    if (hasDirection && !hasDirection(fromVer, toVer)) {
+      throw new Error(
+        `singleHopConverter.convert: runtime data does not include ${fromVer}->${toVer}`,
       );
     }
     if (targetResourceType != null &&

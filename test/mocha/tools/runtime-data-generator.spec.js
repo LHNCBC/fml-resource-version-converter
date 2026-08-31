@@ -156,6 +156,7 @@ describe('tools/runtime-data-generator', function () {
 
   it('requires a caller-selected output directory', function () {
     assert.throws(() => parseArgs(['--unknown']), /Unknown option/);
+    assert.equal(parseArgs(['--help']).help, true);
     assert.equal(parseArgs(['--output', 'candidate']).output, 'candidate');
     const alternate = parseArgs([
       '--check-root', 'current',

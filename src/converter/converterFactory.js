@@ -44,7 +44,7 @@ export const converterFactory = Object.freeze({
     const runHop = createRunHop(converterContext);
 
     return Object.freeze({
-      singleHopConverter: createSingleHopConverter(runHop),
+      singleHopConverter: createSingleHopConverter(runHop, engineFactory.hasDirection),
       chainedConverter: createChainedConverter(runHop, engineFactory.hasDirection),
       getRegistryEntry: createGetRegistryEntry(converterContext),
     });

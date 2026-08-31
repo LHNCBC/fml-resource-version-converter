@@ -317,6 +317,22 @@ function indexConceptMap(cm) {
 }
 
 /**
+ * Build the reusable URL index for a set of ConceptMaps.
+ *
+ * @param {Object[]} conceptMaps ConceptMap JSON resources.
+ * @returns {Map<string, Object>} Indexed ConceptMaps keyed by canonical URL.
+ */
+export function createConceptMapIndex(conceptMaps) {
+  const byUrl = new Map();
+  for (const conceptMap of conceptMaps) {
+    const indexed = indexConceptMap(conceptMap);
+    byUrl.set(indexed.url, indexed);
+  }
+
+  return byUrl;
+}
+
+/**
  * Normalize a FHIR code, Coding, or CodeableConcept into candidate Codings.
  * Coding order is retained so a CodeableConcept is tried deterministically.
  *
@@ -394,20 +410,14 @@ function selectUnchangedTranslationOutput(source, firstCoding, output) {
  *                                                       in the target system
  *   7. Otherwise: return source code unchanged (WARNS), or throw if strict.
  *
- * @param {Object[]} conceptMaps                Indexed at construction time.
+ * @param {Map<string, Object>} conceptMapIndex Reusable ConceptMap URL index.
  * @param {Object}   opts
  * @param {boolean}  [opts.strict=false]        Throw on missing map / unmappable.
  * @param {Function} [opts.onWarning]
  * @param {Function} [opts.onInfo]
  * @returns {{translate: (source: *, mapUrl: string, output: string) => *}}
  */
-function makeTranslator(conceptMaps, { strict = false, onWarning, onInfo } = {}) {
-  const byUrl = new Map();
-  for (const cm of conceptMaps) {
-    const idx = indexConceptMap(cm);
-    byUrl.set(idx.url, idx);
-  }
-
+function makeTranslator(conceptMapIndex, { strict = false, onWarning, onInfo } = {}) {
   // Exact or safe (widening) -- no information lost in forward direction.
   const EXACT = new Set(['equivalent', 'equal']);
   const SAFE  = new Set(['source-is-narrower-than-target', 'wider']);
@@ -512,7 +522,7 @@ function makeTranslator(conceptMaps, { strict = false, onWarning, onInfo } = {})
       return undefined;
     }
 
-    const idx = byUrl.get(mapUrl);
+    const idx = conceptMapIndex.get(mapUrl);
     if (!idx) {
       if (strict) throw new Error(`Missing ConceptMap: ${mapUrl}`);
       onWarning?.(`translate: ConceptMap not found - ${mapUrl}; returning source coding unchanged`);
@@ -639,6 +649,8 @@ class Scope {
  * @param {Object}   opts
  * @param {string}   opts.fmlText                FML mapping source.
  * @param {Object[]} [opts.conceptMaps=[]]       ConceptMap JSON resources.
+ * @param {Map<string, Object>} [opts.conceptMapIndex] Prebuilt ConceptMap URL
+ *                                               index for repeated compilation.
  * @param {boolean}  [opts.strict=false]
  * @param {string}   [opts.fromVer]              Source FHIR version (e.g. 'R4').
  *                                               Used to update meta.profile after
@@ -661,6 +673,7 @@ class Scope {
 export function compileFmlXver({
   fmlText,
   conceptMaps     = [],
+  conceptMapIndex = null,
   importedFmlTexts = [],
   strict          = false,
   fromVer         = null,
@@ -691,7 +704,10 @@ export function compileFmlXver({
     }
   }
 
-  const translator = makeTranslator(conceptMaps, { strict: strict || false, onWarning, onInfo });
+  const translator = makeTranslator(
+    conceptMapIndex || createConceptMapIndex(conceptMaps),
+    { strict: strict || false, onWarning, onInfo },
+  );
 
   /**
    * FHIRPath model for the source FHIR version (used by all

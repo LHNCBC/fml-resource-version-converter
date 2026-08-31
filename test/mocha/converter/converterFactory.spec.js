@@ -90,6 +90,15 @@ describe('converter/converterFactory', function () {
     );
   });
 
+  it('rejects a single hop before execution when its direction is absent', function () {
+    const { singleHopConverter } = converterFactory.create(r4ToR5);
+
+    assert.throws(
+      () => singleHopConverter.convert(questionnaire('choice'), 'R4', 'R3'),
+      /runtime data does not include R4->R3/,
+    );
+  });
+
   it('rejects an empty runtime-data selection', function () {
     assert.throws(
       () => converterFactory.create([]),

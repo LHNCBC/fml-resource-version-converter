@@ -20,13 +20,14 @@ export { getAdjacentPairs, planHops } from './version_graph.js';
  * compatibility surface. Selective internal construction uses
  * `createRuntimeFmlEngineFactory(runtimeData)` directly.
  *
- * @param {undefined} [options] Options are no longer supported.
+ * @param {Object} [options] Empty compatibility options object.
  * @returns {import('./runtime_engine_factory.js').RuntimeFmlEngineFactory}
  *   Frozen all-directions engine factory.
- * @throws {Error} If options are supplied; `xverInputRoot` has been removed.
+ * @throws {Error} If non-empty options are supplied; `xverInputRoot` was removed.
  */
 export function createFmlEngineFactory(options) {
-  if (options !== undefined) {
+  const isObject = options !== null && typeof options === 'object' && !Array.isArray(options);
+  if (options !== undefined && (!isObject || Reflect.ownKeys(options).length > 0)) {
     throw new Error(
       'createFmlEngineFactory: options are no longer supported; xverInputRoot was removed',
     );

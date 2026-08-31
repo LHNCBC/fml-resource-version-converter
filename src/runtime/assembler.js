@@ -84,16 +84,16 @@ export function assembleDecodedRuntimeData({
   fhirTableArtifacts,
   fhirPathModels,
 }) {
-  const runtimeData = {
+  const runtimeData = Object.freeze({
     schemaVersion: SCHEMA_VERSION.RUNTIME_DATA,
     id,
     mappingArtifacts: Object.freeze([...mappingArtifacts]),
     fhirTableArtifacts: Object.freeze([...fhirTableArtifacts]),
     fhirPathModels: Object.freeze([...fhirPathModels]),
-  };
+  });
   validateRuntimeData(runtimeData);
 
-  return Object.freeze(runtimeData);
+  return runtimeData;
 }
 
 /**
@@ -156,17 +156,17 @@ export function combineRuntimeData(id, selection) {
     }
   }
 
-  const runtimeData = {
+  const runtimeData = Object.freeze({
     schemaVersion: SCHEMA_VERSION.RUNTIME_DATA,
     id,
     mappingArtifacts: Object.freeze([...mappingArtifacts.values()]),
     fhirTableArtifacts: Object.freeze([...fhirTableArtifacts.values()]),
     fhirPathModels: Object.freeze([...models.values()].map(entry =>
       createFhirPathModel(entry.modelId, [...entry.sourceVersions], entry.model))),
-  };
+  });
   validateRuntimeData(runtimeData);
 
-  return Object.freeze(runtimeData);
+  return runtimeData;
 }
 
 /**
