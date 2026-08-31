@@ -11,8 +11,8 @@ as stable at this point.
 
 ## Fork policy
 
-Forking the HL7 fhir-cross-version repo should be done as the last
-resort and do so only when it's absolutely necessary.
+Forking the HL7 fhir-cross-version repository should be a last resort and
+undertaken only when absolutely necessary.
 
-If a fork is adopted, this project will recognize only one such fork
-and it must be approved by the maintainers.
+If a fork is adopted, this project will recognize only one such fork, and its
+adoption must be approved by the maintainers.

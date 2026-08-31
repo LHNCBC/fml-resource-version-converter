@@ -14,9 +14,9 @@ import path from 'node:path';
 
 /**
  * Absolute path to the bundled FML cross-version input root (FML files and the
- * ConceptMap folders). The default data root for both the engine factory and
- * the scan tool; callers may override it (e.g. to evaluate a candidate data
- * drop before committing to it).
+ * ConceptMap folders). This is the default root for the maintainer integrity
+ * scan; callers may override it to evaluate a candidate data drop before
+ * committing to it.
  * @type {string}
  */
 export const DEFAULT_XVER_ROOT =
@@ -181,4 +181,3 @@ export function scanConceptMaps(fromVer, toVer, xverRoot = DEFAULT_XVER_ROOT) {
   const { missingConceptMaps, parseErrors } = resolveConceptMaps(urls, xverRoot);
   return { missingConceptMaps, parseErrors };
 }
-
