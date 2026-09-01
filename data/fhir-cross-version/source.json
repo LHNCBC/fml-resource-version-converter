@@ -1,7 +1,0 @@
-{
-  "id": "hl7-fhir-cross-version",
-  "uri": "https://github.com/HL7/fhir-cross-version",
-  "commit": "72779598c1bbfffbfd99a901938af495ddd91ff1",
-  "date": "2026-02-24",
-  "license": "HL7 FHIR License"
-}

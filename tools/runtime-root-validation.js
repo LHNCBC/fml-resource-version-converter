@@ -1,9 +1,10 @@
 /**
- * @fileoverview Pure validation for complete runtime artifact roots.
+ * @fileoverview Pure validation for complete or partial runtime artifact roots.
  *
  * Filesystem access and module loading belong to the Node-only loader. This
- * module validates the resulting manifest, envelopes, decoded payloads, and
- * logical counts without importing Node built-ins.
+ * module accepts a schema-validated manifest and validates its relationship
+ * to the loaded envelopes, decoded payloads, and logical counts without
+ * importing Node built-ins.
  *
  * @module tools/runtime-root-validation
  */
@@ -11,7 +12,7 @@
 import {
   ARTIFACT_KIND,
   canonicalStringify,
-  validateManifest,
+  manifestArtifacts,
 } from '../src/runtime/schema.js';
 
 const MAPPING_DIRECTIONS = Object.freeze([
@@ -90,22 +91,37 @@ function requireEquivalent(actual, expected, message) {
 }
 
 /**
- * Validate a complete runtime root after its artifact modules have been loaded.
+ * Validate a runtime root after its artifact modules have been loaded.
  *
- * @param {Object} manifest Parsed manifest.
+ * @param {Object} manifest Schema-validated manifest.
  * @param {Array<{envelope: Object, decoded: Object}>} loadedArtifacts Loaded
  *   envelopes and their verified decoded values.
+ * @param {Object} [options] Validation options.
+ * @param {boolean} [options.complete=true] Require both components.
  * @returns {Object} The original validated manifest.
  * @throws {Error} If the root is incomplete or any index metadata differs.
  */
-export function validateRuntimeRootArtifacts(manifest, loadedArtifacts) {
-  validateManifest(manifest);
+export function validateRuntimeRootArtifacts(manifest, loadedArtifacts, options = {}) {
+  const { complete = true } = options;
   if (!Array.isArray(loadedArtifacts)) {
     throw new TypeError('Runtime root: loaded artifacts must be an array');
   }
 
-  const expectedById = new Map(EXPECTED_RUNTIME_ARTIFACTS.map(item => [item.id, item]));
-  const manifestById = new Map(manifest.artifacts.map(item => [item.id, item]));
+  const hasFmlMappings = Object.hasOwn(manifest.components, 'fmlMappings');
+  const hasFhirTables = Object.hasOwn(manifest.components, 'fhirTables');
+  if (complete && (!hasFmlMappings || !hasFhirTables)) {
+    const missing = [
+      !hasFmlMappings ? 'fmlMappings' : null,
+      !hasFhirTables ? 'fhirTables' : null,
+    ].filter(Boolean);
+    throw new Error(`Runtime root: complete validation requires ${missing.join(', ')}`);
+  }
+
+  const expectedArtifacts = EXPECTED_RUNTIME_ARTIFACTS.filter(item =>
+    (item.kind === ARTIFACT_KIND.FML_MAPPINGS && hasFmlMappings) ||
+    (item.kind === ARTIFACT_KIND.FHIR_TABLE && hasFhirTables));
+  const expectedById = new Map(expectedArtifacts.map(item => [item.id, item]));
+  const manifestById = new Map(manifestArtifacts(manifest).map(item => [item.id, item]));
   const loadedById = new Map();
   for (const loaded of loadedArtifacts) {
     const id = loaded?.envelope?.id;
@@ -125,7 +141,7 @@ export function validateRuntimeRootArtifacts(manifest, loadedArtifacts) {
     }
   }
 
-  for (const expected of EXPECTED_RUNTIME_ARTIFACTS) {
+  for (const expected of expectedArtifacts) {
     const entry = manifestById.get(expected.id);
     const { envelope, decoded } = loadedById.get(expected.id);
     if (entry.kind !== expected.kind || entry.modulePath !== expected.modulePath) {

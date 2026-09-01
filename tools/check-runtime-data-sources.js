@@ -1,85 +1,92 @@
 #!/usr/bin/env node
 /**
- * @fileoverview Maintainer source-equivalence check for committed runtime data.
+ * @fileoverview End-to-end source-to-runtime reproducibility check.
  *
- * This Node-only command derives FHIR tables from the ignored official
- * specification archives in a temporary directory, regenerates all indexed
- * runtime artifacts there, and compares their bytes with `data/runtime/`.
- * Neither the committed runtime root nor `data/fhir-defs/` is modified.
+ * The selected component or complete root is rebuilt under a temporary
+ * directory and compared with the selected runtime root. That root is never
+ * rewritten.
  */
 
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import {
-  checkRuntimeDataFreshness,
-  FHIR_TABLE_SOURCES,
-} from './runtime-data-generator.js';
+import { checkRuntimeDataFreshness } from './runtime-data-generator.js';
 
 const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(TOOL_DIR, '..');
-const PARSER = path.join(TOOL_DIR, 'fhir-spec-parser.js');
-const XVER_ROOT = path.join(PROJECT_ROOT, 'data/fhir-cross-version/input');
-const FHIR_SPEC_ROOT = path.join(PROJECT_ROOT, 'data/fhir-spec-downloads');
-const RUNTIME_ROOT = path.join(PROJECT_ROOT, 'data/runtime');
+
+/** Default roots shared by the CLI and direct function calls. */
+export const DEFAULT_SOURCE_CHECK_ROOTS = Object.freeze({
+  runtimeDataRoot: path.join(PROJECT_ROOT, 'data/runtime'),
+  fmlDatasetRoot: path.join(PROJECT_ROOT, 'data/fhir-cross-version'),
+  fhirDatasetRoot: path.join(PROJECT_ROOT, 'data/fhir-spec-downloads'),
+});
+
+const COMPONENTS = new Set(['fml-mappings', 'fhir-tables', 'all']);
 
 /**
- * Derive all FHIR table intermediates from the official specification zips.
+ * Parse command-line arguments.
  *
- * @param {string} output Caller-owned temporary output directory.
- * @returns {void}
+ * @param {string[]} argv Arguments after the script name.
+ * @returns {Object} Parsed paths.
  */
-function deriveFhirDefinitions(output) {
-  for (const spec of FHIR_TABLE_SOURCES) {
-    const archive = path.join(FHIR_SPEC_ROOT, ...spec.archive.split('/'));
-    if (!fs.existsSync(archive)) {
-      throw new Error(
-        `Missing FHIR specification archive: ${archive}; ` +
-        'run npm run build:fhir-defs -- --download-missing',
-      );
+export function parseArgs(argv) {
+  const options = {
+    ...DEFAULT_SOURCE_CHECK_ROOTS,
+    component: 'all',
+    help: false,
+  };
+  let componentSpecified = false;
+  let fmlDatasetSpecified = false;
+  let fhirDatasetSpecified = false;
+  const fieldByOption = {
+    '--runtime-data-root': 'runtimeDataRoot',
+    '--fml-dataset-root': 'fmlDatasetRoot',
+    '--fhir-dataset-root': 'fhirDatasetRoot',
+  };
+  for (let index = 0; index < argv.length; index++) {
+    const argument = argv[index];
+    if (!argument.startsWith('-')) {
+      if (componentSpecified) throw new Error(`Unexpected argument: ${argument}`);
+      if (!COMPONENTS.has(argument)) throw new Error(`Unknown component: ${argument}`);
+      options.component = argument;
+      componentSpecified = true;
+      continue;
     }
-    const result = spawnSync(process.execPath, [
-      PARSER,
-      spec.tableVersion,
-      archive,
-      output,
-    ], {
-      cwd: PROJECT_ROOT,
-      encoding: 'utf8',
-      maxBuffer: 20 * 1024 * 1024,
-    });
-    if (result.status !== 0) {
-      throw new Error(
-        `FHIR table derivation failed for ${spec.tableVersion}:\n` +
-        `${result.stderr || result.stdout}`,
-      );
+    if (argument === '--help' || argument === '-h') {
+      options.help = true;
+      continue;
     }
+    const field = fieldByOption[argument];
+    if (!field) throw new Error(`Unknown option: ${argument}`);
+    const value = argv[index + 1];
+    if (!value || value.startsWith('-')) throw new Error(`${argument} requires a value`);
+    options[field] = value;
+    if (field === 'fmlDatasetRoot') fmlDatasetSpecified = true;
+    if (field === 'fhirDatasetRoot') fhirDatasetSpecified = true;
+    index++;
   }
+  if (options.component === 'fml-mappings' && fhirDatasetSpecified) {
+    throw new Error('--fhir-dataset-root does not apply to fml-mappings');
+  }
+  if (options.component === 'fhir-tables' && fmlDatasetSpecified) {
+    throw new Error('--fml-dataset-root does not apply to fhir-tables');
+  }
+
+  return options;
 }
 
 /**
- * Run the full official-source equivalence check.
+ * Run a selected source-equivalence check.
  *
+ * @param {Object} [overrides] Optional component and root overrides.
  * @returns {Promise<Object>} Freshness summary.
  */
-export async function checkRuntimeDataSources() {
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-source-check-'));
-  const fhirDefsRoot = path.join(temporaryRoot, 'fhir-defs');
-
-  try {
-    deriveFhirDefinitions(fhirDefsRoot);
-
-    return await checkRuntimeDataFreshness({
-      runtimeDataRoot: RUNTIME_ROOT,
-      xverRoot: XVER_ROOT,
-      fhirDefsRoot,
-      fhirSpecRoot: FHIR_SPEC_ROOT,
-    });
-  } finally {
-    fs.rmSync(temporaryRoot, { recursive: true, force: true });
-  }
+export async function checkRuntimeDataSources(overrides = {}) {
+  return checkRuntimeDataFreshness({
+    ...DEFAULT_SOURCE_CHECK_ROOTS,
+    component: 'all',
+    ...overrides,
+  });
 }
 
 /**
@@ -89,28 +96,33 @@ export async function checkRuntimeDataSources() {
  * @returns {Promise<number>} Process exit code.
  */
 export async function main(argv) {
-  if (argv.length > 0) {
-    if (argv.length === 1 && (argv[0] === '--help' || argv[0] === '-h')) {
-      console.log('Usage: node tools/check-runtime-data-sources.js');
+  try {
+    const options = parseArgs(argv);
+    if (options.help) {
+      console.log(
+        'Usage: node tools/check-runtime-data-sources.js ' +
+        '[fml-mappings|fhir-tables|all] ' +
+        '[--runtime-data-root DIR] [--fml-dataset-root DIR] ' +
+        '[--fhir-dataset-root DIR]\n' +
+        'The component defaults to all.',
+      );
 
       return 0;
     }
-    throw new Error(`Unknown option: ${argv[0]}`);
+    const result = await checkRuntimeDataSources(options);
+    console.error(
+      `${options.component} runtime data matches declared sources ` +
+      `(${result.filesCompared} indexed outputs).`,
+    );
+
+    return 0;
+  } catch (error) {
+    console.error(`Error: ${error.message}`);
+
+    return 1;
   }
-
-  const result = await checkRuntimeDataSources();
-  console.error(
-    `Runtime data matches official sources (${result.filesCompared} indexed files).`,
-  );
-
-  return 0;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try {
-    process.exitCode = await main(process.argv.slice(2));
-  } catch (error) {
-    console.error(`Error: ${error.message}`);
-    process.exitCode = 1;
-  }
+  process.exitCode = await main(process.argv.slice(2));
 }

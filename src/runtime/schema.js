@@ -13,7 +13,7 @@
 /** Version numbers for independently evolving runtime-data formats. */
 export const SCHEMA_VERSION = Object.freeze({
   ARTIFACT: 1,
-  MANIFEST: 1,
+  MANIFEST: 2,
   FML_MAPPINGS: 1,
   FHIR_TABLE: 1,
   RUNTIME_DATA: 1,
@@ -678,13 +678,23 @@ export function validateFhirTablePayload(value, identity = '<unknown>') {
  * Validate one manifest source record.
  *
  * @param {*} value Candidate source.
+ * @param {string} expectedKind Component-owned artifact kind.
  * @param {string} label Logical object label.
  * @param {string} path Field path.
  * @returns {void}
  */
-function validateManifestSource(value, label, path) {
+function validateManifestSource(value, expectedKind, label, path) {
   requireObject(value, label, path);
-  requireFields(value, ['id', 'uri', 'date', 'license', 'sha256'], ['version', 'commit'], label, path);
+  const isFmlSource = expectedKind === ARTIFACT_KIND.FML_MAPPINGS;
+  requireFields(
+    value,
+    isFmlSource
+      ? ['id', 'uri', 'commit', 'date', 'license', 'modifiedFromUpstream', 'sha256']
+      : ['id', 'uri', 'version', 'date', 'license', 'sha256'],
+    isFmlSource ? ['modifications'] : [],
+    label,
+    path,
+  );
   requireId(value.id, label, `${path}.id`);
   requireString(value.uri, label, `${path}.uri`);
   requireString(value.license, label, `${path}.license`);
@@ -693,11 +703,23 @@ function validateManifestSource(value, label, path) {
   if (typeof value.date !== 'string' || !DATE_RE.test(value.date)) {
     fail(label, `${path}.date`, 'must use YYYY-MM-DD');
   }
-  if (value.version === undefined && value.commit === undefined) {
-    fail(label, path, 'must include version or commit');
+  if (isFmlSource) {
+    requireString(value.commit, label, `${path}.commit`);
+    if (typeof value.modifiedFromUpstream !== 'boolean') {
+      fail(label, `${path}.modifiedFromUpstream`, 'must be a boolean');
+    }
+    if (value.modifications !== undefined) {
+      requireString(value.modifications, label, `${path}.modifications`);
+      if (value.modifications.trim().length === 0) {
+        fail(label, `${path}.modifications`, 'must contain non-whitespace text');
+      }
+    }
+    if (value.modifiedFromUpstream && value.modifications === undefined) {
+      fail(label, `${path}.modifications`, 'is required when modifiedFromUpstream is true');
+    }
+  } else {
+    requireString(value.version, label, `${path}.version`);
   }
-  if (value.version !== undefined) requireString(value.version, label, `${path}.version`);
-  if (value.commit !== undefined) requireString(value.commit, label, `${path}.commit`);
 }
 
 /**
@@ -707,9 +729,10 @@ function validateManifestSource(value, label, path) {
  * @param {string} label Logical object label.
  * @param {string} path Field path.
  * @param {Set<string>} sourceIds Known manifest source identities.
+ * @param {string} expectedKind Component-owned artifact kind.
  * @returns {void}
  */
-function validateManifestArtifact(value, label, path, sourceIds) {
+function validateManifestArtifact(value, label, path, sourceIds, expectedKind) {
   requireObject(value, label, path);
   requireFields(value, [
     'id',
@@ -724,6 +747,9 @@ function validateManifestArtifact(value, label, path, sourceIds) {
   requireId(value.id, label, `${path}.id`);
 
   if (!ARTIFACT_KINDS.has(value.kind)) fail(label, `${path}.kind`, 'is not supported');
+  if (value.kind !== expectedKind) {
+    fail(label, `${path}.kind`, `must be ${expectedKind} for this component`);
+  }
   requireRelativePath(value.modulePath, label, `${path}.modulePath`);
   if (!value.modulePath.endsWith('.js')) fail(label, `${path}.modulePath`, 'must end in .js');
   if (typeof value.codec !== 'string' || !TOKEN_RE.test(value.codec)) {
@@ -758,14 +784,41 @@ function validateManifestArtifact(value, label, path, sourceIds) {
 export function validateManifest(value) {
   const label = 'Runtime manifest';
   requireObject(value, label, '$');
-  requireFields(value, [
-    'schemaVersion',
-    'generator',
-    'format',
-    'sources',
-    'artifacts',
-  ], [], label, '$');
+  requireFields(value, ['schemaVersion', 'components'], [], label, '$');
   requireSchemaVersion(value.schemaVersion, SCHEMA_VERSION.MANIFEST, label, '$.schemaVersion');
+
+  const components = requireObject(value.components, label, '$.components');
+  requireFields(components, [], ['fmlMappings', 'fhirTables'], label, '$.components');
+  if (!Object.hasOwn(components, 'fmlMappings') && !Object.hasOwn(components, 'fhirTables')) {
+    fail(label, '$.components', 'must contain at least one component');
+  }
+  if (components.fmlMappings !== undefined) {
+    validateManifestComponent(components.fmlMappings, 'fmlMappings');
+  }
+  if (components.fhirTables !== undefined) {
+    validateManifestComponent(components.fhirTables, 'fhirTables');
+  }
+
+  return value;
+}
+
+/**
+ * Validate one independently owned manifest component section.
+ *
+ * @param {*} value Candidate component section.
+ * @param {'fmlMappings'|'fhirTables'} componentName Manifest component name.
+ * @returns {Object} The original validated component.
+ */
+export function validateManifestComponent(value, componentName) {
+  const label = `Runtime manifest component "${componentName}"`;
+  const expectedKind = componentName === 'fmlMappings'
+    ? ARTIFACT_KIND.FML_MAPPINGS
+    : componentName === 'fhirTables'
+      ? ARTIFACT_KIND.FHIR_TABLE
+      : null;
+  if (expectedKind === null) throw new Error(`Unsupported manifest component: ${componentName}`);
+  requireObject(value, label, '$');
+  requireFields(value, ['generator', 'format', 'sources', 'artifacts'], [], label, '$');
 
   requireObject(value.generator, label, '$.generator');
   requireFields(value.generator, ['name', 'version'], [], label, '$.generator');
@@ -814,7 +867,7 @@ export function validateManifest(value) {
   const sourceIds = new Set();
   for (const [index, source] of requireArray(value.sources, label, '$.sources').entries()) {
     const path = `$.sources[${index}]`;
-    validateManifestSource(source, label, path);
+    validateManifestSource(source, expectedKind, label, path);
     if (sourceIds.has(source.id)) fail(label, `${path}.id`, `duplicates "${source.id}"`);
     sourceIds.add(source.id);
   }
@@ -824,7 +877,7 @@ export function validateManifest(value) {
   const modulePaths = new Set();
   for (const [index, artifact] of requireArray(value.artifacts, label, '$.artifacts').entries()) {
     const path = `$.artifacts[${index}]`;
-    validateManifestArtifact(artifact, label, path, sourceIds);
+    validateManifestArtifact(artifact, label, path, sourceIds, expectedKind);
     if (artifactIds.has(artifact.id)) fail(label, `${path}.id`, `duplicates "${artifact.id}"`);
     if (modulePaths.has(artifact.modulePath)) {
       fail(label, `${path}.modulePath`, `duplicates "${artifact.modulePath}"`);
@@ -835,6 +888,22 @@ export function validateManifest(value) {
   if (artifactIds.size === 0) fail(label, '$.artifacts', 'must not be empty');
 
   return value;
+}
+
+/**
+ * Return manifest artifact entries in stable component order.
+ *
+ * This projection does not perform validation; callers validate at their
+ * input boundary before using indexed paths or metadata.
+ *
+ * @param {Object} manifest Caller-validated runtime manifest.
+ * @returns {Object[]} FML entries followed by FHIR entries.
+ */
+export function manifestArtifacts(manifest) {
+  return [
+    ...(manifest.components.fmlMappings?.artifacts || []),
+    ...(manifest.components.fhirTables?.artifacts || []),
+  ];
 }
 
 /**

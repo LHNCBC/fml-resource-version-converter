@@ -8,7 +8,7 @@ modules decode and validate those envelopes synchronously.
 `schema.js` is the executable authority for the Phase 1 formats:
 
 - artifact envelope schema version 1;
-- manifest schema version 1;
+- manifest schema version 2, with independent FML and FHIR component sections;
 - FML mappings payload schema version 1;
 - FHIR table payload schema version 1;
 - assembled runtime data schema version 1.
@@ -24,7 +24,8 @@ still validates the envelope, codec, decoded length, JSON, and payload schema.
 The runtime decoder uses no `Buffer`, Node built-ins, or asynchronous
 initialization.
 
-The manifest is a maintainer index. Browser runtime modules do not import it.
+The manifest is a maintainer index with independently owned `fmlMappings` and
+`fhirTables` sections. Browser runtime modules do not import it.
 Artifact envelopes carry the identity, hash, source identities, codec, and
 uncompressed length needed for runtime assembly and strict maintainer
 validation.

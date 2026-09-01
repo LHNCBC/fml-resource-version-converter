@@ -1,9 +1,9 @@
 /**
- * @fileoverview Deterministic runtime artifact collection and publication.
+ * @fileoverview Independent runtime-data component generation and migration.
  *
- * This is maintainer-only Node code. It reads raw source material, builds and
- * validates a complete candidate root, then publishes that directory only
- * after every artifact and the manifest are valid.
+ * FML mappings and FHIR tables each own one directory and one manifest
+ * section. Builders replace only their selected component. The full builder
+ * invokes the same component implementations in one candidate root.
  *
  * @module tools/runtime-data-generator
  */
@@ -14,30 +14,36 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { decodeArtifact } from '../src/runtime/decode.js';
-import { loadRuntimeArtifactRoot } from './runtime-data-root.js';
 import {
   ARTIFACT_KIND,
   canonicalStringify,
+  manifestArtifacts,
   SCHEMA_VERSION,
   validateManifest,
+  validateManifestComponent,
 } from '../src/runtime/schema.js';
-import {
-  conceptMapPath,
-  extractConceptMapUrls,
-} from './conceptmaps.js';
+import { conceptMapPath, extractConceptMapUrls } from './conceptmaps.js';
+import { parseFhirSpecArchive } from './fhir-spec-parser.js';
 import { scanResourceMappings } from './fml-mapping-catalog.js';
 import {
   ARTIFACT_CODEC,
   COMPRESSION_LEVEL,
+  compactConceptMap,
   createArtifactEnvelope,
   createFhirTablePayload,
   createFmlMappingsPayload,
   createManifestArtifact,
-  compactConceptMap,
   GENERATOR_NAME,
   GENERATOR_VERSION,
   renderArtifactModule,
 } from './runtime-artifacts-lib.js';
+import { loadRuntimeArtifactRoot } from './runtime-data-root.js';
+import {
+  loadSourceDataset,
+  SOURCE_COMPONENT,
+} from './runtime-data-sources.js';
+
+export const RUNTIME_COMPONENT = SOURCE_COMPONENT;
 
 export const DIRECTION_PAIRS = Object.freeze([
   Object.freeze(['R2', 'R3']),
@@ -49,86 +55,23 @@ export const DIRECTION_PAIRS = Object.freeze([
   Object.freeze(['R4B', 'R5']),
   Object.freeze(['R5', 'R4B']),
 ]);
-export const FHIR_TABLE_SOURCES = Object.freeze([
-  Object.freeze({
-    tableVersion: 'DSTU2',
-    version: '1.0.2',
-    date: '2015-10-24',
-    archive: 'DSTU2/fhir-spec.zip',
-    uri: 'https://hl7.org/fhir/DSTU2/fhir-spec.zip',
+
+const COMPONENT_INFO = Object.freeze({
+  [RUNTIME_COMPONENT.FML_MAPPINGS]: Object.freeze({
+    manifestKey: 'fmlMappings',
+    directory: 'fml-mappings',
+    kind: ARTIFACT_KIND.FML_MAPPINGS,
   }),
-  Object.freeze({
-    tableVersion: 'STU3',
-    version: '3.0.2',
-    date: '2019-10-24',
-    archive: 'STU3/definitions.json.zip',
-    uri: 'https://hl7.org/fhir/STU3/definitions.json.zip',
+  [RUNTIME_COMPONENT.FHIR_TABLES]: Object.freeze({
+    manifestKey: 'fhirTables',
+    directory: 'fhir-tables',
+    kind: ARTIFACT_KIND.FHIR_TABLE,
   }),
-  Object.freeze({
-    tableVersion: 'R4',
-    version: '4.0.1',
-    date: '2019-11-01',
-    archive: 'R4/definitions.json.zip',
-    uri: 'https://hl7.org/fhir/R4/definitions.json.zip',
-  }),
-  Object.freeze({
-    tableVersion: 'R4B',
-    version: '4.3.0',
-    date: '2022-05-28',
-    archive: 'R4B/definitions.json.zip',
-    uri: 'https://hl7.org/fhir/R4B/definitions.json.zip',
-  }),
-  Object.freeze({
-    tableVersion: 'R5',
-    version: '5.0.0',
-    date: '2023-03-26',
-    archive: 'R5/definitions.json.zip',
-    uri: 'https://hl7.org/fhir/R5/definitions.json.zip',
-  }),
-]);
+});
 
 const requireForGenerator = createRequire(import.meta.url);
 const { version: FFLATE_VERSION } = requireForGenerator('fflate/package.json');
-
 const XVER_CONCEPT_MAP_PREFIX = 'http://hl7.org/fhir/uv/xver/ConceptMap/';
-
-/**
- * Read the authoritative provenance for a cross-version source snapshot.
- *
- * @param {string} file JSON provenance filename.
- * @returns {Object} Validated source metadata without a content hash.
- */
-export function readCrossVersionSource(file) {
-  let source;
-  try {
-    source = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (error) {
-    throw new Error(`Cross-version source metadata cannot be read: ${file}: ${error.message}`, {
-      cause: error,
-    });
-  }
-  if (source === null || typeof source !== 'object' || Array.isArray(source)) {
-    throw new Error(`Cross-version source metadata must be an object: ${file}`);
-  }
-
-  const required = ['id', 'uri', 'commit', 'date', 'license'];
-  const fields = Object.keys(source).sort();
-  if (fields.join(',') !== [...required].sort().join(',')) {
-    throw new Error(
-      `Cross-version source metadata must contain exactly ${required.join(', ')}: ${file}`,
-    );
-  }
-  for (const field of required) {
-    if (typeof source[field] !== 'string' || source[field].length === 0) {
-      throw new Error(`Cross-version source metadata ${field} must be non-empty: ${file}`);
-    }
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(source.date)) {
-    throw new Error(`Cross-version source metadata date must use YYYY-MM-DD: ${file}`);
-  }
-
-  return Object.freeze({ ...source });
-}
 
 /**
  * Return every file below a root in deterministic relative-path order.
@@ -136,7 +79,7 @@ export function readCrossVersionSource(file) {
  * @param {string} root Directory to scan.
  * @returns {string[]} Root-relative POSIX paths.
  */
-function listFiles(root) {
+export function listFiles(root) {
   const files = [];
 
   /**
@@ -194,7 +137,7 @@ export function hashTree(root) {
 }
 
 /**
- * Convert an absolute source mapping descriptor to its artifact representation.
+ * Convert an absolute source mapping descriptor to its artifact form.
  *
  * @param {Object} mapping Source mapping descriptor.
  * @param {string} xverRoot Cross-version input root.
@@ -262,9 +205,12 @@ export function collectFmlMappingsPayload(fromVer, toVer, xverRoot) {
         { cause: error },
       );
     }
-    const virtualFile = path.relative(xverRoot, sourceFile).split(path.sep).join('/');
 
-    return compactConceptMap(source, virtualFile, url);
+    return compactConceptMap(
+      source,
+      path.relative(xverRoot, sourceFile).split(path.sep).join('/'),
+      url,
+    );
   });
   const mappings = [...scanResourceMappings(fromVer, toVer, xverRoot).values()]
     .flat()
@@ -284,11 +230,30 @@ export function collectFmlMappingsPayload(fromVer, toVer, xverRoot) {
 }
 
 /**
- * Write a UTF-8 text file below an output root.
+ * Return deterministic artifact format metadata.
  *
- * @param {string} root Output root.
+ * @returns {Object} Component format record.
+ */
+function artifactFormat() {
+  return {
+    canonicalJson: 'sorted-object-keys-v1',
+    payloadEncoding: 'base64',
+    hash: 'sha256',
+    compression: {
+      codec: ARTIFACT_CODEC,
+      implementation: 'fflate',
+      implementationVersion: FFLATE_VERSION,
+      level: COMPRESSION_LEVEL,
+    },
+  };
+}
+
+/**
+ * Write a UTF-8 file under a runtime root.
+ *
+ * @param {string} root Runtime root.
  * @param {string} relative Root-relative POSIX path.
- * @param {string} text File content.
+ * @param {string} text Content.
  * @returns {void}
  */
 function writeText(root, relative, text) {
@@ -298,24 +263,135 @@ function writeText(root, relative, text) {
 }
 
 /**
- * Verify a requested output path is safe and distinct from source roots.
+ * Write and round-trip one runtime artifact.
  *
- * @param {string} output Requested output path.
+ * @param {string} root Candidate runtime root.
+ * @param {Object[]} artifacts Component manifest artifact accumulator.
+ * @param {Object} options Artifact inputs.
+ * @returns {void}
+ */
+function writeArtifact(root, artifacts, { id, kind, sourceIds, data, modulePath }) {
+  const { envelope, canonicalJson } = createArtifactEnvelope({ id, kind, sourceIds, data });
+  const decoded = decodeArtifact(envelope);
+  if (canonicalStringify(decoded.data) !== canonicalJson) {
+    throw new Error(`Runtime artifact "${id}": round-trip content differs`);
+  }
+  writeText(root, modulePath, renderArtifactModule(envelope));
+  artifacts.push(createManifestArtifact(envelope, modulePath, data));
+}
+
+/**
+ * Project a configured FML source into generated manifest provenance.
+ *
+ * @param {Object} source Loaded FML source record.
+ * @returns {Object} Manifest source record.
+ */
+function fmlManifestSource(source) {
+  const result = {
+    id: source.id,
+    uri: source.uri,
+    commit: source.commit,
+    date: source.date,
+    license: source.license,
+    modifiedFromUpstream: source.modifiedFromUpstream,
+    sha256: hashTree(source.inputRoot),
+  };
+  if (source.modifications !== undefined) result.modifications = source.modifications;
+
+  return result;
+}
+
+/**
+ * Project a configured FHIR source into generated manifest provenance.
+ *
+ * @param {Object} source Loaded FHIR source record.
+ * @param {string} sha256 Exact parsed archive digest.
+ * @returns {Object} Manifest source record.
+ */
+function fhirManifestSource(source, sha256) {
+  return {
+    id: source.id,
+    uri: source.uri,
+    version: source.version,
+    date: source.date,
+    license: source.license,
+    sha256,
+  };
+}
+
+/**
+ * Generate one component into an existing caller-owned candidate directory.
+ *
+ * @param {string} component Runtime component.
+ * @param {string} datasetRoot Source dataset root.
+ * @param {string} candidate Candidate runtime root.
+ * @returns {Promise<Object>} Generated manifest component section.
+ */
+async function generateComponentInto(component, datasetRoot, candidate) {
+  const info = COMPONENT_INFO[component];
+  if (!info) throw new Error(`Unsupported runtime component: ${String(component)}`);
+  const dataset = loadSourceDataset(datasetRoot, component);
+  fs.rmSync(path.join(candidate, info.directory), { recursive: true, force: true });
+  const artifacts = [];
+  const sources = [];
+
+  if (component === RUNTIME_COMPONENT.FML_MAPPINGS) {
+    const source = dataset.sources[0];
+    sources.push(fmlManifestSource(source));
+    for (const [fromVer, toVer] of DIRECTION_PAIRS) {
+      const pair = `${fromVer}to${toVer}`;
+      writeArtifact(candidate, artifacts, {
+        id: `fml-mappings/${pair}`,
+        kind: ARTIFACT_KIND.FML_MAPPINGS,
+        sourceIds: [source.id],
+        data: collectFmlMappingsPayload(fromVer, toVer, source.inputRoot),
+        modulePath: `fml-mappings/${pair}.js`,
+      });
+    }
+  } else {
+    for (const source of dataset.sources) {
+      const parsed = await parseFhirSpecArchive(source);
+      sources.push(fhirManifestSource(source, parsed.sha256));
+      writeArtifact(candidate, artifacts, {
+        id: `fhir-tables/${source.tableVersion}`,
+        kind: ARTIFACT_KIND.FHIR_TABLE,
+        sourceIds: [source.id],
+        data: createFhirTablePayload(parsed.data),
+        modulePath: `fhir-tables/${source.tableVersion}.js`,
+      });
+    }
+  }
+
+  const section = {
+    generator: { name: GENERATOR_NAME, version: GENERATOR_VERSION },
+    format: artifactFormat(),
+    sources,
+    artifacts,
+  };
+  validateManifestComponent(section, info.manifestKey);
+
+  return section;
+}
+
+/**
+ * Verify a requested runtime output is safe and does not overlap inputs.
+ *
+ * @param {string} output Requested runtime root.
  * @param {string[]} sourceRoots Protected input roots.
- * @returns {string} Resolved output path.
+ * @returns {string} Absolute output path.
  */
 function safeOutputPath(output, sourceRoots) {
   if (typeof output !== 'string' || output.length === 0) {
-    throw new Error('Runtime data output directory is required');
+    throw new Error('Runtime data root is required');
   }
   const resolved = path.resolve(output);
   if (resolved === path.parse(resolved).root) {
-    throw new Error('Runtime data output must not be a filesystem root');
+    throw new Error('Runtime data root must not be a filesystem root');
   }
   for (const sourceRoot of sourceRoots.map(value => path.resolve(value))) {
     if (resolved === sourceRoot || sourceRoot.startsWith(`${resolved}${path.sep}`) ||
         resolved.startsWith(`${sourceRoot}${path.sep}`)) {
-      throw new Error(`Runtime data output ${resolved} overlaps source root ${sourceRoot}`);
+      throw new Error(`Runtime data root ${resolved} overlaps source dataset ${sourceRoot}`);
     }
   }
 
@@ -323,26 +399,67 @@ function safeOutputPath(output, sourceRoots) {
 }
 
 /**
- * Atomically publish a complete candidate directory.
+ * Read the existing manifest structure for a component update.
  *
- * @param {string} candidate Complete candidate directory.
- * @param {string} output Destination directory.
- * @param {boolean} replace Whether an existing destination may be replaced.
+ * The unowned component is deliberately not validated by the active builder.
+ *
+ * @param {string} root Existing runtime root.
+ * @returns {Object} Parsed manifest.
+ */
+function readManifestForUpdate(root) {
+  const file = path.join(root, 'manifest.json');
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    throw new Error(`Runtime manifest cannot be read for update: ${file}: ${error.message}`, {
+      cause: error,
+    });
+  }
+  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest) ||
+      manifest.schemaVersion !== SCHEMA_VERSION.MANIFEST ||
+      manifest.components === null || typeof manifest.components !== 'object' ||
+      Array.isArray(manifest.components)) {
+    throw new Error(`Runtime manifest cannot be updated as schema ${SCHEMA_VERSION.MANIFEST}: ${file}`);
+  }
+
+  return manifest;
+}
+
+/**
+ * Create a candidate initialized from an existing target when present.
+ *
+ * @param {string} output Absolute runtime root.
+ * @returns {string} Temporary sibling candidate directory.
+ */
+function createCandidate(output) {
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  const candidate = fs.mkdtempSync(path.join(path.dirname(output), '.runtime-data-'));
+  if (fs.existsSync(output)) {
+    if (!fs.statSync(output).isDirectory()) {
+      fs.rmSync(candidate, { recursive: true, force: true });
+      throw new Error(`Runtime data root is not a directory: ${output}`);
+    }
+    fs.cpSync(output, candidate, { recursive: true });
+  }
+
+  return candidate;
+}
+
+/**
+ * Atomically replace one local runtime root with a prepared candidate.
+ *
+ * @param {string} candidate Prepared sibling directory.
+ * @param {string} output Destination runtime root.
  * @returns {void}
  */
-function publishDirectory(candidate, output, replace) {
+function publishCandidate(candidate, output) {
   if (!fs.existsSync(output)) {
     fs.renameSync(candidate, output);
     return;
   }
-  if (!replace) {
-    throw new Error(`Runtime data output already exists: ${output}; pass replace explicitly`);
-  }
-
   const backup = `${output}.backup-${process.pid}`;
-  if (fs.existsSync(backup)) {
-    throw new Error(`Runtime data backup path already exists: ${backup}`);
-  }
+  if (fs.existsSync(backup)) throw new Error(`Runtime backup path already exists: ${backup}`);
   fs.renameSync(output, backup);
   try {
     fs.renameSync(candidate, output);
@@ -354,265 +471,199 @@ function publishDirectory(candidate, output, replace) {
 }
 
 /**
- * Build and publish all Phase 1 runtime artifacts.
+ * Build and publish one independently owned runtime component.
  *
- * @param {Object} options Generator options.
- * @param {string} options.output Output directory; required.
- * @param {string} options.xverRoot Cross-version source root.
- * @param {string} options.fhirDefsRoot Consolidated FHIR tables root.
- * @param {string} options.fhirSpecRoot Official specification archive root.
- * @param {string} [options.fhirTableRuntimeRoot] Verified runtime root whose
- *   FHIR table artifacts and provenance replace raw table inputs.
- * @param {Object} [options.xverSource] Cross-version provenance. By default,
- *   read from `source.json` beside the selected input root.
- * @param {string} [options.reviewOutput] Optional canonical JSON output root.
- * @param {boolean} [options.replace=false] Replace existing output directories.
- * @returns {Promise<Object>} Validated manifest.
+ * @param {Object} options Build options.
+ * @param {'fml-mappings'|'fhir-tables'} options.component Component to build.
+ * @param {string} options.datasetRoot Dataset containing `sources.yaml`.
+ * @param {string} options.runtimeDataRoot Target runtime-data root.
+ * @returns {Promise<Object>} Generated component section.
  */
-export async function generateRuntimeData({
-  output,
-  xverRoot,
-  fhirDefsRoot,
-  fhirSpecRoot,
-  fhirTableRuntimeRoot,
-  xverSource,
-  reviewOutput,
-  replace = false,
-}) {
-  const resolvedXverSource = xverSource || readCrossVersionSource(
-    path.join(path.dirname(path.resolve(xverRoot)), 'source.json'),
-  );
-  const sourceRoots = fhirTableRuntimeRoot
-    ? [xverRoot, fhirTableRuntimeRoot]
-    : [xverRoot, fhirDefsRoot, fhirSpecRoot];
-  const outputPath = safeOutputPath(output, sourceRoots);
-  const reviewPath = reviewOutput ? safeOutputPath(reviewOutput, sourceRoots) : null;
-  if (reviewPath && (
-    reviewPath === outputPath ||
-    reviewPath.startsWith(`${outputPath}${path.sep}`) ||
-    outputPath.startsWith(`${reviewPath}${path.sep}`)
-  )) {
-    throw new Error('Runtime data output and review output must not overlap');
-  }
-  if (fs.existsSync(outputPath) && !replace) {
-    throw new Error(`Runtime data output already exists: ${outputPath}; pass replace explicitly`);
-  }
-  if (reviewPath && fs.existsSync(reviewPath) && !replace) {
-    throw new Error(`Runtime review output already exists: ${reviewPath}; pass replace explicitly`);
-  }
-
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  const candidate = fs.mkdtempSync(path.join(path.dirname(outputPath), '.runtime-data-'));
-  let reviewCandidate = null;
-  if (reviewPath) {
-    fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
-    reviewCandidate = fs.mkdtempSync(path.join(path.dirname(reviewPath), '.runtime-review-'));
-  }
-
+export async function buildRuntimeDataComponent({ component, datasetRoot, runtimeDataRoot }) {
+  const info = COMPONENT_INFO[component];
+  if (!info) throw new Error(`Unsupported runtime component: ${String(component)}`);
+  const output = safeOutputPath(runtimeDataRoot, [datasetRoot]);
+  const candidate = createCandidate(output);
   try {
-    const sources = [{
-      ...resolvedXverSource,
-      sha256: hashTree(xverRoot),
-    }];
-    const tableSourceByVersion = new Map();
-    if (fhirTableRuntimeRoot) {
-      const reused = await loadRuntimeArtifactRoot(fhirTableRuntimeRoot);
-      const tableArtifacts = reused.artifacts.filter(
-        item => item.decoded.kind === ARTIFACT_KIND.FHIR_TABLE,
-      );
-      const reusedSourceIds = new Set(
-        tableArtifacts.flatMap(item => item.envelope.sourceIds),
-      );
-      for (const source of reused.manifest.sources) {
-        if (!reusedSourceIds.has(source.id)) continue;
-        if (source.id === resolvedXverSource.id) {
-          throw new Error(`Reused FHIR table source conflicts with ${resolvedXverSource.id}`);
-        }
-        sources.push(source);
-      }
-      for (const item of tableArtifacts) {
-        tableSourceByVersion.set(item.decoded.data.fhirVersion, item);
-      }
-    } else {
-      for (const spec of FHIR_TABLE_SOURCES) {
-        const defsFile = path.join(fhirDefsRoot, `${spec.tableVersion}.json`);
-        const archiveFile = path.join(fhirSpecRoot, ...spec.archive.split('/'));
-        const defs = JSON.parse(fs.readFileSync(defsFile, 'utf8'));
-        if (defs.fhirVersion !== spec.tableVersion) {
-          throw new Error(
-            `FHIR definitions ${defsFile}: expected ${spec.tableVersion}, ` +
-            `received ${String(defs.fhirVersion)}`,
-          );
-        }
-        const sourceId = `hl7-fhir-${spec.tableVersion}`;
-        sources.push({
-          id: sourceId,
-          uri: spec.uri,
-          version: spec.version,
-          date: spec.date,
-          license: 'HL7 FHIR License',
-          sha256: hashFile(archiveFile),
-        });
-        tableSourceByVersion.set(spec.tableVersion, { sourceId, defs });
-      }
-    }
-
-    const artifacts = [];
-
-    /**
-     * Generate, validate, and write one artifact.
-     *
-     * @param {string} id Logical identity.
-     * @param {string} kind Artifact kind.
-     * @param {string[]} sourceIds Manifest source identities.
-     * @param {Object} data Decoded artifact payload.
-     * @param {string} modulePath Root-relative module path.
-     * @returns {void}
-     */
-    function writeArtifact(id, kind, sourceIds, data, modulePath) {
-      const { envelope, canonicalJson } = createArtifactEnvelope({
-        id,
-        kind,
-        sourceIds,
-        data,
-      });
-      const decoded = decodeArtifact(envelope);
-      if (canonicalStringify(decoded.data) !== canonicalJson) {
-        throw new Error(`Runtime artifact "${id}": round-trip content differs`);
-      }
-
-      writeText(candidate, modulePath, renderArtifactModule(envelope));
-      if (reviewCandidate) {
-        writeText(reviewCandidate, modulePath.replace(/\.js$/, '.json'), `${canonicalJson}\n`);
-      }
-      artifacts.push(createManifestArtifact(envelope, modulePath, data));
-    }
-
-    /**
-     * Re-publish one already verified artifact without changing its bytes.
-     *
-     * @param {Object} item Loaded artifact record from a complete runtime root.
-     * @returns {void}
-     */
-    function writeReusedArtifact(item) {
-      writeText(candidate, item.entry.modulePath, renderArtifactModule(item.envelope));
-      if (reviewCandidate) {
-        writeText(
-          reviewCandidate,
-          item.entry.modulePath.replace(/\.js$/, '.json'),
-          `${canonicalStringify(item.decoded.data)}\n`,
-        );
-      }
-      artifacts.push(createManifestArtifact(
-        item.envelope,
-        item.entry.modulePath,
-        item.decoded.data,
-      ));
-    }
-
-    for (const [fromVer, toVer] of DIRECTION_PAIRS) {
-      const pair = `${fromVer}to${toVer}`;
-      writeArtifact(
-        `fml-mappings/${pair}`,
-        ARTIFACT_KIND.FML_MAPPINGS,
-        [resolvedXverSource.id],
-        collectFmlMappingsPayload(fromVer, toVer, xverRoot),
-        `fml-mappings/${pair}.js`,
-      );
-    }
-
-    for (const spec of FHIR_TABLE_SOURCES) {
-      const tableSource = tableSourceByVersion.get(spec.tableVersion);
-      if (fhirTableRuntimeRoot) {
-        writeReusedArtifact(tableSource);
-      } else {
-        writeArtifact(
-          `fhir-tables/${spec.tableVersion}`,
-          ARTIFACT_KIND.FHIR_TABLE,
-          [tableSource.sourceId],
-          createFhirTablePayload(tableSource.defs),
-          `fhir-tables/${spec.tableVersion}.js`,
-        );
-      }
-    }
-
-    const manifest = {
-      schemaVersion: SCHEMA_VERSION.MANIFEST,
-      generator: { name: GENERATOR_NAME, version: GENERATOR_VERSION },
-      format: {
-        canonicalJson: 'sorted-object-keys-v1',
-        payloadEncoding: 'base64',
-        hash: 'sha256',
-        compression: {
-          codec: ARTIFACT_CODEC,
-          implementation: 'fflate',
-          implementationVersion: FFLATE_VERSION,
-          level: COMPRESSION_LEVEL,
-        },
-      },
-      sources,
-      artifacts,
-    };
-    validateManifest(manifest);
+    const manifest = fs.existsSync(path.join(candidate, 'manifest.json'))
+      ? readManifestForUpdate(candidate)
+      : { schemaVersion: SCHEMA_VERSION.MANIFEST, components: {} };
+    const section = await generateComponentInto(component, datasetRoot, candidate);
+    manifest.components[info.manifestKey] = section;
     writeText(candidate, 'manifest.json', `${canonicalStringify(manifest)}\n`);
+    publishCandidate(candidate, output);
 
-    publishDirectory(candidate, outputPath, replace);
-    if (reviewCandidate) {
-      publishDirectory(reviewCandidate, reviewPath, replace);
-      reviewCandidate = null;
-    }
-
-    return manifest;
+    return section;
   } catch (error) {
-    if (fs.existsSync(candidate)) fs.rmSync(candidate, { recursive: true });
-    if (reviewCandidate && fs.existsSync(reviewCandidate)) {
-      fs.rmSync(reviewCandidate, { recursive: true });
-    }
+    if (fs.existsSync(candidate)) fs.rmSync(candidate, { recursive: true, force: true });
     throw error;
   }
 }
 
 /**
- * Compare freshly generated indexed files with an existing runtime root.
+ * Build both components in one candidate and publish a complete runtime root.
  *
- * The selected root is only read. Generation occurs in a temporary directory,
- * which is removed before this function returns or throws.
- *
- * @param {Object} options Freshness options plus ordinary generator inputs.
- * @param {string} options.runtimeDataRoot Existing complete runtime root.
- * @returns {Promise<{fresh: true, filesCompared: number}>} Freshness summary.
- * @throws {Error} If validation or byte comparison fails.
+ * @param {Object} options Build options.
+ * @param {string} options.fmlDatasetRoot FML source dataset root.
+ * @param {string} options.fhirDatasetRoot FHIR archive dataset root.
+ * @param {string} options.runtimeDataRoot Target runtime-data root.
+ * @returns {Promise<Object>} Complete validated manifest.
  */
-export async function checkRuntimeDataFreshness({ runtimeDataRoot, ...options }) {
-  const existing = await loadRuntimeArtifactRoot(runtimeDataRoot);
-  const sourceHashBefore = hashTree(existing.root);
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-freshness-'));
-  const candidateRoot = path.join(temporaryRoot, 'candidate');
-
+export async function buildAllRuntimeData({
+  fmlDatasetRoot,
+  fhirDatasetRoot,
+  runtimeDataRoot,
+}) {
+  const output = safeOutputPath(runtimeDataRoot, [fmlDatasetRoot, fhirDatasetRoot]);
+  const candidate = createCandidate(output);
   try {
-    await generateRuntimeData({ ...options, output: candidateRoot });
-    const candidate = await loadRuntimeArtifactRoot(candidateRoot);
-    const relativeFiles = [
-      'manifest.json',
-      ...existing.manifest.artifacts.map(artifact => artifact.modulePath),
-    ];
-    const differences = relativeFiles.filter(relative => {
-      const existingFile = path.join(existing.root, ...relative.split('/'));
-      const candidateFile = path.join(candidate.root, ...relative.split('/'));
+    const manifest = {
+      schemaVersion: SCHEMA_VERSION.MANIFEST,
+      components: {
+        fmlMappings: await generateComponentInto(
+          RUNTIME_COMPONENT.FML_MAPPINGS,
+          fmlDatasetRoot,
+          candidate,
+        ),
+        fhirTables: await generateComponentInto(
+          RUNTIME_COMPONENT.FHIR_TABLES,
+          fhirDatasetRoot,
+          candidate,
+        ),
+      },
+    };
+    validateManifest(manifest);
+    writeText(candidate, 'manifest.json', `${canonicalStringify(manifest)}\n`);
+    await loadRuntimeArtifactRoot(candidate);
+    publishCandidate(candidate, output);
 
-      return !fs.readFileSync(existingFile).equals(fs.readFileSync(candidateFile));
+    return manifest;
+  } catch (error) {
+    if (fs.existsSync(candidate)) fs.rmSync(candidate, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/**
+ * Copy one generated component between runtime roots without rebuilding it.
+ *
+ * @param {Object} options Migration options.
+ * @param {'fml-mappings'|'fhir-tables'} options.component Component to copy.
+ * @param {string} options.fromRuntimeDataRoot Source runtime root.
+ * @param {string} options.toRuntimeDataRoot Target runtime root.
+ * @returns {Promise<Object>} Copied manifest component section.
+ */
+export async function migrateRuntimeDataComponent({
+  component,
+  fromRuntimeDataRoot,
+  toRuntimeDataRoot,
+}) {
+  const info = COMPONENT_INFO[component];
+  if (!info) throw new Error(`Unsupported runtime component: ${String(component)}`);
+  const from = path.resolve(fromRuntimeDataRoot);
+  const to = safeOutputPath(toRuntimeDataRoot, [from]);
+  const loaded = await loadRuntimeArtifactRoot(from, { complete: false, component });
+  const section = loaded.manifest.components[info.manifestKey];
+  if (!section) throw new Error(`Source runtime root has no ${component} component: ${from}`);
+
+  const candidate = createCandidate(to);
+  try {
+    const manifest = fs.existsSync(path.join(candidate, 'manifest.json'))
+      ? readManifestForUpdate(candidate)
+      : { schemaVersion: SCHEMA_VERSION.MANIFEST, components: {} };
+    fs.rmSync(path.join(candidate, info.directory), { recursive: true, force: true });
+    fs.cpSync(path.join(from, info.directory), path.join(candidate, info.directory), {
+      recursive: true,
     });
+    manifest.components[info.manifestKey] = section;
+    writeText(candidate, 'manifest.json', `${canonicalStringify(manifest)}\n`);
+    publishCandidate(candidate, to);
+
+    return section;
+  } catch (error) {
+    if (fs.existsSync(candidate)) fs.rmSync(candidate, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/**
+ * Rebuild selected source components in a temporary directory and compare.
+ *
+ * @param {Object} options Check options.
+ * @param {string} options.runtimeDataRoot Existing runtime root.
+ * @param {'fml-mappings'|'fhir-tables'|'all'} [options.component='all']
+ *   Component selection.
+ * @param {string} [options.fmlDatasetRoot] FML source dataset root.
+ * @param {string} [options.fhirDatasetRoot] FHIR source dataset root.
+ * @returns {Promise<{fresh: true, filesCompared: number}>} Check summary.
+ */
+export async function checkRuntimeDataFreshness({
+  runtimeDataRoot,
+  fmlDatasetRoot,
+  fhirDatasetRoot,
+  component = 'all',
+}) {
+  const info = component === 'all' ? null : COMPONENT_INFO[component];
+  if (component !== 'all' && !info) {
+    throw new Error(`Unsupported runtime component: ${String(component)}`);
+  }
+  const loadOptions = info ? { complete: false, component } : {};
+  const existing = await loadRuntimeArtifactRoot(runtimeDataRoot, loadOptions);
+  const sourceHashBefore = hashTree(existing.root);
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-source-check-'));
+  const candidateRoot = path.join(temporaryRoot, 'candidate');
+  try {
+    if (info) {
+      await buildRuntimeDataComponent({
+        component,
+        datasetRoot: component === RUNTIME_COMPONENT.FML_MAPPINGS
+          ? fmlDatasetRoot
+          : fhirDatasetRoot,
+        runtimeDataRoot: candidateRoot,
+      });
+    } else {
+      await buildAllRuntimeData({
+        fmlDatasetRoot,
+        fhirDatasetRoot,
+        runtimeDataRoot: candidateRoot,
+      });
+    }
+    const candidate = await loadRuntimeArtifactRoot(candidateRoot, loadOptions);
+    const existingArtifacts = info
+      ? existing.manifest.components[info.manifestKey].artifacts
+      : manifestArtifacts(existing.manifest);
+    const candidateArtifacts = info
+      ? candidate.manifest.components[info.manifestKey].artifacts
+      : manifestArtifacts(candidate.manifest);
+    const existingFiles = existingArtifacts.map(artifact => artifact.modulePath);
+    const candidateFiles = candidateArtifacts.map(artifact => artifact.modulePath);
+    if (canonicalStringify(existingFiles) !== canonicalStringify(candidateFiles)) {
+      throw new Error('Runtime data root is stale; indexed file sets differ');
+    }
+    if (info) {
+      const existingSection = existing.manifest.components[info.manifestKey];
+      const candidateSection = candidate.manifest.components[info.manifestKey];
+      if (canonicalStringify(existingSection) !== canonicalStringify(candidateSection)) {
+        throw new Error(`Runtime data root is stale; ${component} manifest section differs`);
+      }
+    } else if (!fs.readFileSync(path.join(existing.root, 'manifest.json'))
+      .equals(fs.readFileSync(path.join(candidate.root, 'manifest.json')))) {
+      throw new Error('Runtime data root is stale; generated bytes differ for manifest.json');
+    }
+    const differences = existingFiles.filter(relative =>
+      !fs.readFileSync(path.join(existing.root, ...relative.split('/')))
+        .equals(fs.readFileSync(path.join(candidate.root, ...relative.split('/')))));
     if (differences.length > 0) {
       throw new Error(
         `Runtime data root is stale; generated bytes differ for ${differences.join(', ')}`,
       );
     }
 
-    return Object.freeze({ fresh: true, filesCompared: relativeFiles.length });
+    return Object.freeze({ fresh: true, filesCompared: existingFiles.length + 1 });
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
     if (hashTree(existing.root) !== sourceHashBefore) {
-      throw new Error(`Freshness check modified runtime data root: ${existing.root}`);
+      throw new Error(`Source-equivalence check modified runtime data root: ${existing.root}`);
     }
   }
 }

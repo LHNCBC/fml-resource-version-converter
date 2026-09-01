@@ -281,7 +281,9 @@ function verifyBrowserBundle(consumerRoot, distRoot) {
     fs.readFileSync(path.join(packageRoot, 'data/runtime/manifest.json'), 'utf8'),
   );
 
-  for (const artifact of manifest.artifacts) {
+  const artifacts = Object.values(manifest.components)
+    .flatMap(component => component.artifacts);
+  for (const artifact of artifacts) {
     const artifactPath = path.join(packageRoot, 'data/runtime', artifact.modulePath);
     const payloadPrefix = readPayloadPrefix(artifactPath);
 

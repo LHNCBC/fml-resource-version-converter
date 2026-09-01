@@ -1,5 +1,5 @@
 /**
- * @fileoverview Node-only loading for complete alternate runtime roots.
+ * @fileoverview Node-only loading for complete or partial runtime roots.
  *
  * Alternate roots are trusted maintainer inputs. Loading their JavaScript
  * artifact modules executes code from the selected root before the exported
@@ -22,7 +22,10 @@ import {
 } from '../src/runtime/assembler.js';
 import {
   canonicalStringify,
+  manifestArtifacts,
+  SCHEMA_VERSION,
   validateManifest,
+  validateManifestComponent,
 } from '../src/runtime/schema.js';
 import { validateRuntimeRootArtifacts } from './runtime-root-validation.js';
 
@@ -54,9 +57,10 @@ function resolveRoot(runtimeDataRoot) {
  * Read and validate a canonical runtime manifest.
  *
  * @param {string} root Absolute runtime root.
+ * @param {'fml-mappings'|'fhir-tables'} [component] Selected component only.
  * @returns {{manifest: Object, text: string}} Parsed manifest and exact source.
  */
-function readManifest(root) {
+function readManifest(root, component) {
   const file = path.join(root, 'manifest.json');
   let text;
   let manifest;
@@ -68,7 +72,21 @@ function readManifest(root) {
       cause: error,
     });
   }
-  validateManifest(manifest);
+  if (component === undefined) {
+    validateManifest(manifest);
+  } else {
+    const manifestKey = component === 'fml-mappings'
+      ? 'fmlMappings'
+      : component === 'fhir-tables'
+        ? 'fhirTables'
+        : null;
+    if (manifestKey === null) throw new Error(`Unsupported runtime component: ${component}`);
+    if (manifest?.schemaVersion !== SCHEMA_VERSION.MANIFEST ||
+        !manifest.components?.[manifestKey]) {
+      throw new Error(`Runtime manifest has no ${component} component: ${file}`);
+    }
+    validateManifestComponent(manifest.components[manifestKey], manifestKey);
+  }
   if (text !== `${canonicalStringify(manifest)}\n`) {
     throw new Error(`Runtime manifest is not canonical JSON: ${file}`);
   }
@@ -111,21 +129,37 @@ async function importEnvelope(root, entry) {
 }
 
 /**
- * Load and validate every artifact in a complete alternate runtime root.
+ * Load and validate every selected artifact in a trusted runtime root.
  *
- * This lower-level result is used by maintainer generation when verified FHIR
- * table artifacts are reused. Ordinary converter setup should call
- * `loadRuntimeDataRoot()` instead.
+ * Maintainer operations may select one independently owned component.
+ * Ordinary converter setup should call `loadRuntimeDataRoot()` instead, which
+ * always requires a complete root.
  *
- * @param {string} runtimeDataRoot Complete trusted runtime root.
+ * @param {string} runtimeDataRoot Trusted runtime root.
+ * @param {Object} [options] Loading options.
+ * @param {boolean} [options.complete=true] Require both runtime components.
+ * @param {'fml-mappings'|'fhir-tables'} [options.component] Load only one
+ *   component without interpreting the other component.
  * @returns {Promise<{root: string, manifest: Object, artifacts: Object[]}>}
  *   Validated manifest plus loaded envelope and decoded artifact records.
  */
-export async function loadRuntimeArtifactRoot(runtimeDataRoot) {
+export async function loadRuntimeArtifactRoot(runtimeDataRoot, options = {}) {
+  const { complete = true, component } = options;
+  if (component !== undefined && complete) {
+    throw new Error('A selected component cannot be loaded with complete validation');
+  }
   const root = resolveRoot(runtimeDataRoot);
-  const { manifest, text } = readManifest(root);
+  const { manifest, text } = readManifest(root, component);
+  const manifestKey = component === 'fml-mappings'
+    ? 'fmlMappings'
+    : component === 'fhir-tables'
+      ? 'fhirTables'
+      : null;
+  const entries = manifestKey
+    ? manifest.components[manifestKey].artifacts
+    : manifestArtifacts(manifest);
   const artifacts = [];
-  for (const entry of manifest.artifacts) {
+  for (const entry of entries) {
     const envelope = await importEnvelope(root, entry);
     artifacts.push(Object.freeze({
       entry,
@@ -133,7 +167,13 @@ export async function loadRuntimeArtifactRoot(runtimeDataRoot) {
       decoded: decodeArtifact(envelope),
     }));
   }
-  validateRuntimeRootArtifacts(manifest, artifacts);
+  const validationManifest = manifestKey ? {
+    schemaVersion: manifest.schemaVersion,
+    components: {
+      [manifestKey]: manifest.components[manifestKey],
+    },
+  } : manifest;
+  validateRuntimeRootArtifacts(validationManifest, artifacts, { complete });
 
   return Object.freeze({
     root,

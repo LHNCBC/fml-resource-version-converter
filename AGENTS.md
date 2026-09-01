@@ -8,7 +8,9 @@ npm test                            # run the full mocha suite
 node bin/convert.js R4 R5 in.json   # CLI conversion, result to stdout
 
 npm run build:coverage       # maintainer: regenerate COVERAGE.md (do not edit it by hand)
-npm run build:fhir-defs      # maintainer: regenerate data/fhir-defs/ from the spec zips
+npm run download:fhir-specs  # maintainer: download/verify declared FHIR spec zips
+npm run build:runtime-data:all -- --runtime-data-root DIR
+                             # maintainer: build both runtime-data components
 node tools/check-data.js     # maintainer: check bundled cross-version data; report ambiguities
 ```
 

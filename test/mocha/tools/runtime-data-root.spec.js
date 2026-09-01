@@ -56,7 +56,8 @@ describe('tools/runtime-data-root', function () {
     const loaded = await loadRuntimeArtifactRoot(COMMITTED_ROOT);
 
     assert.equal(loaded.artifacts.length, 13);
-    assert.equal(loaded.manifest.artifacts.length, 13);
+    assert.equal(loaded.manifest.components.fmlMappings.artifacts.length, 8);
+    assert.equal(loaded.manifest.components.fhirTables.artifacts.length, 5);
   });
 
   it('drives the synchronous converter pipeline after asynchronous loading', async function () {
@@ -74,7 +75,7 @@ describe('tools/runtime-data-root', function () {
   it('rejects an incomplete manifest', async function () {
     const root = copyRuntimeRoot(tempRoot, 'incomplete');
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
-    manifest.artifacts.pop();
+    manifest.components.fhirTables.artifacts.pop();
     writeManifest(root, manifest);
 
     await assert.rejects(
@@ -108,7 +109,7 @@ describe('tools/runtime-data-root', function () {
   it('rejects manifest metadata that differs from its verified envelope', async function () {
     const root = copyRuntimeRoot(tempRoot, 'manifest-mismatch');
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
-    manifest.artifacts[0].sha256 = '0'.repeat(64);
+    manifest.components.fmlMappings.artifacts[0].sha256 = '0'.repeat(64);
     writeManifest(root, manifest);
 
     await assert.rejects(

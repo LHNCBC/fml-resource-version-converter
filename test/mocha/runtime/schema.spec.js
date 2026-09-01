@@ -241,36 +241,41 @@ describe('runtime/schema: FHIR table payload', function () {
 describe('runtime/schema: manifest', function () {
   const manifest = {
     schemaVersion: SCHEMA_VERSION.MANIFEST,
-    generator: { name: 'build-runtime-data', version: '1' },
-    format: {
-      canonicalJson: 'sorted-object-keys-v1',
-      payloadEncoding: 'base64',
-      hash: 'sha256',
-      compression: {
-        codec: 'zlib',
-        implementation: 'fflate',
-        implementationVersion: '0.8.3',
-        level: 9,
+    components: {
+      fmlMappings: {
+        generator: { name: 'build-runtime-data', version: '1' },
+        format: {
+          canonicalJson: 'sorted-object-keys-v1',
+          payloadEncoding: 'base64',
+          hash: 'sha256',
+          compression: {
+            codec: 'zlib',
+            implementation: 'fflate',
+            implementationVersion: '0.8.3',
+            level: 9,
+          },
+        },
+        sources: [{
+          id: 'hl7-fhir-cross-version',
+          uri: 'https://github.com/HL7/fhir-cross-version',
+          commit: '72779598c1bbfffbfd99a901938af495ddd91ff1',
+          date: '2026-02-24',
+          license: 'HL7',
+          modifiedFromUpstream: false,
+          sha256: HASH_A,
+        }],
+        artifacts: [{
+          id: 'fml-mappings/R4toR5',
+          kind: ARTIFACT_KIND.FML_MAPPINGS,
+          modulePath: 'fml-mappings/R4toR5.js',
+          codec: 'candidate-codec',
+          uncompressedLength: 123,
+          sha256: HASH_B,
+          sourceIds: ['hl7-fhir-cross-version'],
+          counts: { conceptMaps: 1, fmlFiles: 1, mappings: 1 },
+        }],
       },
     },
-    sources: [{
-      id: 'hl7-fhir-cross-version',
-      uri: 'https://github.com/HL7/fhir-cross-version',
-      commit: '72779598c1bbfffbfd99a901938af495ddd91ff1',
-      date: '2026-02-24',
-      license: 'HL7',
-      sha256: HASH_A,
-    }],
-    artifacts: [{
-      id: 'fml-mappings/R4toR5',
-      kind: ARTIFACT_KIND.FML_MAPPINGS,
-      modulePath: 'fml-mappings/R4toR5.js',
-      codec: 'candidate-codec',
-      uncompressedLength: 123,
-      sha256: HASH_B,
-      sourceIds: ['hl7-fhir-cross-version'],
-      counts: { conceptMaps: 1, fmlFiles: 1, mappings: 1 },
-    }],
   };
 
   it('accepts attributable artifact metadata', function () {
@@ -279,19 +284,29 @@ describe('runtime/schema: manifest', function () {
 
   it('rejects an artifact referencing an unknown source', function () {
     const candidate = structuredClone(manifest);
-    candidate.artifacts[0].sourceIds = ['missing-source'];
+    candidate.components.fmlMappings.artifacts[0].sourceIds = ['missing-source'];
 
     assert.throws(() => validateManifest(candidate), /unknown source/);
   });
 
   it('rejects duplicate artifact identities', function () {
     const candidate = structuredClone(manifest);
-    candidate.artifacts.push({
-      ...candidate.artifacts[0],
+    candidate.components.fmlMappings.artifacts.push({
+      ...candidate.components.fmlMappings.artifacts[0],
       modulePath: 'fml-mappings/duplicate.js',
     });
 
     assert.throws(() => validateManifest(candidate), /duplicates/);
+  });
+
+  it('allows contextual notes when unmodified and requires them when modified', function () {
+    const documented = structuredClone(manifest);
+    documented.components.fmlMappings.sources[0].modifications = 'Verified against upstream.';
+    assert.equal(validateManifest(documented), documented);
+
+    const undocumented = structuredClone(manifest);
+    undocumented.components.fmlMappings.sources[0].modifiedFromUpstream = true;
+    assert.throws(() => validateManifest(undocumented), /modifications.*required/);
   });
 });
 

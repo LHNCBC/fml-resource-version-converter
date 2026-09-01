@@ -408,42 +408,49 @@ an early stage. That said, if an update is justified, go ahead.
 
 Use the canonical HL7 repository whenever practical. Adopting a fork is a last
 resort that requires explicit maintainer approval because the project must then
-keep that fork synchronized with upstream. See
-`data/fhir-cross-version/SOURCE.md` for the authoritative fork policy.
+keep that fork synchronized with upstream. The comments and fields in
+`data/fhir-cross-version/sources.yaml` are the authoritative source and fork
+policy.
 
 To update this snapshot:
 
-1. Update the authoritative `data/fhir-cross-version/source.json` source URL,
-   commit, snapshot date, and license. `SOURCE.md` explains this contract but
-   does not duplicate those values.
+1. Update `data/fhir-cross-version/sources.yaml`, including the source URL,
+   commit, snapshot date, license, `modifiedFromUpstream` status, and any
+   applicable modification notes.
 2. Update the snapshot files in `data/fhir-cross-version/input` with the new
    files from the fhir-cross-version project.
-3. Generate a complete candidate runtime root while reusing the verified FHIR
-   tables from the committed root:
+3. Build the FML component into a candidate runtime root:
 
    ```bash
    npm run build:runtime-data -- \
-     --output /path/to/candidate-runtime \
-     --fhir-table-runtime-root data/runtime
+     fml-mappings \
+     --runtime-data-root /path/to/candidate-runtime
    ```
 
-4. Review the candidate, then atomically regenerate and replace the committed
-   root using the candidate's verified FHIR tables:
+4. If a complete candidate is useful, explicitly migrate the unchanged FHIR
+   component and validate the result:
 
    ```bash
-   npm run build:runtime-data -- \
-     --output data/runtime \
-     --fhir-table-runtime-root /path/to/candidate-runtime \
-     --replace
+   npm run migrate:runtime-data -- \
+     fhir-tables \
+     --from-runtime-data-root data/runtime \
+     --to-runtime-data-root /path/to/candidate-runtime
+
+   npm run check:runtime-data -- \
+     --runtime-data-root /path/to/candidate-runtime \
+     --complete
    ```
 
-5. Run the non-rewriting runtime freshness check and the full table
-   source-equivalence check described below.
+5. After review, run the FML component build with `data/runtime` as its selected
+   target. It replaces only `fml-mappings/` and
+   `manifest.components.fmlMappings`.
 6. Run the data-integrity check (see below) and address anything it reports.
 7. Re-run the FML parser tests and conversion tests.
 8. Review behavior changes for any resource and version pair affected by the
    new mappings.
 9. Update postprocessors as needed and regenerate (no hand editing) `COVERAGE.md`.
+10. Run the complete runtime, source-equivalence, package, and full test checks
+    described below.
 
 #### Checking the snapshot with `tools/check-data.js`
 
@@ -478,86 +485,114 @@ The directory `data/fhir-spec-downloads/` contains official FHIR specification
 archives. They are not shipped with the package, but maintainers use them to
 build the FHIR tables embedded in `data/runtime/`.
 
-The build creates `data/fhir-defs/` as an ignored maintainer intermediate. The
-runtime generator compresses those tables into committed artifacts under
-`data/runtime/fhir-tables/`. The FML engine uses the runtime artifacts
-to understand FHIR JSON details that are not explicitly represented in the FML
-mappings, such as:
+`data/fhir-spec-downloads/sources.yaml` is the authoritative source
+configuration for these archives. The downloader and builder both read it, so
+publication URLs, versions, paths, dates, and licenses are not duplicated in
+code or documentation. The FHIR builder reads the declared bundles from each
+ZIP in memory and writes the compressed runtime artifacts directly. The FML
+engine uses those artifacts to understand FHIR JSON details that are not
+explicitly represented in the FML mappings, such as:
 
 - polymorphic field names, for example `Observation.value[x]`
 - array/cardinality paths
 - scalar element types that may need type conversion
 
-Do not edit either generated form by hand.
+Do not edit the generated runtime artifacts or manifest by hand.
 
 #### Regenerate the FHIR table artifacts
 
-To download missing specification archives and regenerate the intermediate
-tables, run:
+Download missing specification archives and verify every declared ZIP:
 
 ```bash
-npm run build:fhir-defs -- --download-missing
-```
-If the FHIR spec files are already present, you can simply run:
-
-```bash
-npm run build:fhir-defs
+npm run download:fhir-specs
 ```
 
-Then generate a complete candidate runtime root for review:
-
-```bash
-npm run build:runtime-data -- --output /path/to/candidate-runtime
-```
-
-#### Alternate runtime roots
-
-To generate mappings from another `fhir-cross-version` snapshot while reusing
-the verified FHIR tables in the committed runtime root, run:
+Build only the FHIR component into a selected runtime-data root:
 
 ```bash
 npm run build:runtime-data -- \
-  --output /path/to/alternate-runtime \
-  --xver-root /path/to/alternate/input \
-  --xver-source-uri https://github.com/HL7/fhir-cross-version \
-  --xver-source-commit <commit> \
-  --xver-source-date YYYY-MM-DD \
-  --fhir-table-runtime-root data/runtime
+  fhir-tables \
+  --runtime-data-root /path/to/candidate-runtime
 ```
 
-The generator validates the reused root completely before copying its FHIR
-table envelopes and provenance into the candidate. Loading an alternate root
-is Node-only and asynchronous; after loading, converter construction and
-conversion remain synchronous.
+This may produce a valid partial workspace. To make it complete without
+rebuilding the unchanged FML component, migrate that component explicitly and
+then validate the complete root:
+
+```bash
+npm run migrate:runtime-data -- \
+  fml-mappings \
+  --from-runtime-data-root data/runtime \
+  --to-runtime-data-root /path/to/candidate-runtime
+
+npm run check:runtime-data -- \
+  --runtime-data-root /path/to/candidate-runtime \
+  --complete
+```
+
+To rebuild both components directly from their authoritative source datasets:
+
+```bash
+npm run build:runtime-data:all -- \
+  --runtime-data-root /path/to/candidate-runtime
+```
+
+#### Alternate datasets and runtime roots
+
+An alternate dataset is a complete directory with `sources.yaml` at its root
+and all referenced inputs below that root. Select one alternate dataset for an
+individual component build:
+
+```bash
+npm run build:runtime-data -- \
+  fml-mappings \
+  --runtime-data-root /path/to/alternate-runtime \
+  --dataset-root /path/to/alternate-fml-dataset
+```
+
+For a full build, use `--fml-dataset-root` and `--fhir-dataset-root` to select
+either or both alternate datasets. Individual metadata fields cannot be
+overridden on the command line.
+
+Generated data is reused only through the explicit, symmetric migration
+command. It accepts either `fml-mappings` or `fhir-tables` and copies only the
+selected component directory and manifest section.
 
 Alternate runtime roots are trusted maintainer inputs. Loading their
 JavaScript artifact modules executes code from the selected root before the
 exported envelopes are decoded and checked. Do not load a root from an
 untrusted source.
 
-To check the committed mappings and artifact bytes without rewriting
-`data/runtime/`, reuse its verified tables and generate into an automatically
-removed temporary directory:
+Validate the selected committed root without rebuilding it:
 
 ```bash
-npm run build:runtime-data -- \
-  --check-root data/runtime \
-  --fhir-table-runtime-root data/runtime
+npm run check:runtime-data -- \
+  --runtime-data-root data/runtime \
+  --complete
 ```
 
-This quick check proves mapping freshness and runtime-root integrity, but it
-reuses the existing FHIR tables. For full table source-equivalence, first run
-the dedicated maintainer command:
+Test the complete source-to-runtime build before release or after changing
+raw sources:
 
 ```bash
 npm run check:runtime-data-sources
 ```
 
-It requires all five ignored official archives. The command derives temporary
-FHIR definitions directly from those archives, regenerates all runtime
-artifacts in another temporary directory, compares the 14 indexed files, and
-removes both temporary directories. It does not create `data/fhir-defs/` or
-rewrite `data/runtime/`.
+It requires all declared official archives. The command rebuilds both
+components under a temporary directory, compares the 14 indexed files
+byte-for-byte, and removes the temporary build. It never rewrites the selected
+runtime-data root.
+
+During component development, select only the component being changed:
+
+```bash
+npm run check:runtime-data-sources -- fml-mappings
+npm run check:runtime-data-sources -- fhir-tables
+```
+
+A component check compares only its manifest section and artifact files and
+does not inspect the other component. Always use the default full check for
+release validation.
 
 Please feel free to reach out if you have any questions or need assistance -
 open an [issue](https://github.com/LHNCBC/fml-resource-version-converter/issues).

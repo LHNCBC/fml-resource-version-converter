@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { manifestArtifacts, validateManifest } from '../src/runtime/schema.js';
 import { loadRuntimeArtifactRoot } from './runtime-data-root.js';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '..');
@@ -48,6 +49,11 @@ export function collectPackageReport() {
     maxBuffer: 20 * 1024 * 1024,
   });
 
+  if (result.error) {
+    throw new Error(`npm pack --dry-run could not start: ${result.error.message}`, {
+      cause: result.error,
+    });
+  }
   if (result.status !== 0) {
     throw new Error(`npm pack --dry-run failed:\n${result.stderr || result.stdout}`);
   }
@@ -73,8 +79,9 @@ export function collectPackageReport() {
 function getArtifactPaths() {
   const manifestPath = path.join(PROJECT_ROOT, 'data/runtime/manifest.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  validateManifest(manifest);
 
-  return manifest.artifacts.map(entry => `data/runtime/${entry.modulePath}`);
+  return manifestArtifacts(manifest).map(entry => `data/runtime/${entry.modulePath}`);
 }
 
 /**
@@ -104,7 +111,6 @@ export function validatePackageReport(report) {
 
   const forbiddenPrefixes = [
     'data/fhir-cross-version/',
-    'data/fhir-defs/',
     'data/fhir-spec-downloads/',
   ];
   const forbidden = [...files].filter(file =>

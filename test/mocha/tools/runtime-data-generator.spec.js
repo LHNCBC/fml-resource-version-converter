@@ -2,113 +2,38 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import dstu2TableEnvelope from '../../../data/runtime/fhir-tables/DSTU2.js';
-import r4TableEnvelope from '../../../data/runtime/fhir-tables/R4.js';
-import r4bTableEnvelope from '../../../data/runtime/fhir-tables/R4B.js';
-import r5TableEnvelope from '../../../data/runtime/fhir-tables/R5.js';
-import stu3TableEnvelope from '../../../data/runtime/fhir-tables/STU3.js';
-import { converterFactory } from '../../../src/converter/converterFactory.js';
-import { loadRuntimeDataRoot } from '../../../tools/runtime-data-root.js';
 import { decodeArtifact, decodeBase64 } from '../../../src/runtime/decode.js';
-import { validateManifest } from '../../../src/runtime/schema.js';
-import { parseArgs } from '../../../tools/build-runtime-data.js';
-import { compactConceptMap } from '../../../tools/runtime-artifacts-lib.js';
 import {
+  canonicalStringify,
+  manifestArtifacts,
+  validateManifest,
+} from '../../../src/runtime/schema.js';
+import { parseArgs as parseBuildArgs } from '../../../tools/build-runtime-data.js';
+import {
+  DEFAULT_SOURCE_CHECK_ROOTS,
+  parseArgs as parseSourceCheckArgs,
+} from '../../../tools/check-runtime-data-sources.js';
+import {
+  buildAllRuntimeData,
+  buildRuntimeDataComponent,
   checkRuntimeDataFreshness,
-  generateRuntimeData,
   hashTree,
-  readCrossVersionSource,
+  migrateRuntimeDataComponent,
+  RUNTIME_COMPONENT,
 } from '../../../tools/runtime-data-generator.js';
+import { loadRuntimeArtifactRoot } from '../../../tools/runtime-data-root.js';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '../../..');
-const XVER_ROOT = path.join(PROJECT_ROOT, 'data/fhir-cross-version/input');
-const XVER_SOURCE = readCrossVersionSource(
-  path.join(PROJECT_ROOT, 'data/fhir-cross-version/source.json'),
-);
-const FHIR_SPEC_ROOT = path.join(PROJECT_ROOT, 'data/fhir-spec-downloads');
-const TABLE_ENVELOPES = [
-  dstu2TableEnvelope,
-  stu3TableEnvelope,
-  r4TableEnvelope,
-  r4bTableEnvelope,
-  r5TableEnvelope,
-];
+const FML_DATASET_ROOT = path.join(PROJECT_ROOT, 'data/fhir-cross-version');
+const FHIR_DATASET_ROOT = path.join(PROJECT_ROOT, 'data/fhir-spec-downloads');
+const COMMITTED_ROOT = path.join(PROJECT_ROOT, 'data/runtime');
 
 /**
- * Materialize verified committed table payloads as generator inputs.
+ * Import one dependency-free generated envelope.
  *
- * The generated `data/fhir-defs` directory is a maintainer intermediate, not a
- * tracked test fixture. Using decoded committed artifacts keeps generator tests
- * independent of that optional directory while retaining complete table values.
- *
- * @param {string} root Temporary definitions root.
- * @returns {void}
- */
-function materializeFhirDefinitions(root) {
-  fs.mkdirSync(root, { recursive: true });
-  for (const envelope of TABLE_ENVELOPES) {
-    const { data } = decodeArtifact(envelope);
-    fs.writeFileSync(
-      path.join(root, `${data.fhirVersion}.json`),
-      `${JSON.stringify(data)}\n`,
-      'utf8',
-    );
-  }
-}
-
-/**
- * List all files below a root in deterministic order.
- *
- * @param {string} root Directory root.
- * @returns {string[]} Relative POSIX paths.
- */
-function listFiles(root) {
-  const result = [];
-
-  /**
-   * Visit one directory.
-   *
-   * @param {string} directory Absolute directory.
-   * @param {string} relative Relative directory.
-   * @returns {void}
-   */
-  function visit(directory, relative) {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })
-      .sort((left, right) => left.name.localeCompare(right.name))) {
-      const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        visit(path.join(directory, entry.name), childRelative);
-      } else if (entry.isFile()) {
-        result.push(childRelative);
-      }
-    }
-  }
-
-  visit(root, '');
-
-  return result;
-}
-
-/**
- * Import and decode one generated artifact module.
- *
- * @param {string} root Generated root.
+ * @param {string} root Runtime root.
  * @param {string} relative Module path.
- * @returns {Promise<Object>} Decoded artifact.
- */
-async function loadArtifact(root, relative) {
-  const source = fs.readFileSync(path.join(root, ...relative.split('/')), 'utf8');
-  const module = await import(`data:text/javascript,${encodeURIComponent(source)}`);
-
-  return decodeArtifact(module.default);
-}
-
-/**
- * Import one dependency-free generated envelope from its module source.
- *
- * @param {string} root Generated root.
- * @param {string} relative Module path.
- * @returns {Promise<Object>} Artifact envelope.
+ * @returns {Promise<Object>} Exported artifact envelope.
  */
 async function loadEnvelope(root, relative) {
   const source = fs.readFileSync(path.join(root, ...relative.split('/')), 'utf8');
@@ -117,36 +42,68 @@ async function loadEnvelope(root, relative) {
   return module.default;
 }
 
+/**
+ * Require two directory trees to contain identical files and bytes.
+ *
+ * @param {string} left First directory.
+ * @param {string} right Second directory.
+ * @returns {void}
+ */
+function assertTreesEqual(left, right) {
+  const leftFiles = [];
+  const rightFiles = [];
+
+  /**
+   * Collect deterministic relative files.
+   *
+   * @param {string} root Directory root.
+   * @param {string[]} output Output array.
+   * @param {string} [relative=''] Relative directory.
+   * @returns {void}
+   */
+  function collect(root, output, relative = '') {
+    for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name))) {
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) collect(root, output, child);
+      else if (entry.isFile()) output.push(child);
+    }
+  }
+
+  collect(left, leftFiles);
+  collect(right, rightFiles);
+  assert.deepEqual(leftFiles, rightFiles);
+  for (const relative of leftFiles) {
+    assert.deepEqual(
+      fs.readFileSync(path.join(left, ...relative.split('/'))),
+      fs.readFileSync(path.join(right, ...relative.split('/'))),
+      relative,
+    );
+  }
+}
+
 describe('tools/runtime-data-generator', function () {
   let tempRoot;
   let firstRoot;
   let secondRoot;
-  let reviewRoot;
-  let fhirDefsRoot;
   let manifest;
-  let sourceHashBefore;
+  let fmlHashBefore;
 
   before(async function () {
-    this.timeout(30000);
+    this.timeout(60_000);
     tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-data-generator-'));
     firstRoot = path.join(tempRoot, 'first');
     secondRoot = path.join(tempRoot, 'second');
-    reviewRoot = path.join(tempRoot, 'review');
-    fhirDefsRoot = path.join(tempRoot, 'fhir-defs');
-    materializeFhirDefinitions(fhirDefsRoot);
-    sourceHashBefore = hashTree(XVER_ROOT);
-    manifest = await generateRuntimeData({
-      output: firstRoot,
-      reviewOutput: reviewRoot,
-      xverRoot: XVER_ROOT,
-      fhirDefsRoot,
-      fhirSpecRoot: FHIR_SPEC_ROOT,
+    fmlHashBefore = hashTree(FML_DATASET_ROOT);
+    manifest = await buildAllRuntimeData({
+      fmlDatasetRoot: FML_DATASET_ROOT,
+      fhirDatasetRoot: FHIR_DATASET_ROOT,
+      runtimeDataRoot: firstRoot,
     });
-    await generateRuntimeData({
-      output: secondRoot,
-      xverRoot: XVER_ROOT,
-      fhirDefsRoot,
-      fhirSpecRoot: FHIR_SPEC_ROOT,
+    await buildAllRuntimeData({
+      fmlDatasetRoot: FML_DATASET_ROOT,
+      fhirDatasetRoot: FHIR_DATASET_ROOT,
+      runtimeDataRoot: secondRoot,
     });
   });
 
@@ -154,120 +111,84 @@ describe('tools/runtime-data-generator', function () {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it('requires a caller-selected output directory', function () {
-    assert.throws(() => parseArgs(['--unknown']), /Unknown option/);
-    assert.equal(parseArgs(['--help']).help, true);
-    assert.equal(parseArgs(['--output', 'candidate']).output, 'candidate');
-    const alternate = parseArgs([
-      '--check-root', 'current',
-      '--fhir-table-runtime-root', 'tables',
-      '--xver-source-commit', 'alternate-commit',
-    ]);
-    assert.equal(alternate.checkRoot, 'current');
-    assert.equal(alternate.fhirTableRuntimeRoot, 'tables');
-    assert.equal(alternate.xverSource.commit, 'alternate-commit');
-  });
-
-  it('generates eight mapping and five FHIR-table artifacts with a valid manifest', function () {
-    validateManifest(manifest);
-    assert.equal(manifest.artifacts.length, 13);
-    assert.equal(
-      manifest.artifacts.filter(artifact => artifact.kind === 'fml-mappings').length,
-      8,
-    );
-    assert.equal(
-      manifest.artifacts.filter(artifact => artifact.kind === 'fhir-table').length,
-      5,
-    );
-    assert.equal(manifest.format.compression.codec, 'zlib');
-    const fflatePackage = JSON.parse(fs.readFileSync(
-      path.join(PROJECT_ROOT, 'node_modules/fflate/package.json'),
-      'utf8',
-    ));
-    assert.equal(manifest.format.compression.implementationVersion, fflatePackage.version);
-    assert.equal(manifest.sources.length, 6);
+  it('parses component and full-build dataset options without field overrides', function () {
+    assert.throws(() => parseBuildArgs(['--unknown']), /Unknown option/);
+    assert.equal(parseBuildArgs(['--help']).help, true);
     assert.deepEqual(
-      manifest.sources.find(source => source.id === XVER_SOURCE.id),
-      { ...XVER_SOURCE, sha256: hashTree(XVER_ROOT) },
+      parseBuildArgs([
+        'fml-mappings',
+        '--runtime-data-root', 'candidate',
+        '--dataset-root', 'alternate',
+      ]),
+      {
+        component: 'fml-mappings',
+        runtimeDataRoot: 'candidate',
+        datasetRoot: 'alternate',
+        fmlDatasetRoot: FML_DATASET_ROOT,
+        fhirDatasetRoot: FHIR_DATASET_ROOT,
+        help: false,
+      },
     );
   });
 
-  it('produces byte-identical roots on repeated generation', function () {
-    const firstFiles = listFiles(firstRoot);
+  it('parses source-equivalence component selection with shared defaults', function () {
+    assert.deepEqual(parseSourceCheckArgs([]), {
+      ...DEFAULT_SOURCE_CHECK_ROOTS,
+      component: 'all',
+      help: false,
+    });
+    assert.equal(
+      parseSourceCheckArgs(['fml-mappings', '--fml-dataset-root', 'alternate']).component,
+      'fml-mappings',
+    );
+    assert.throws(
+      () => parseSourceCheckArgs(['fml-mappings', '--fhir-dataset-root', 'unused']),
+      /does not apply/,
+    );
+    assert.throws(() => parseSourceCheckArgs(['unknown']), /Unknown component/);
+  });
 
-    assert.deepEqual(listFiles(secondRoot), firstFiles);
-    for (const relative of firstFiles) {
-      assert.deepEqual(
-        fs.readFileSync(path.join(firstRoot, ...relative.split('/'))),
-        fs.readFileSync(path.join(secondRoot, ...relative.split('/'))),
-        relative,
-      );
+  it('generates independently owned manifest sections', function () {
+    validateManifest(manifest);
+    assert.equal(manifest.schemaVersion, 2);
+    assert.equal(manifest.components.fmlMappings.artifacts.length, 8);
+    assert.equal(manifest.components.fhirTables.artifacts.length, 5);
+    assert.equal(manifest.components.fmlMappings.sources.length, 1);
+    assert.equal(manifest.components.fhirTables.sources.length, 5);
+
+    const fmlSource = manifest.components.fmlMappings.sources[0];
+    assert.equal(fmlSource.modifiedFromUpstream, false);
+    assert.equal(fmlSource.sha256, hashTree(path.join(FML_DATASET_ROOT, 'input')));
+    for (const source of manifest.components.fhirTables.sources) {
+      assert.match(source.sha256, /^[a-f0-9]{64}$/);
     }
   });
 
-  it('preserves every FML file and ConceptMap and round-trips committed tables', async function () {
-    for (const artifact of manifest.artifacts) {
-      const decoded = await loadArtifact(firstRoot, artifact.modulePath);
-      if (artifact.kind === 'fml-mappings') {
-        const { from, to } = decoded.data.direction;
-        const pair = `${from}to${to}`;
-        const expectedFiles = fs.readdirSync(path.join(XVER_ROOT, pair), {
-          withFileTypes: true,
-        })
-          .filter(entry => entry.isFile() && entry.name.endsWith('.fml'))
-          .map(entry => `${pair}/${entry.name}`)
-          .sort();
-        assert.deepEqual(Object.keys(decoded.data.files).sort(), expectedFiles);
-
-        for (const [virtualFile, text] of Object.entries(decoded.data.files)) {
-          assert.equal(
-            text,
-            fs.readFileSync(path.join(XVER_ROOT, ...virtualFile.split('/')), 'utf8'),
-            virtualFile,
-          );
-        }
-        for (const conceptMap of decoded.data.conceptMaps) {
-          const source = JSON.parse(fs.readFileSync(
-            path.join(XVER_ROOT, ...conceptMap.virtualFile.split('/')),
-            'utf8',
-          ));
-          assert.deepEqual(
-            conceptMap,
-            compactConceptMap(source, conceptMap.virtualFile, conceptMap.url),
-            conceptMap.virtualFile,
-          );
-        }
-        continue;
-      }
-
-      const version = decoded.data.fhirVersion;
-      const sourceTable = JSON.parse(fs.readFileSync(
-        path.join(fhirDefsRoot, `${version}.json`),
-        'utf8',
-      ));
-      for (const field of ['polyPaths', 'arrayPaths', 'elementTypes', 'resourceTypes']) {
-        assert.deepEqual(decoded.data[field], sourceTable[field], `${version}.${field}`);
-      }
-    }
+  it('produces byte-identical roots on repeated full builds', function () {
+    assertTreesEqual(firstRoot, secondRoot);
   });
 
-  it('writes optional canonical review JSON outside the artifact root', function () {
-    const review = fs.readFileSync(path.join(reviewRoot, 'fhir-tables/R4.json'), 'utf8');
-    const parsed = JSON.parse(review);
-
-    assert.equal(parsed.fhirVersion, 'R4');
-    assert.ok(!listFiles(firstRoot).some(relative => relative.endsWith('.review.json')));
+  it('derives the same artifact bytes as the committed runtime data', function () {
+    assertTreesEqual(
+      path.join(firstRoot, 'fml-mappings'),
+      path.join(COMMITTED_ROOT, 'fml-mappings'),
+    );
+    assertTreesEqual(
+      path.join(firstRoot, 'fhir-tables'),
+      path.join(COMMITTED_ROOT, 'fhir-tables'),
+    );
   });
 
   it('meets the selected all-artifact size threshold', async function () {
     let canonicalBytes = 0;
     let compressedBytes = 0;
     let base64Bytes = 0;
-    for (const artifact of manifest.artifacts) {
+    for (const artifact of manifestArtifacts(manifest)) {
       const envelope = await loadEnvelope(firstRoot, artifact.modulePath);
       canonicalBytes += envelope.uncompressedLength;
       compressedBytes += decodeBase64(envelope.payload, envelope.id).length;
       base64Bytes += envelope.payload.length;
+      assert.equal(decodeArtifact(envelope).id, artifact.id);
     }
 
     assert.ok(base64Bytes < 1_100_000, `Base64 payload was ${base64Bytes} bytes`);
@@ -277,94 +198,107 @@ describe('tools/runtime-data-generator', function () {
     );
   });
 
-  it('does not modify the cross-version source tree', function () {
-    assert.equal(hashTree(XVER_ROOT), sourceHashBefore);
+  it('does not modify the source datasets', function () {
+    assert.equal(hashTree(FML_DATASET_ROOT), fmlHashBefore);
   });
 
-  it('reuses verified FHIR tables for an alternate mapping snapshot', async function () {
-    this.timeout(30000);
-    const alternateXverRoot = path.join(tempRoot, 'alternate-xver');
-    const alternateOutput = path.join(tempRoot, 'alternate-output');
-    fs.cpSync(XVER_ROOT, alternateXverRoot, { recursive: true });
-    fs.appendFileSync(
-      path.join(alternateXverRoot, 'R4toR5/Questionnaire.fml'),
-      '\n// Alternate snapshot marker.\n',
-      'utf8',
-    );
-    const alternateSource = {
-      ...XVER_SOURCE,
-      uri: 'https://example.test/alternate-fhir-cross-version',
-      commit: 'alternate-commit',
-      date: '2026-08-27',
-    };
-    const alternateManifest = await generateRuntimeData({
-      output: alternateOutput,
-      xverRoot: alternateXverRoot,
-      fhirTableRuntimeRoot: firstRoot,
-      xverSource: alternateSource,
+  it('builds a valid partial root and complete validation rejects it', async function () {
+    const partialRoot = path.join(tempRoot, 'partial');
+    await buildRuntimeDataComponent({
+      component: RUNTIME_COMPONENT.FML_MAPPINGS,
+      datasetRoot: FML_DATASET_ROOT,
+      runtimeDataRoot: partialRoot,
     });
+    const loaded = await loadRuntimeArtifactRoot(partialRoot, { complete: false });
 
-    const source = alternateManifest.sources.find(item => item.id === alternateSource.id);
-    assert.equal(source.uri, alternateSource.uri);
-    assert.equal(source.commit, alternateSource.commit);
-    assert.equal(source.sha256, hashTree(alternateXverRoot));
-    for (const version of ['DSTU2', 'STU3', 'R4', 'R4B', 'R5']) {
-      const relative = `fhir-tables/${version}.js`;
-      assert.deepEqual(
-        fs.readFileSync(path.join(alternateOutput, relative)),
-        fs.readFileSync(path.join(firstRoot, relative)),
-        relative,
-      );
-    }
-    assert.notDeepEqual(
-      fs.readFileSync(path.join(alternateOutput, 'fml-mappings/R4toR5.js')),
-      fs.readFileSync(path.join(firstRoot, 'fml-mappings/R4toR5.js')),
+    assert.equal(loaded.artifacts.length, 8);
+    assert.equal(Object.hasOwn(loaded.manifest.components, 'fhirTables'), false);
+    await assert.rejects(
+      () => loadRuntimeArtifactRoot(partialRoot),
+      /complete validation requires fhirTables/,
     );
-
-    const runtimeData = await loadRuntimeDataRoot(alternateOutput);
-    const converters = converterFactory.create(runtimeData);
-    const converted = converters.singleHopConverter.convert({
-      resourceType: 'Questionnaire',
-      status: 'active',
-      item: [{ linkId: 'choice', type: 'choice' }],
-    }, 'R4', 'R5');
-    assert.equal(converted.resource.item[0].type, 'coding');
-    assert.equal(converted.resource.item[0].answerConstraint, 'optionsOnly');
-
-    const originalRootHash = hashTree(firstRoot);
-    await assert.rejects(() => checkRuntimeDataFreshness({
-      runtimeDataRoot: firstRoot,
-      xverRoot: alternateXverRoot,
-      fhirTableRuntimeRoot: firstRoot,
-      xverSource: alternateSource,
-    }), /Runtime data root is stale/);
-    assert.equal(hashTree(firstRoot), originalRootHash);
   });
 
-  it('checks freshness without modifying the selected runtime root', async function () {
+  it('replaces only the selected component', async function () {
+    const target = path.join(tempRoot, 'component-update');
+    fs.cpSync(firstRoot, target, { recursive: true });
+    const tableHash = hashTree(path.join(target, 'fhir-tables'));
+    const tableSection = canonicalStringify(
+      manifest.components.fhirTables,
+    );
+    await buildRuntimeDataComponent({
+      component: RUNTIME_COMPONENT.FML_MAPPINGS,
+      datasetRoot: FML_DATASET_ROOT,
+      runtimeDataRoot: target,
+    });
+    const updated = JSON.parse(fs.readFileSync(path.join(target, 'manifest.json'), 'utf8'));
+
+    assert.equal(hashTree(path.join(target, 'fhir-tables')), tableHash);
+    assert.equal(canonicalStringify(updated.components.fhirTables), tableSection);
+  });
+
+  it('migrates both components symmetrically without rebuilding them', async function () {
+    const target = path.join(tempRoot, 'migrated');
+    await migrateRuntimeDataComponent({
+      component: RUNTIME_COMPONENT.FML_MAPPINGS,
+      fromRuntimeDataRoot: firstRoot,
+      toRuntimeDataRoot: target,
+    });
+    await migrateRuntimeDataComponent({
+      component: RUNTIME_COMPONENT.FHIR_TABLES,
+      fromRuntimeDataRoot: firstRoot,
+      toRuntimeDataRoot: target,
+    });
+    const migrated = await loadRuntimeArtifactRoot(target);
+
+    assert.equal(migrated.artifacts.length, 13);
+    assertTreesEqual(firstRoot, target);
+  });
+
+  it('checks source equivalence without modifying the selected runtime root', async function () {
+    this.timeout(60_000);
     const rootHashBefore = hashTree(firstRoot);
     const result = await checkRuntimeDataFreshness({
       runtimeDataRoot: firstRoot,
-      xverRoot: XVER_ROOT,
-      fhirTableRuntimeRoot: firstRoot,
-      xverSource: XVER_SOURCE,
+      fmlDatasetRoot: FML_DATASET_ROOT,
+      fhirDatasetRoot: FHIR_DATASET_ROOT,
     });
 
     assert.deepEqual(result, { fresh: true, filesCompared: 14 });
     assert.equal(hashTree(firstRoot), rootHashBefore);
   });
 
-  it('does not publish a partial root when an input is missing', async function () {
-    const output = path.join(tempRoot, 'failed');
-    const emptySpecs = path.join(tempRoot, 'empty-specs');
-    fs.mkdirSync(emptySpecs);
+  it('checks either component independently', async function () {
+    this.timeout(60_000);
+    const damagedOtherComponentRoot = path.join(tempRoot, 'damaged-other-component');
+    fs.cpSync(firstRoot, damagedOtherComponentRoot, { recursive: true });
+    fs.writeFileSync(path.join(damagedOtherComponentRoot, 'fhir-tables/R4.js'), 'invalid\n');
 
-    await assert.rejects(() => generateRuntimeData({
-      output,
-      xverRoot: XVER_ROOT,
-      fhirDefsRoot,
-      fhirSpecRoot: emptySpecs,
-    }), /ENOENT/);
-    assert.equal(fs.existsSync(output), false);
+    const fmlResult = await checkRuntimeDataFreshness({
+      component: RUNTIME_COMPONENT.FML_MAPPINGS,
+      runtimeDataRoot: damagedOtherComponentRoot,
+      fmlDatasetRoot: FML_DATASET_ROOT,
+    });
+    const fhirResult = await checkRuntimeDataFreshness({
+      component: RUNTIME_COMPONENT.FHIR_TABLES,
+      runtimeDataRoot: firstRoot,
+      fhirDatasetRoot: FHIR_DATASET_ROOT,
+    });
+
+    assert.deepEqual(fmlResult, { fresh: true, filesCompared: 9 });
+    assert.deepEqual(fhirResult, { fresh: true, filesCompared: 6 });
+  });
+
+  it('leaves the target unchanged when a component build fails', async function () {
+    const target = path.join(tempRoot, 'failed-update');
+    fs.cpSync(firstRoot, target, { recursive: true });
+    const hashBefore = hashTree(target);
+
+    await assert.rejects(() => buildRuntimeDataComponent({
+      component: RUNTIME_COMPONENT.FHIR_TABLES,
+      datasetRoot: path.join(tempRoot, 'missing-dataset'),
+      runtimeDataRoot: target,
+    }), /Dataset root cannot be read/);
+    assert.equal(hashTree(target), hashBefore);
   });
 });

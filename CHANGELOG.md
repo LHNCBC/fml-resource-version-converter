@@ -12,6 +12,9 @@ This project follows [Semantic Versioning](http://semver.org/).
   entry point for synchronous Node and browser use.
 - Added deterministic compressed runtime artifacts, provenance validation,
   alternate-root maintainer tooling, and package-content validation.
+- Added strictly validated `sources.yaml` datasets, independent FML and FHIR
+  component build commands, symmetric component migration, and explicit
+  runtime-root and component-selectable source-equivalence checks.
 
 ### Changed
 
@@ -25,6 +28,10 @@ This project follows [Semantic Versioning](http://semver.org/).
   performs a separate filesystem-resolution check during engine construction.
 - The npm package now excludes the raw fhir-cross-version snapshot, FHIR
   specification inputs, and generated definition intermediates.
+- Runtime manifest schema 2 gives FML mappings and FHIR tables independently
+  owned source and artifact sections. FHIR tables are now derived directly
+  from the declared specification ZIP entries without a persistent
+  intermediate.
 
 ### Removed
 
@@ -32,6 +39,8 @@ This project follows [Semantic Versioning](http://semver.org/).
   alternate mapping roots with the internal Node-only loader, then bind the
   loaded runtime data with the public `converterFactory` entry point.
 - Removed unsupported raw package data paths from the published package.
+- Removed the retired `data/fhir-defs/` build path and the separate
+  cross-version `source.json` and `SOURCE.md` metadata files.
 
 ## [0.2.2] - 2026-08-20
 
