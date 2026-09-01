@@ -17,6 +17,8 @@ node tools/check-data.js     # maintainer: check bundled cross-version data; rep
   developer and the AI.
   - It's git-ignored and is not going into the build.
   - .scratch/AI/: this is your scratch area, put your stuff here.
+  - For FHIR specification investigation, extract only the needed ZIP entries
+    into .scratch/AI/ and reuse them; do not repeatedly unzip the archives.
   - .scratch/human/: this is my area. You can read from here, but
     DO NOT write/update anything there unless explicitly asked to.
 
