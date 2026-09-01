@@ -176,6 +176,18 @@ describe('runtime/schema: artifact envelope', function () {
     assert.throws(() => validateArtifactEnvelope({ ...envelope, payload: 'abc?' }), /Base64/);
     assert.throws(() => validateArtifactEnvelope({ ...envelope, extra: true }), /not supported/);
   });
+
+  it('requires zero unused bits in padded Base64', function () {
+    for (const payload of ['Zg==', 'Zm8=']) {
+      assert.doesNotThrow(() => validateArtifactEnvelope({ ...envelope, payload }));
+    }
+    for (const payload of ['Zh==', 'Zm9=']) {
+      assert.throws(
+        () => validateArtifactEnvelope({ ...envelope, payload }),
+        /canonical Base64/,
+      );
+    }
+  });
 });
 
 describe('runtime/schema: FML mappings payload', function () {

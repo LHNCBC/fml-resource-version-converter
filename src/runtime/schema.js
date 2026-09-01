@@ -49,7 +49,9 @@ const DIRECTION_KEYS = new Set([
   'R5->R4B',
 ]);
 const SHA256_RE = /^[a-f0-9]{64}$/;
-const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+// Padded final sextets are restricted so their unused bits must be zero.
+const BASE64_RE =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$/;
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const TOKEN_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
