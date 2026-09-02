@@ -436,7 +436,7 @@ To update this snapshot:
      --from-runtime-data-root data/runtime \
      --to-runtime-data-root /path/to/candidate-runtime
 
-   npm run check:runtime-data -- \
+   npm run check:runtime-data-integrity -- \
      --runtime-data-root /path/to/candidate-runtime \
      --complete
    ```
@@ -449,7 +449,7 @@ To update this snapshot:
 8. Review behavior changes for any resource and version pair affected by the
    new mappings.
 9. Update postprocessors as needed and regenerate (no hand editing) `COVERAGE.md`.
-10. Run the complete runtime, source-equivalence, package, and full test checks
+10. Run the complete runtime integrity, freshness, package, and full test checks
     described below.
 
 #### Checking the snapshot with `tools/check-data.js`
@@ -525,7 +525,7 @@ npm run migrate:runtime-data -- \
   --from-runtime-data-root data/runtime \
   --to-runtime-data-root /path/to/candidate-runtime
 
-npm run check:runtime-data -- \
+npm run check:runtime-data-integrity -- \
   --runtime-data-root /path/to/candidate-runtime \
   --complete
 ```
@@ -569,7 +569,7 @@ untrusted source.
 Validate the selected committed root without rebuilding it:
 
 ```bash
-npm run check:runtime-data -- \
+npm run check:runtime-data-integrity -- \
   --runtime-data-root data/runtime \
   --complete
 ```
@@ -578,19 +578,19 @@ Test the complete source-to-runtime build before release or after changing
 raw sources:
 
 ```bash
-npm run check:runtime-data-sources
+npm run check:runtime-data-freshness
 ```
 
 It requires all declared official archives. The command rebuilds both
-components under a temporary directory, compares the 14 indexed files
+components under a temporary directory, compares the 14 indexed outputs
 byte-for-byte, and removes the temporary build. It never rewrites the selected
 runtime-data root.
 
 During component development, select only the component being changed:
 
 ```bash
-npm run check:runtime-data-sources -- fml-mappings
-npm run check:runtime-data-sources -- fhir-tables
+npm run check:runtime-data-freshness -- fml-mappings
+npm run check:runtime-data-freshness -- fhir-tables
 ```
 
 A component check compares only its manifest section and artifact files and

@@ -10,7 +10,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { manifestArtifacts, validateManifest } from '../src/runtime/schema.js';
-import { loadRuntimeArtifactRoot } from './runtime-data-root.js';
+import { checkRuntimeDataIntegrity } from './check-runtime-data-integrity.js';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '..');
 const MAX_UNPACKED_BYTES = 2_000_000;
@@ -142,10 +142,14 @@ export function validatePackageReport(report) {
 /**
  * Validate the complete committed runtime root without rewriting it.
  *
+ * Runs the same named integrity check as
+ * `npm run check:runtime-data-integrity -- --complete`, in process, so the
+ * two commands cannot drift apart.
+ *
  * @returns {Promise<{artifactCount: number}>} Validated runtime-root summary.
  */
 export async function validateCommittedRuntimeRoot() {
-  const loaded = await loadRuntimeArtifactRoot(path.join(PROJECT_ROOT, 'data/runtime'));
+  const loaded = await checkRuntimeDataIntegrity(path.join(PROJECT_ROOT, 'data/runtime'));
 
   return { artifactCount: loaded.artifacts.length };
 }

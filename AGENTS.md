@@ -15,9 +15,9 @@ npm run build:runtime-data:all -- --runtime-data-root DIR
                              # maintainer: build both runtime-data components
 npm run migrate:runtime-data -- fml-mappings --from-runtime-data-root DIR --to-runtime-data-root DIR
                              # maintainer: copy one generated component
-npm run check:runtime-data -- --runtime-data-root DIR --complete
+npm run check:runtime-data-integrity -- --runtime-data-root DIR --complete
                              # maintainer: validate a complete runtime-data root
-npm run check:runtime-data-sources
+npm run check:runtime-data-freshness
                              # maintainer: rebuild in temp and compare sources
 npm run check:package         # maintainer: validate package contents and size
 npm run install:test-browser # maintainer: one-time Chromium install for the harness below

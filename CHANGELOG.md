@@ -14,7 +14,7 @@ This project follows [Semantic Versioning](http://semver.org/).
   alternate-root maintainer tooling, and package-content validation.
 - Added strictly validated `sources.yaml` datasets, independent FML and FHIR
   component build commands, symmetric component migration, and explicit
-  runtime-root and component-selectable source-equivalence checks.
+  runtime-root and component-selectable freshness checks.
 
 ### Changed
 

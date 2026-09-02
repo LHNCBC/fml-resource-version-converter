@@ -70,8 +70,8 @@
     "build:runtime-data": "node tools/build-runtime-data.js",
     "build:runtime-data:all": "node tools/build-runtime-data.js all",
     "migrate:runtime-data": "node tools/migrate-runtime-data.js",
-    "check:runtime-data": "node tools/check-runtime-data.js",
-    "check:runtime-data-sources": "node tools/check-runtime-data-sources.js",
+    "check:runtime-data-integrity": "node tools/check-runtime-data-integrity.js",
+    "check:runtime-data-freshness": "node tools/check-runtime-data-freshness.js",
     "check:package": "node tools/check-package.js",
     "prepack": "npm run check:package"
   },

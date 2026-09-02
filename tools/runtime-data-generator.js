@@ -589,6 +589,9 @@ export async function migrateRuntimeDataComponent({
 /**
  * Rebuild selected source components in a temporary directory and compare.
  *
+ * The selected runtime data is expected to be stable while it's being checked.
+ * It's an error condition if the data changes during the check.
+ *
  * @param {Object} options Check options.
  * @param {string} options.runtimeDataRoot Existing runtime root.
  * @param {'fml-mappings'|'fhir-tables'|'all'} [options.component='all']
@@ -639,7 +642,7 @@ export async function checkRuntimeDataFreshness({
     const existingFiles = existingArtifacts.map(artifact => artifact.modulePath);
     const candidateFiles = candidateArtifacts.map(artifact => artifact.modulePath);
     if (canonicalStringify(existingFiles) !== canonicalStringify(candidateFiles)) {
-      throw new Error('Runtime data root is stale; indexed file sets differ');
+      throw new Error('Runtime data root is stale; indexed output sets differ');
     }
     if (info) {
       const existingSection = existing.manifest.components[info.manifestKey];
@@ -665,21 +668,21 @@ export async function checkRuntimeDataFreshness({
     primaryError = error;
     throw error;
   } finally {
-    let integrityError;
+    let mutationError;
     try {
       fs.rmSync(temporaryRoot, { recursive: true, force: true });
       if (hashTree(existing.root) !== sourceHashBefore) {
-        integrityError = new Error(
-          `Source-equivalence check modified runtime data root: ${existing.root}`,
+        mutationError = new Error(
+          `Unexpected Error: runtime data changed while the freshness check ran: ${existing.root}`
         );
       }
     } catch (error) {
-      integrityError = error;
+      mutationError = error;
     }
-    if (integrityError) {
-      if (!primaryError) throw integrityError;
-      if (primaryError.cause === undefined) primaryError.cause = integrityError;
-      else primaryError.sourceIntegrityError = integrityError;
+    if (mutationError) {
+      if (!primaryError) throw mutationError;
+      if (primaryError.cause === undefined) primaryError.cause = mutationError;
+      else primaryError.rootMutationError = mutationError;
     }
   }
 }

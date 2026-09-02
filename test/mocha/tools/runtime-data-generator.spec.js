@@ -11,9 +11,9 @@ import {
 } from '../../../src/runtime/schema.js';
 import { parseArgs as parseBuildArgs } from '../../../tools/build-runtime-data.js';
 import {
-  DEFAULT_SOURCE_CHECK_ROOTS,
-  parseArgs as parseSourceCheckArgs,
-} from '../../../tools/check-runtime-data-sources.js';
+  DEFAULT_FRESHNESS_CHECK_ROOTS,
+  parseArgs as parseFreshnessArgs,
+} from '../../../tools/check-runtime-data-freshness.js';
 import {
   buildAllRuntimeData,
   buildRuntimeDataComponent,
@@ -236,21 +236,21 @@ describe('tools/runtime-data-generator', function () {
     );
   });
 
-  it('parses source-equivalence component selection with shared defaults', function () {
-    assert.deepEqual(parseSourceCheckArgs([]), {
-      ...DEFAULT_SOURCE_CHECK_ROOTS,
+  it('parses freshness component selection with shared defaults', function () {
+    assert.deepEqual(parseFreshnessArgs([]), {
+      ...DEFAULT_FRESHNESS_CHECK_ROOTS,
       component: 'all',
       help: false,
     });
     assert.equal(
-      parseSourceCheckArgs(['fml-mappings', '--fml-dataset-root', 'alternate']).component,
+      parseFreshnessArgs(['fml-mappings', '--fml-dataset-root', 'alternate']).component,
       'fml-mappings',
     );
     assert.throws(
-      () => parseSourceCheckArgs(['fml-mappings', '--fhir-dataset-root', 'unused']),
+      () => parseFreshnessArgs(['fml-mappings', '--fhir-dataset-root', 'unused']),
       /does not apply/,
     );
-    assert.throws(() => parseSourceCheckArgs(['unknown']), /Unknown component/);
+    assert.throws(() => parseFreshnessArgs(['unknown']), /Unknown component/);
   });
 
   it('generates independently owned manifest sections', function () {
@@ -380,7 +380,7 @@ describe('tools/runtime-data-generator', function () {
     assertTreesEqual(firstRoot, target);
   });
 
-  it('checks source equivalence without modifying the selected runtime root', async function () {
+  it('checks freshness without modifying the selected runtime root', async function () {
     this.timeout(60_000);
     const rootHashBefore = hashTree(firstRoot);
     const result = await checkRuntimeDataFreshness({

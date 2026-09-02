@@ -76,9 +76,9 @@ The FHIR builder reads the two declared StructureDefinition bundles directly
 from each ZIP in memory. It creates no persistent intermediate files. See
 `CONTRIBUTING.md` for migration, alternate-dataset, and validation commands.
 
-Run `npm run check:runtime-data-sources` to rebuild both components in a
+Run `npm run check:runtime-data-freshness` to rebuild both components in a
 temporary directory and prove that the committed manifest and artifact modules
-are byte-equivalent to their declared sources without rewriting the selected
+match the outputs their declared sources produce, without rewriting the selected
 runtime-data root. During component work, append `-- fml-mappings` or
 `-- fhir-tables` to rebuild and compare only that component. Release validation
 uses the default full check.

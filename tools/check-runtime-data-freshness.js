@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 /**
- * @fileoverview End-to-end source-to-runtime reproducibility check.
+ * @fileoverview Check that runtime data is fresh with respect to its sources.
  *
  * The selected component or complete root is rebuilt under a temporary
  * directory and compared with the selected runtime root. That root is never
- * rewritten.
+ * rewritten. Freshness means regenerating from the currently declared sources
+ * would not change the committed bytes; it does not claim the runtime data
+ * carries the same information as those sources, because runtime data is a
+ * derived subset. Repeat-build stability is a separate property and is
+ * covered by the generator's determinism tests.
  */
 
 import path from 'node:path';
@@ -15,7 +19,7 @@ const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(TOOL_DIR, '..');
 
 /** Default roots shared by the CLI and direct function calls. */
-export const DEFAULT_SOURCE_CHECK_ROOTS = Object.freeze({
+export const DEFAULT_FRESHNESS_CHECK_ROOTS = Object.freeze({
   runtimeDataRoot: path.join(PROJECT_ROOT, 'data/runtime'),
   fmlDatasetRoot: path.join(PROJECT_ROOT, 'data/fhir-cross-version'),
   fhirDatasetRoot: path.join(PROJECT_ROOT, 'data/fhir-spec-downloads'),
@@ -31,7 +35,7 @@ const COMPONENTS = new Set(['fml-mappings', 'fhir-tables', 'all']);
  */
 export function parseArgs(argv) {
   const options = {
-    ...DEFAULT_SOURCE_CHECK_ROOTS,
+    ...DEFAULT_FRESHNESS_CHECK_ROOTS,
     component: 'all',
     help: false,
   };
@@ -76,14 +80,14 @@ export function parseArgs(argv) {
 }
 
 /**
- * Run a selected source-equivalence check.
+ * Run a selected freshness check.
  *
  * @param {Object} [overrides] Optional component and root overrides.
  * @returns {Promise<Object>} Freshness summary.
  */
-export async function checkRuntimeDataSources(overrides = {}) {
+export async function runFreshnessCheck(overrides = {}) {
   return checkRuntimeDataFreshness({
-    ...DEFAULT_SOURCE_CHECK_ROOTS,
+    ...DEFAULT_FRESHNESS_CHECK_ROOTS,
     component: 'all',
     ...overrides,
   });
@@ -100,7 +104,7 @@ export async function main(argv) {
     const options = parseArgs(argv);
     if (options.help) {
       console.log(
-        'Usage: node tools/check-runtime-data-sources.js ' +
+        'Usage: node tools/check-runtime-data-freshness.js ' +
         '[fml-mappings|fhir-tables|all] ' +
         '[--runtime-data-root DIR] [--fml-dataset-root DIR] ' +
         '[--fhir-dataset-root DIR]\n' +
@@ -109,7 +113,7 @@ export async function main(argv) {
 
       return 0;
     }
-    const result = await checkRuntimeDataSources(options);
+    const result = await runFreshnessCheck(options);
     console.error(
       `${options.component} runtime data matches declared sources ` +
       `(${result.outputsCompared} indexed outputs).`,

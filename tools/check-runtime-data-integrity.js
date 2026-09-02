@@ -1,11 +1,37 @@
 #!/usr/bin/env node
 /**
- * @fileoverview Validate a selected runtime-data root without rebuilding it.
+ * @fileoverview Validate the integrity of a selected runtime-data root.
+ *
+ * Integrity means the root is well formed, undamaged, and internally
+ * consistent: canonical manifest, importable artifact modules, verified
+ * hashes and canonical payloads, and manifest metadata that matches every
+ * envelope and decoded payload. It does not compare the root with the
+ * upstream sources it was generated from; see
+ * `tools/check-runtime-data-freshness.js` for that.
  */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadRuntimeArtifactRoot } from './runtime-data-root.js';
+
+/**
+ * Check the integrity of one runtime-data root.
+ *
+ * Shared by this CLI and by package validation so both perform the same
+ * named check rather than each calling the loader directly.
+ *
+ * @param {string} runtimeDataRoot Runtime-data root to validate.
+ * @param {Object} [options] Validation options.
+ * @param {boolean} [options.complete=true] Require both runtime components.
+ * @param {'fml-mappings'|'fhir-tables'} [options.component] Validate only one
+ *   independently owned component.
+ * @returns {Promise<{root: string, manifest: Object, artifacts: Object[]}>}
+ *   Validated manifest plus loaded envelope and decoded artifact records.
+ * @throws {Error} If the root is incomplete, damaged, or internally inconsistent.
+ */
+export async function checkRuntimeDataIntegrity(runtimeDataRoot, options = {}) {
+  return loadRuntimeArtifactRoot(runtimeDataRoot, options);
+}
 
 /**
  * Parse validation arguments.
@@ -45,14 +71,14 @@ export async function main(argv) {
     const options = parseArgs(argv);
     if (options.help) {
       console.log(
-        'Usage: node tools/check-runtime-data.js ' +
+        'Usage: node tools/check-runtime-data-integrity.js ' +
         '--runtime-data-root DIR [--complete]',
       );
 
       return 0;
     }
     if (!options.runtimeDataRoot) throw new Error('--runtime-data-root is required');
-    const loaded = await loadRuntimeArtifactRoot(options.runtimeDataRoot, {
+    const loaded = await checkRuntimeDataIntegrity(options.runtimeDataRoot, {
       complete: options.complete,
     });
     console.error(
