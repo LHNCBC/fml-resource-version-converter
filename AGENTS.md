@@ -9,8 +9,19 @@ node bin/convert.js R4 R5 in.json   # CLI conversion, result to stdout
 
 npm run build:coverage       # maintainer: regenerate COVERAGE.md (do not edit it by hand)
 npm run download:fhir-specs  # maintainer: download/verify declared FHIR spec zips
+npm run build:runtime-data -- fml-mappings --runtime-data-root DIR
+                             # maintainer: build one runtime-data component
 npm run build:runtime-data:all -- --runtime-data-root DIR
                              # maintainer: build both runtime-data components
+npm run migrate:runtime-data -- fml-mappings --from-runtime-data-root DIR --to-runtime-data-root DIR
+                             # maintainer: copy one generated component
+npm run check:runtime-data -- --runtime-data-root DIR --complete
+                             # maintainer: validate a complete runtime-data root
+npm run check:runtime-data-sources
+                             # maintainer: rebuild in temp and compare sources
+npm run check:package         # maintainer: validate package contents and size
+npm run test:installed-package
+                             # maintainer: smoke-test the packed package
 node tools/check-data.js     # maintainer: check bundled cross-version data; report ambiguities
 ```
 

@@ -49,7 +49,10 @@ function downloadToTemporaryFile(urlText, temporaryFile, redirectsLeft) {
       }
       const output = fs.createWriteStream(temporaryFile);
       response.pipe(output);
-      output.on('finish', () => output.close(resolve));
+      output.on('finish', () => output.close(error => {
+        if (error) reject(error);
+        else resolve();
+      }));
       output.on('error', reject);
     });
     request.on('error', reject);

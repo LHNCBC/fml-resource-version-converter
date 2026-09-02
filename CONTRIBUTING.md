@@ -558,6 +558,9 @@ Generated data is reused only through the explicit, symmetric migration
 command. It accepts either `fml-mappings` or `fhir-tables` and copies only the
 selected component directory and manifest section.
 
+Runtime-data build and migration commands assume a single writer. Do not run
+concurrent mutating commands against the same runtime-data root.
+
 Alternate runtime roots are trusted maintainer inputs. Loading their
 JavaScript artifact modules executes code from the selected root before the
 exported envelopes are decoded and checked. Do not load a root from an

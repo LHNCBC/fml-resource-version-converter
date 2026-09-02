@@ -112,7 +112,7 @@ export async function main(argv) {
     const result = await checkRuntimeDataSources(options);
     console.error(
       `${options.component} runtime data matches declared sources ` +
-      `(${result.filesCompared} indexed outputs).`,
+      `(${result.outputsCompared} indexed outputs).`,
     );
 
     return 0;

@@ -105,4 +105,15 @@ describe('converter/converterFactory', function () {
       /Runtime data selection.*must not be empty/,
     );
   });
+
+  it('rejects a missing runtime-data argument at the public boundary', function () {
+    assert.throws(
+      () => converterFactory.create(),
+      /converterFactory\.create\(\) requires a runtime-data module/,
+    );
+    assert.throws(
+      () => converterFactory.create(null),
+      /converterFactory\.create\(\) requires a runtime-data module/,
+    );
+  });
 });

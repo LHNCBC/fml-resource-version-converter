@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import JSZip from 'jszip';
 import { decodeArtifact, decodeBase64 } from '../../../src/runtime/decode.js';
 import {
   canonicalStringify,
@@ -22,11 +23,87 @@ import {
   RUNTIME_COMPONENT,
 } from '../../../tools/runtime-data-generator.js';
 import { loadRuntimeArtifactRoot } from '../../../tools/runtime-data-root.js';
+import {
+  loadSourceDataset,
+  SOURCE_COMPONENT,
+} from '../../../tools/runtime-data-sources.js';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '../../..');
 const FML_DATASET_ROOT = path.join(PROJECT_ROOT, 'data/fhir-cross-version');
 const FHIR_DATASET_ROOT = path.join(PROJECT_ROOT, 'data/fhir-spec-downloads');
 const COMMITTED_ROOT = path.join(PROJECT_ROOT, 'data/runtime');
+const FHIR_TABLE_VERSIONS = ['DSTU2', 'STU3', 'R4', 'R4B', 'R5'];
+
+/**
+ * Create a complete, minimal FHIR source dataset for generator tests.
+ *
+ * @param {string} root Temporary dataset directory.
+ * @returns {Promise<void>} Resolves after all fixture ZIPs are written.
+ */
+async function createFhirDataset(root) {
+  const sourceRecords = [];
+  for (const tableVersion of FHIR_TABLE_VERSIONS) {
+    const archivePath = `${tableVersion}/definitions.json.zip`;
+    const archiveFile = path.join(root, ...archivePath.split('/'));
+    const resourceBundle = {
+      resourceType: 'Bundle',
+      entry: [{
+        resource: {
+          resourceType: 'StructureDefinition',
+          id: `Patient-${tableVersion}`,
+          kind: 'resource',
+          type: 'Patient',
+          snapshot: {
+            element: [
+              { path: 'Patient' },
+              { path: 'Patient.name', max: '*', type: [{ code: 'HumanName' }] },
+            ],
+          },
+        },
+      }],
+    };
+    const typeBundle = {
+      resourceType: 'Bundle',
+      entry: [{
+        resource: {
+          resourceType: 'StructureDefinition',
+          id: `HumanName-${tableVersion}`,
+          kind: 'complex-type',
+          type: 'HumanName',
+          snapshot: {
+            element: [
+              { path: 'HumanName' },
+              { path: 'HumanName.family', max: '1', type: [{ code: 'string' }] },
+            ],
+          },
+        },
+      }],
+    };
+    const zip = new JSZip();
+    const entryOptions = { date: new Date('2000-01-01T00:00:00Z') };
+    zip.file('profiles-resources.json', JSON.stringify(resourceBundle), entryOptions);
+    zip.file('profiles-types.json', JSON.stringify(typeBundle), entryOptions);
+    fs.mkdirSync(path.dirname(archiveFile), { recursive: true });
+    fs.writeFileSync(archiveFile, await zip.generateAsync({
+      type: 'nodebuffer',
+      compression: 'DEFLATE',
+    }));
+    sourceRecords.push(`  - id: fixture-${tableVersion}
+    tableVersion: ${tableVersion}
+    version: fixture
+    date: '2000-01-01'
+    license: Test fixture
+    uri: https://example.test/${archivePath}
+    archivePath: ${archivePath}
+    bundlePaths:
+      - profiles-resources.json
+      - profiles-types.json`);
+  }
+  fs.writeFileSync(
+    path.join(root, 'sources.yaml'),
+    `schemaVersion: 1\nsources:\n${sourceRecords.join('\n')}\n`,
+  );
+}
 
 /**
  * Import one dependency-free generated envelope.
@@ -88,21 +165,25 @@ describe('tools/runtime-data-generator', function () {
   let secondRoot;
   let manifest;
   let fmlHashBefore;
+  let fhirFixtureRoot;
 
   before(async function () {
     this.timeout(60_000);
     tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-data-generator-'));
     firstRoot = path.join(tempRoot, 'first');
     secondRoot = path.join(tempRoot, 'second');
+    fhirFixtureRoot = path.join(tempRoot, 'fhir-dataset');
+    fs.mkdirSync(fhirFixtureRoot);
+    await createFhirDataset(fhirFixtureRoot);
     fmlHashBefore = hashTree(FML_DATASET_ROOT);
     manifest = await buildAllRuntimeData({
       fmlDatasetRoot: FML_DATASET_ROOT,
-      fhirDatasetRoot: FHIR_DATASET_ROOT,
+      fhirDatasetRoot: fhirFixtureRoot,
       runtimeDataRoot: firstRoot,
     });
     await buildAllRuntimeData({
       fmlDatasetRoot: FML_DATASET_ROOT,
-      fhirDatasetRoot: FHIR_DATASET_ROOT,
+      fhirDatasetRoot: fhirFixtureRoot,
       runtimeDataRoot: secondRoot,
     });
   });
@@ -114,6 +195,30 @@ describe('tools/runtime-data-generator', function () {
   it('parses component and full-build dataset options without field overrides', function () {
     assert.throws(() => parseBuildArgs(['--unknown']), /Unknown option/);
     assert.equal(parseBuildArgs(['--help']).help, true);
+    assert.throws(
+      () => parseBuildArgs([
+        'fml-mappings',
+        '--runtime-data-root', 'candidate',
+        '--fhir-dataset-root', 'unused',
+      ]),
+      /does not apply to a component build/,
+    );
+    assert.throws(
+      () => parseBuildArgs([
+        'all',
+        '--runtime-data-root', 'candidate',
+        '--dataset-root', 'unused',
+      ]),
+      /does not apply to all/,
+    );
+    assert.throws(
+      () => parseBuildArgs([
+        'fml-mappings',
+        '--runtime-data-root', 'first',
+        '--runtime-data-root', 'second',
+      ]),
+      /Duplicate option/,
+    );
     assert.deepEqual(
       parseBuildArgs([
         'fml-mappings',
@@ -168,23 +273,43 @@ describe('tools/runtime-data-generator', function () {
     assertTreesEqual(firstRoot, secondRoot);
   });
 
-  it('derives the same artifact bytes as the committed runtime data', function () {
+  it('derives the same FML artifact bytes as the committed runtime data', function () {
     assertTreesEqual(
       path.join(firstRoot, 'fml-mappings'),
       path.join(COMMITTED_ROOT, 'fml-mappings'),
     );
+  });
+
+  it('derives the same FHIR artifact bytes when the official archives are available', async function () {
+    this.timeout(60_000);
+    const dataset = loadSourceDataset(
+      FHIR_DATASET_ROOT,
+      SOURCE_COMPONENT.FHIR_TABLES,
+      { requireInputs: false },
+    );
+    if (!dataset.sources.every(source => fs.existsSync(source.archiveFile))) this.skip();
+    const actualRoot = path.join(tempRoot, 'official-fhir-build');
+    await buildRuntimeDataComponent({
+      component: RUNTIME_COMPONENT.FHIR_TABLES,
+      datasetRoot: FHIR_DATASET_ROOT,
+      runtimeDataRoot: actualRoot,
+    });
+
     assertTreesEqual(
-      path.join(firstRoot, 'fhir-tables'),
+      path.join(actualRoot, 'fhir-tables'),
       path.join(COMMITTED_ROOT, 'fhir-tables'),
     );
   });
 
   it('meets the selected all-artifact size threshold', async function () {
+    const committedManifest = JSON.parse(
+      fs.readFileSync(path.join(COMMITTED_ROOT, 'manifest.json'), 'utf8'),
+    );
     let canonicalBytes = 0;
     let compressedBytes = 0;
     let base64Bytes = 0;
-    for (const artifact of manifestArtifacts(manifest)) {
-      const envelope = await loadEnvelope(firstRoot, artifact.modulePath);
+    for (const artifact of manifestArtifacts(committedManifest)) {
+      const envelope = await loadEnvelope(COMMITTED_ROOT, artifact.modulePath);
       canonicalBytes += envelope.uncompressedLength;
       compressedBytes += decodeBase64(envelope.payload, envelope.id).length;
       base64Bytes += envelope.payload.length;
@@ -261,10 +386,10 @@ describe('tools/runtime-data-generator', function () {
     const result = await checkRuntimeDataFreshness({
       runtimeDataRoot: firstRoot,
       fmlDatasetRoot: FML_DATASET_ROOT,
-      fhirDatasetRoot: FHIR_DATASET_ROOT,
+      fhirDatasetRoot: fhirFixtureRoot,
     });
 
-    assert.deepEqual(result, { fresh: true, filesCompared: 14 });
+    assert.deepEqual(result, { fresh: true, outputsCompared: 14 });
     assert.equal(hashTree(firstRoot), rootHashBefore);
   });
 
@@ -282,11 +407,11 @@ describe('tools/runtime-data-generator', function () {
     const fhirResult = await checkRuntimeDataFreshness({
       component: RUNTIME_COMPONENT.FHIR_TABLES,
       runtimeDataRoot: firstRoot,
-      fhirDatasetRoot: FHIR_DATASET_ROOT,
+      fhirDatasetRoot: fhirFixtureRoot,
     });
 
-    assert.deepEqual(fmlResult, { fresh: true, filesCompared: 9 });
-    assert.deepEqual(fhirResult, { fresh: true, filesCompared: 6 });
+    assert.deepEqual(fmlResult, { fresh: true, outputsCompared: 9 });
+    assert.deepEqual(fhirResult, { fresh: true, outputsCompared: 6 });
   });
 
   it('leaves the target unchanged when a component build fails', async function () {

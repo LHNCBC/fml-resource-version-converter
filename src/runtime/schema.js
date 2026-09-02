@@ -799,6 +799,26 @@ export function validateManifest(value) {
     validateManifestComponent(components.fhirTables, 'fhirTables');
   }
 
+  const artifactIds = new Set();
+  const modulePaths = new Set();
+  for (const [componentName, component] of Object.entries(components)) {
+    for (const [index, artifact] of component.artifacts.entries()) {
+      const path = `$.components.${componentName}.artifacts[${index}]`;
+      if (artifactIds.has(artifact.id)) {
+        fail(label, `${path}.id`, `duplicates "${artifact.id}" across components`);
+      }
+      if (modulePaths.has(artifact.modulePath)) {
+        fail(
+          label,
+          `${path}.modulePath`,
+          `duplicates "${artifact.modulePath}" across components`,
+        );
+      }
+      artifactIds.add(artifact.id);
+      modulePaths.add(artifact.modulePath);
+    }
+  }
+
   return value;
 }
 

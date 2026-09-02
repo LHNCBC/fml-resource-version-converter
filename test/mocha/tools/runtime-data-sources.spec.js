@@ -26,6 +26,7 @@ describe('tools/runtime-data-sources', function () {
     const dataset = loadSourceDataset(
       path.join(PROJECT_ROOT, 'data/fhir-spec-downloads'),
       SOURCE_COMPONENT.FHIR_TABLES,
+      { requireInputs: false },
     );
 
     assert.deepEqual(
@@ -33,6 +34,34 @@ describe('tools/runtime-data-sources', function () {
       ['DSTU2', 'STU3', 'R4', 'R4B', 'R5'],
     );
     assert.equal(dataset.sources.every(source => !Object.hasOwn(source, 'sha256')), true);
+  });
+
+  it('requires the resource bundle before the type bundle', function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-sources-'));
+    try {
+      const sourceFile = path.join(PROJECT_ROOT, 'data/fhir-spec-downloads/sources.yaml');
+      const sourceText = fs.readFileSync(sourceFile, 'utf8');
+      const resourceThenType = [
+        '      - site/profiles-resources.json',
+        '      - site/profiles-types.json',
+      ].join('\n');
+      const typeThenResource = [
+        '      - site/profiles-types.json',
+        '      - site/profiles-resources.json',
+      ].join('\n');
+      assert.ok(sourceText.includes(resourceThenType));
+      fs.writeFileSync(
+        path.join(root, 'sources.yaml'),
+        sourceText.replace(resourceThenType, typeThenResource),
+      );
+
+      assert.throws(
+        () => loadSourceDataset(root, SOURCE_COMPONENT.FHIR_TABLES, { requireInputs: false }),
+        /resource bundle followed by the type bundle/,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('requires modification notes only when the modified flag is true', function () {

@@ -7,9 +7,6 @@
  * @module tools/fhir-tables-lib
  */
 
-/** Matches "profiles-resources.json" or "profiles-types.json" anywhere in a zip entry name. */
-export const BUNDLE_ENTRY_RE = /(^|[\\/])profiles-(resources|types)\.json$/i;
-
 /**
  * Inspect one StructureDefinition element and report what derived-data
  * tables it should contribute to.

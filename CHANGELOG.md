@@ -31,7 +31,8 @@ This project follows [Semantic Versioning](http://semver.org/).
 - Runtime manifest schema 2 gives FML mappings and FHIR tables independently
   owned source and artifact sections. FHIR tables are now derived directly
   from the declared specification ZIP entries without a persistent
-  intermediate.
+  intermediate. Existing schema 1 alternate runtime roots must be rebuilt from
+  their source datasets before use with the schema 2 tooling.
 
 ### Removed
 

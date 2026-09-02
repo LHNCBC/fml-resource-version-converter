@@ -299,6 +299,48 @@ describe('runtime/schema: manifest', function () {
     assert.throws(() => validateManifest(candidate), /duplicates/);
   });
 
+  it('rejects artifact identities duplicated across components', function () {
+    const candidate = structuredClone(manifest);
+    candidate.components.fhirTables = structuredClone(candidate.components.fmlMappings);
+    candidate.components.fhirTables.sources = [{
+      id: 'hl7-fhir-R4',
+      uri: 'https://hl7.org/fhir/R4/definitions.json.zip',
+      version: '4.0.1',
+      date: '2019-11-01',
+      license: 'HL7',
+      sha256: HASH_A,
+    }];
+    candidate.components.fhirTables.artifacts[0] = {
+      ...candidate.components.fhirTables.artifacts[0],
+      kind: ARTIFACT_KIND.FHIR_TABLE,
+      modulePath: 'fhir-tables/R4.js',
+      sourceIds: ['hl7-fhir-R4'],
+    };
+
+    assert.throws(() => validateManifest(candidate), /duplicates.*across components/);
+  });
+
+  it('rejects module paths duplicated across components', function () {
+    const candidate = structuredClone(manifest);
+    candidate.components.fhirTables = structuredClone(candidate.components.fmlMappings);
+    candidate.components.fhirTables.sources = [{
+      id: 'hl7-fhir-R4',
+      uri: 'https://hl7.org/fhir/R4/definitions.json.zip',
+      version: '4.0.1',
+      date: '2019-11-01',
+      license: 'HL7',
+      sha256: HASH_A,
+    }];
+    candidate.components.fhirTables.artifacts[0] = {
+      ...candidate.components.fhirTables.artifacts[0],
+      id: 'fhir-tables/R4',
+      kind: ARTIFACT_KIND.FHIR_TABLE,
+      sourceIds: ['hl7-fhir-R4'],
+    };
+
+    assert.throws(() => validateManifest(candidate), /modulePath.*duplicates.*across components/);
+  });
+
   it('allows contextual notes when unmodified and requires them when modified', function () {
     const documented = structuredClone(manifest);
     documented.components.fmlMappings.sources[0].modifications = 'Verified against upstream.';

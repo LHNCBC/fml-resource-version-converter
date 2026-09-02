@@ -63,6 +63,7 @@ export function parseArgs(argv) {
     fhirDatasetRoot: DEFAULT_FHIR_DATASET_ROOT,
     help: false,
   };
+  const seenOptions = new Set();
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index];
     if (!argument.startsWith('-')) {
@@ -70,6 +71,9 @@ export function parseArgs(argv) {
       options.component = argument;
       continue;
     }
+    const optionKey = argument === '-h' ? '--help' : argument;
+    if (seenOptions.has(optionKey)) throw new Error(`Duplicate option: ${argument}`);
+    seenOptions.add(optionKey);
     switch (argument) {
       case '--runtime-data-root':
         options.runtimeDataRoot = optionValue(argv, index++);
@@ -91,6 +95,22 @@ export function parseArgs(argv) {
         throw new Error(`Unknown option: ${argument}`);
     }
   }
+  if (options.help) return options;
+  if (!options.runtimeDataRoot) throw new Error('--runtime-data-root is required');
+  if (![
+    RUNTIME_COMPONENT.FML_MAPPINGS,
+    RUNTIME_COMPONENT.FHIR_TABLES,
+    'all',
+  ].includes(options.component)) {
+    throw new Error('A component is required: fml-mappings, fhir-tables, or all');
+  }
+  if (options.component === 'all' && seenOptions.has('--dataset-root')) {
+    throw new Error('--dataset-root does not apply to all');
+  }
+  if (options.component !== 'all' &&
+      (seenOptions.has('--fml-dataset-root') || seenOptions.has('--fhir-dataset-root'))) {
+    throw new Error('Full-build dataset options do not apply to a component build');
+  }
 
   return options;
 }
@@ -109,17 +129,7 @@ export async function main(argv) {
 
       return 0;
     }
-    if (!options.runtimeDataRoot) throw new Error('--runtime-data-root is required');
-    if (![
-      RUNTIME_COMPONENT.FML_MAPPINGS,
-      RUNTIME_COMPONENT.FHIR_TABLES,
-      'all',
-    ].includes(options.component)) {
-      throw new Error('A component is required: fml-mappings, fhir-tables, or all');
-    }
-
     if (options.component === 'all') {
-      if (options.datasetRoot) throw new Error('--dataset-root does not apply to all');
       const manifest = await buildAllRuntimeData(options);
       console.error(
         `Built ${manifest.components.fmlMappings.artifacts.length} FML mapping and ` +
@@ -127,9 +137,6 @@ export async function main(argv) {
         path.resolve(options.runtimeDataRoot),
       );
     } else {
-      if (argv.includes('--fml-dataset-root') || argv.includes('--fhir-dataset-root')) {
-        throw new Error('Full-build dataset options do not apply to a component build');
-      }
       const datasetRoot = options.datasetRoot || (
         options.component === RUNTIME_COMPONENT.FML_MAPPINGS
           ? DEFAULT_FML_DATASET_ROOT

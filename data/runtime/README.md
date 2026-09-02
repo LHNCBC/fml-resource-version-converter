@@ -40,7 +40,11 @@ dates, licenses, and ZIP-internal bundle paths is
 `data/fhir-spec-downloads/sources.yaml`. The downloader and builder both read
 that file; these values are not duplicated in code or this README.
 
-## Regeneration
+## Repository maintainer regeneration
+
+The following commands are available only from a source checkout. The
+published package does not include the source datasets or `tools/` programs
+needed to regenerate runtime data.
 
 The source archives are downloaded beneath the mostly Git-ignored
 `data/fhir-spec-downloads/` dataset and are neither required at runtime nor

@@ -174,9 +174,11 @@ function validateFhirSource(value, location) {
   source.bundlePaths.forEach((bundlePath, index) => {
     requireRelativePath(bundlePath, `${location}.bundlePaths[${index}]`);
   });
-  const names = source.bundlePaths.map(bundlePath => bundlePath.split('/').at(-1)).sort();
-  if (names.join(',') !== 'profiles-resources.json,profiles-types.json') {
-    throw new Error(`${location}.bundlePaths must identify the resource and type bundles`);
+  const names = source.bundlePaths.map(bundlePath => bundlePath.split('/').at(-1));
+  if (names[0] !== 'profiles-resources.json' || names[1] !== 'profiles-types.json') {
+    throw new Error(
+      `${location}.bundlePaths must identify the resource bundle followed by the type bundle`,
+    );
   }
 
   return source;

@@ -72,7 +72,7 @@
     "migrate:runtime-data": "node tools/migrate-runtime-data.js",
     "check:runtime-data": "node tools/check-runtime-data.js",
     "check:runtime-data-sources": "node tools/check-runtime-data-sources.js",
-    "check:package": "npm run check:runtime-data -- --runtime-data-root data/runtime --complete && node tools/check-package.js",
+    "check:package": "node tools/check-package.js",
     "prepack": "npm run check:package"
   },
   "devDependencies": {

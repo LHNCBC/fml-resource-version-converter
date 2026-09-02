@@ -5,7 +5,7 @@ modules under `data/runtime/` are dependency-free data modules: they export an
 artifact envelope and do not import a decoder or another project file. Assembly
 modules decode and validate those envelopes synchronously.
 
-`schema.js` is the executable authority for the Phase 1 formats:
+`schema.js` is the executable authority for the runtime-data formats:
 
 - artifact envelope schema version 1;
 - manifest schema version 2, with independent FML and FHIR component sections;

@@ -38,6 +38,11 @@ export const converterFactory = Object.freeze({
    * @throws {Error} If the selection is empty, malformed, incomplete, or conflicting.
    */
   create(runtimeDataOrArray) {
+    if (runtimeDataOrArray === undefined || runtimeDataOrArray === null) {
+      throw new TypeError(
+        'converterFactory.create() requires a runtime-data module or non-empty array',
+      );
+    }
     const engineFactory = createRuntimeFmlEngineFactory(runtimeDataOrArray);
     const registry = createRegistry(engineFactory);
     const converterContext = Object.freeze({ engineFactory, registry });

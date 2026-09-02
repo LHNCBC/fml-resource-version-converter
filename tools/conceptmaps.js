@@ -13,16 +13,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /**
- * Absolute path to the bundled FML cross-version input root (FML files and the
- * ConceptMap folders). This is the default root for the maintainer integrity
- * scan; callers may override it to evaluate a candidate data drop before
- * committing to it.
- * @type {string}
- */
-export const DEFAULT_XVER_ROOT =
-  path.resolve(import.meta.dirname, '../data/fhir-cross-version/input');
-
-/**
  * Scan FML text for ConceptMap URLs referenced by `translate(...)` calls.
  * Tolerates both single and double quotes around URL and code-mode args.
  *
@@ -170,13 +160,12 @@ function collectPairConceptMapUrls(fromVer, toVer, xverRoot) {
  *
  * @param {string} fromVer  Canonical source version.
  * @param {string} toVer    Canonical target version.
- * @param {string} [xverRoot=DEFAULT_XVER_ROOT] Data root to check; override to
- *        evaluate a candidate data drop before committing to it.
+ * @param {string} xverRoot Data root to check.
  * @returns {{missingConceptMaps: string[], parseErrors: Array<{id: string, error: string}>}}
  * @throws {Error} If the pair directory or an FML file cannot be read (a missing
  *   or unreadable data root surfaces here rather than as a false clean result).
  */
-export function scanConceptMaps(fromVer, toVer, xverRoot = DEFAULT_XVER_ROOT) {
+export function scanConceptMaps(fromVer, toVer, xverRoot) {
   const urls = collectPairConceptMapUrls(fromVer, toVer, xverRoot);
   const { missingConceptMaps, parseErrors } = resolveConceptMaps(urls, xverRoot);
   return { missingConceptMaps, parseErrors };

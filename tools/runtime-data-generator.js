@@ -595,7 +595,7 @@ export async function migrateRuntimeDataComponent({
  *   Component selection.
  * @param {string} [options.fmlDatasetRoot] FML source dataset root.
  * @param {string} [options.fhirDatasetRoot] FHIR source dataset root.
- * @returns {Promise<{fresh: true, filesCompared: number}>} Check summary.
+ * @returns {Promise<{fresh: true, outputsCompared: number}>} Check summary.
  */
 export async function checkRuntimeDataFreshness({
   runtimeDataRoot,
@@ -612,6 +612,7 @@ export async function checkRuntimeDataFreshness({
   const sourceHashBefore = hashTree(existing.root);
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-source-check-'));
   const candidateRoot = path.join(temporaryRoot, 'candidate');
+  let primaryError;
   try {
     if (info) {
       await buildRuntimeDataComponent({
@@ -659,11 +660,26 @@ export async function checkRuntimeDataFreshness({
       );
     }
 
-    return Object.freeze({ fresh: true, filesCompared: existingFiles.length + 1 });
+    return Object.freeze({ fresh: true, outputsCompared: existingFiles.length + 1 });
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    fs.rmSync(temporaryRoot, { recursive: true, force: true });
-    if (hashTree(existing.root) !== sourceHashBefore) {
-      throw new Error(`Source-equivalence check modified runtime data root: ${existing.root}`);
+    let integrityError;
+    try {
+      fs.rmSync(temporaryRoot, { recursive: true, force: true });
+      if (hashTree(existing.root) !== sourceHashBefore) {
+        integrityError = new Error(
+          `Source-equivalence check modified runtime data root: ${existing.root}`,
+        );
+      }
+    } catch (error) {
+      integrityError = error;
+    }
+    if (integrityError) {
+      if (!primaryError) throw integrityError;
+      if (primaryError.cause === undefined) primaryError.cause = integrityError;
+      else primaryError.sourceIntegrityError = integrityError;
     }
   }
 }

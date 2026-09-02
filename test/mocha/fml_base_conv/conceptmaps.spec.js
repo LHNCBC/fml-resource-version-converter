@@ -12,6 +12,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { scanConceptMaps } from '../../../tools/conceptmaps.js';
 import { getAdjacentPairs } from '../../../src/fml_base_conv/version_graph.js';
+import {
+  loadSourceDataset,
+  SOURCE_COMPONENT,
+} from '../../../tools/runtime-data-sources.js';
+
+const FML_DATASET_ROOT = path.resolve(import.meta.dirname, '../../../data/fhir-cross-version');
+const BUNDLED_XVER_ROOT = loadSourceDataset(
+  FML_DATASET_ROOT,
+  SOURCE_COMPONENT.FML_MAPPINGS,
+).sources[0].inputRoot;
 
 describe('tools/conceptmaps: scanConceptMaps', function () {
   let root;
@@ -67,7 +77,11 @@ describe('tools/conceptmaps: scanConceptMaps', function () {
 describe('tools/conceptmaps: bundled data integrity', function () {
   it('every adjacent pair resolves all referenced standalone ConceptMaps', function () {
     for (const [from, to] of getAdjacentPairs()) {
-      const { missingConceptMaps, parseErrors } = scanConceptMaps(from, to);
+      const { missingConceptMaps, parseErrors } = scanConceptMaps(
+        from,
+        to,
+        BUNDLED_XVER_ROOT,
+      );
       assert.deepEqual(
         missingConceptMaps, [],
         `${from}->${to} references absent standalone ConceptMap(s): ${missingConceptMaps.join(', ')}`,
@@ -79,4 +93,3 @@ describe('tools/conceptmaps: bundled data integrity', function () {
     }
   });
 });
-
