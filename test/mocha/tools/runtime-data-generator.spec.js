@@ -201,7 +201,7 @@ describe('tools/runtime-data-generator', function () {
         '--runtime-data-root', 'candidate',
         '--fhir-dataset-root', 'unused',
       ]),
-      /does not apply to a component build/,
+      /do not apply to a component build/,
     );
     assert.throws(
       () => parseBuildArgs([
