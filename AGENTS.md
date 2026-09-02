@@ -20,6 +20,7 @@ npm run check:runtime-data -- --runtime-data-root DIR --complete
 npm run check:runtime-data-sources
                              # maintainer: rebuild in temp and compare sources
 npm run check:package         # maintainer: validate package contents and size
+npm run install:test-browser # maintainer: one-time Chromium install for the harness below
 npm run test:installed-package
                              # maintainer: smoke-test the packed package
 node tools/check-data.js     # maintainer: check bundled cross-version data; report ambiguities

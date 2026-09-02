@@ -21,6 +21,11 @@ This project follows [Semantic Versioning](http://semver.org/).
 - The default converters and low-level FML engine now use committed in-memory
   runtime artifacts instead of reading raw data files. The default package
   entry still loads all supported runtime data modules.
+- Importing the default package entry now decodes all runtime data up front, so
+  it costs more time and memory than in 0.2.x, while the first and subsequent
+  conversions are faster. Applications that need only some version directions,
+  especially browser applications, should import `./converter-factory` with the
+  directional `./runtime/*` entry points instead.
 - Mapping descriptors returned by the low-level engine now expose the portable
   root-relative `virtualFile` field instead of the filesystem-only `filePath`.
 - Missing standalone ConceptMaps now fail runtime artifact generation. Strict
