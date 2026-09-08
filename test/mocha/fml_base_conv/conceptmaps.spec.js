@@ -75,6 +75,12 @@ describe('tools/conceptmaps: scanConceptMaps', function () {
 // or unparseable standalone ConceptMaps. This is the automated counterpart of
 // running tools/check-data.js against the default (bundled) data root.
 describe('tools/conceptmaps: bundled data integrity', function () {
+  // This scan performs roughly 3,400 synchronous file operations across the
+  // bundled snapshot: under 100 ms with a warm page cache, but tens of seconds
+  // on a cold one. The scan is synchronous, so this limit cannot interrupt it;
+  // it only decides whether the completed run is reported as a failure.
+  this.timeout(60000);
+
   it('every adjacent pair resolves all referenced standalone ConceptMaps', function () {
     for (const [from, to] of getAdjacentPairs()) {
       const { missingConceptMaps, parseErrors } = scanConceptMaps(
