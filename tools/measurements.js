@@ -108,5 +108,3 @@ export function artifactSizeRows(sizes) {
     ['compression ratio', `${(sizes.ratio * 100).toFixed(1)}% of canonical`],
   ];
 }
-
-

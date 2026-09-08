@@ -410,6 +410,28 @@ describe('tools/runtime-data-generator', function () {
     assertTreesEqual(firstRoot, target);
   });
 
+  it('rejects a symlinked alias of the source and leaves the source intact', async function () {
+    const source = path.join(tempRoot, 'alias-source');
+    const alias = path.join(tempRoot, 'alias-link');
+    fs.cpSync(firstRoot, source, { recursive: true });
+    fs.symlinkSync(source, alias, 'dir');
+    const sourceHashBefore = hashTree(source);
+
+    await assert.rejects(
+      () => copyRuntimeDataComponent({
+        component: RUNTIME_COMPONENT.FML_MAPPINGS,
+        fromRuntimeDataRoot: source,
+        toRuntimeDataRoot: alias,
+      }),
+      /overlaps protected input/,
+    );
+
+    // The guard has to fire before any mutation. Clearing the target rewrites
+    // the manifest and removes the component directory, so an alias that slips
+    // through destroys the very component being copied.
+    assert.equal(hashTree(source), sourceHashBefore);
+  });
+
   it('copies a complete runtime root to a new target', async function () {
     const source = path.join(tempRoot, 'complete-copy-source');
     const target = path.join(tempRoot, 'complete-copy-target');

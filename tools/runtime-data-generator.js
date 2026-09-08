@@ -373,7 +373,40 @@ async function generateComponentInto(component, datasetRoot, root) {
 }
 
 /**
+ * Resolve a path to its physical location, following symbolic links.
+ *
+ * Overlap checks must compare physical paths. `path.resolve` is purely
+ * lexical, so an alias of a protected input resolves to a different string
+ * and would pass a lexical guard, after which the caller would mutate the
+ * input it was meant to protect. A runtime root frequently does not exist
+ * yet, so the nearest existing ancestor is resolved and the remaining
+ * segments are reattached.
+ *
+ * @param {string} target Path to resolve.
+ * @returns {string} Absolute physical path.
+ */
+function physicalPath(target) {
+  const resolved = path.resolve(target);
+  let existing = resolved;
+  const pending = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(existing), ...pending);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      const parent = path.dirname(existing);
+      if (parent === existing) return resolved;
+      pending.unshift(path.basename(existing));
+      existing = parent;
+    }
+  }
+}
+
+/**
  * Verify a requested runtime output is safe and does not overlap inputs.
+ *
+ * Overlap is judged on physical paths so that a symbolic link cannot alias a
+ * protected input past the guard.
  *
  * @param {string} output Requested runtime root.
  * @param {string[]} sourceRoots Protected input roots.
@@ -384,13 +417,21 @@ function safeOutputPath(output, sourceRoots) {
     throw new Error('Runtime data root is required');
   }
   const resolved = path.resolve(output);
-  if (resolved === path.parse(resolved).root) {
-    throw new Error('Runtime data root must not be a filesystem root');
+  const physicalOutput = physicalPath(resolved);
+  for (const candidate of [resolved, physicalOutput]) {
+    if (candidate === path.parse(candidate).root) {
+      throw new Error('Runtime data root must not be a filesystem root');
+    }
   }
-  for (const sourceRoot of sourceRoots.map(value => path.resolve(value))) {
-    if (resolved === sourceRoot || sourceRoot.startsWith(`${resolved}${path.sep}`) ||
-        resolved.startsWith(`${sourceRoot}${path.sep}`)) {
-      throw new Error(`Runtime data root ${resolved} overlaps protected input ${sourceRoot}`);
+  for (const sourceRoot of sourceRoots) {
+    const physicalSource = physicalPath(sourceRoot);
+    if (physicalOutput === physicalSource ||
+        physicalSource.startsWith(`${physicalOutput}${path.sep}`) ||
+        physicalOutput.startsWith(`${physicalSource}${path.sep}`)) {
+      const via = physicalOutput === resolved ? '' : ` (which resolves to ${physicalOutput})`;
+      throw new Error(
+        `Runtime data root ${resolved}${via} overlaps protected input ${physicalSource}`,
+      );
     }
   }
 
