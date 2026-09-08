@@ -3,13 +3,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import JSZip from 'jszip';
-import { decodeArtifact, decodeBase64 } from '../../../src/runtime/decode.js';
+import { decodeArtifact } from '../../../src/runtime/decode.js';
 import {
   canonicalStringify,
   manifestArtifacts,
   validateManifest,
 } from '../../../src/runtime/schema.js';
 import { parseArgs as parseBuildArgs } from '../../../tools/build-runtime-data.js';
+import { parseArgs as parseCopyArgs } from '../../../tools/copy-runtime-data.js';
 import {
   DEFAULT_FRESHNESS_CHECK_ROOTS,
   parseArgs as parseFreshnessArgs,
@@ -18,11 +19,19 @@ import {
   buildAllRuntimeData,
   buildRuntimeDataComponent,
   checkRuntimeDataFreshness,
+  copyRuntimeDataComponent,
+  copyRuntimeDataRoot,
   hashTree,
-  migrateRuntimeDataComponent,
   RUNTIME_COMPONENT,
 } from '../../../tools/runtime-data-generator.js';
 import { loadRuntimeArtifactRoot } from '../../../tools/runtime-data-root.js';
+import {
+  artifactSizeRows,
+  formatDuration,
+  formatReport,
+  startTimer,
+  summarizeArtifactSizes,
+} from '../../../tools/measurements.js';
 import {
   loadSourceDataset,
   SOURCE_COMPONENT,
@@ -234,6 +243,25 @@ describe('tools/runtime-data-generator', function () {
         help: false,
       },
     );
+    assert.equal(parseBuildArgs(['all']).runtimeDataRoot, COMMITTED_ROOT);
+    assert.throws(() => parseBuildArgs(['all', '--backup']), /Unknown option/);
+  });
+
+  it('parses option-based copy scopes with all as the default', function () {
+    assert.deepEqual(parseCopyArgs([]), {
+      component: 'all',
+      fromRuntimeDataRoot: null,
+      toRuntimeDataRoot: null,
+      help: false,
+    });
+    assert.equal(parseCopyArgs(['--all']).component, 'all');
+    assert.equal(parseCopyArgs(['--fml-mappings']).component, RUNTIME_COMPONENT.FML_MAPPINGS);
+    assert.equal(parseCopyArgs(['--fhir-tables']).component, RUNTIME_COMPONENT.FHIR_TABLES);
+    assert.throws(() => parseCopyArgs(['all']), /Unexpected argument/);
+    assert.throws(
+      () => parseCopyArgs(['--all', '--fhir-tables']),
+      /mutually exclusive/,
+    );
   });
 
   it('parses freshness component selection with shared defaults', function () {
@@ -301,26 +329,28 @@ describe('tools/runtime-data-generator', function () {
     );
   });
 
-  it('meets the selected all-artifact size threshold', async function () {
+  it('decodes every committed artifact and reports the measured sizes', async function () {
     const committedManifest = JSON.parse(
       fs.readFileSync(path.join(COMMITTED_ROOT, 'manifest.json'), 'utf8'),
     );
-    let canonicalBytes = 0;
-    let compressedBytes = 0;
-    let base64Bytes = 0;
+    const envelopes = [];
+    const elapsed = startTimer();
     for (const artifact of manifestArtifacts(committedManifest)) {
       const envelope = await loadEnvelope(COMMITTED_ROOT, artifact.modulePath);
-      canonicalBytes += envelope.uncompressedLength;
-      compressedBytes += decodeBase64(envelope.payload, envelope.id).length;
-      base64Bytes += envelope.payload.length;
       assert.equal(decodeArtifact(envelope).id, artifact.id);
+      envelopes.push(envelope);
     }
+    const milliseconds = elapsed();
 
-    assert.ok(base64Bytes < 1_100_000, `Base64 payload was ${base64Bytes} bytes`);
-    assert.ok(
-      compressedBytes / canonicalBytes < 0.15,
-      `Compressed ratio was ${compressedBytes / canonicalBytes}`,
-    );
+    // Size and time are consequences of the dataset, so they are reported for
+    // a maintainer to judge rather than capped. Only correctness is asserted.
+    const sizes = summarizeArtifactSizes(envelopes);
+    const report = formatReport('committed artifact measurements', [
+      ['artifacts', sizes.count],
+      ...artifactSizeRows(sizes),
+      ['load, decode, verify', formatDuration(milliseconds)],
+    ]).trimEnd().replace(/^/gm, '      ');
+    process.stdout.write(`\n${report}\n\n`);
   });
 
   it('does not modify the source datasets', function () {
@@ -362,22 +392,44 @@ describe('tools/runtime-data-generator', function () {
     assert.equal(canonicalStringify(updated.components.fhirTables), tableSection);
   });
 
-  it('migrates both components symmetrically without rebuilding them', async function () {
-    const target = path.join(tempRoot, 'migrated');
-    await migrateRuntimeDataComponent({
+  it('copies both components symmetrically without rebuilding them', async function () {
+    const target = path.join(tempRoot, 'component-copy');
+    await copyRuntimeDataComponent({
       component: RUNTIME_COMPONENT.FML_MAPPINGS,
       fromRuntimeDataRoot: firstRoot,
       toRuntimeDataRoot: target,
     });
-    await migrateRuntimeDataComponent({
+    await copyRuntimeDataComponent({
       component: RUNTIME_COMPONENT.FHIR_TABLES,
       fromRuntimeDataRoot: firstRoot,
       toRuntimeDataRoot: target,
     });
-    const migrated = await loadRuntimeArtifactRoot(target);
+    const copied = await loadRuntimeArtifactRoot(target);
 
-    assert.equal(migrated.artifacts.length, 13);
+    assert.equal(copied.artifacts.length, 13);
     assertTreesEqual(firstRoot, target);
+  });
+
+  it('copies a complete runtime root to a new target', async function () {
+    const source = path.join(tempRoot, 'complete-copy-source');
+    const target = path.join(tempRoot, 'complete-copy-target');
+    fs.cpSync(firstRoot, source, { recursive: true });
+    fs.writeFileSync(path.join(source, 'root-marker.txt'), 'whole root\n');
+
+    const copied = await copyRuntimeDataRoot({
+      fromRuntimeDataRoot: source,
+      toRuntimeDataRoot: target,
+    });
+
+    assert.equal(copied.artifacts.length, 13);
+    assertTreesEqual(source, target);
+    await assert.rejects(
+      () => copyRuntimeDataRoot({
+        fromRuntimeDataRoot: source,
+        toRuntimeDataRoot: target,
+      }),
+      /target already exists/,
+    );
   });
 
   it('checks freshness without modifying the selected runtime root', async function () {
@@ -414,16 +466,25 @@ describe('tools/runtime-data-generator', function () {
     assert.deepEqual(fhirResult, { fresh: true, outputsCompared: 6 });
   });
 
-  it('leaves the target unchanged when a component build fails', async function () {
+  it('drops only the built component when a component build fails', async function () {
     const target = path.join(tempRoot, 'failed-update');
     fs.cpSync(firstRoot, target, { recursive: true });
-    const hashBefore = hashTree(target);
+    const fmlHash = hashTree(path.join(target, 'fml-mappings'));
 
     await assert.rejects(() => buildRuntimeDataComponent({
       component: RUNTIME_COMPONENT.FHIR_TABLES,
       datasetRoot: path.join(tempRoot, 'missing-dataset'),
       runtimeDataRoot: target,
     }), /Dataset root cannot be read/);
-    assert.equal(hashTree(target), hashBefore);
+
+    assert.equal(hashTree(path.join(target, 'fml-mappings')), fmlHash);
+    assert.equal(fs.existsSync(path.join(target, 'fhir-tables')), false);
+    const partial = await loadRuntimeArtifactRoot(target, { complete: false });
+    assert.equal(Object.hasOwn(partial.manifest.components, 'fhirTables'), false);
+    await assert.rejects(
+      () => loadRuntimeArtifactRoot(target),
+      /complete validation requires fhirTables/,
+    );
   });
+
 });

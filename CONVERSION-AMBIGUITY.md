@@ -18,14 +18,14 @@ see the details below.
 There is more than one mapping file to choose from for the same source-target resource
 type pair; see the details below.
 
-### ServiceRequest, R4 -> R3 (Type A)
+## ServiceRequest, R4 -> R3 (Type A)
 - **Step 1 (Type A):** the target type cannot be uniquely identified -- the
   source may be mapped to either ProcedureRequest or ReferralRequest.
 - **Step 2:** once the target type is explicitly specified, exactly one mapping
   file applies -- ServiceRequestPR.fml for ProcedureRequest and
   ServiceRequestRR.fml for ReferralRequest -- so there is no further ambiguity.
 
-### ProcedureRequest, R3 -> R2 (Types A and B)
+## ProcedureRequest, R3 -> R2 (Types A and B)
 - **Step 1 (Type A):** the target type cannot be uniquely identified -- the
   source may be mapped to either DiagnosticOrder or ProcedureRequest.
 - **Step 2 (Type B):** if the target type DiagnosticOrder is explicitly

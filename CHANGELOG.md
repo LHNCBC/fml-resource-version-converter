@@ -3,7 +3,7 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
-## [0.3.0] - 2026-09-01
+## [0.3.0] - 2026-09-08
 
 ### Added
 
@@ -12,9 +12,12 @@ This project follows [Semantic Versioning](http://semver.org/).
   entry point for synchronous Node and browser use.
 - Added deterministic compressed runtime artifacts, provenance validation,
   alternate-root maintainer tooling, and package-content validation.
-- Added strictly validated `sources.yaml` datasets, independent FML and FHIR
-  component build commands, symmetric component migration, and explicit
-  runtime-root and component-selectable freshness checks.
+- Added strictly validated `sources.yaml` datasets, independent in-place FML and
+  FHIR component build commands that default to `data/runtime`, symmetric
+  component and complete-root copy tooling, and explicit runtime-root and
+  component-selectable freshness checks.
+- Added `DATA-MAINTENANCE.md`, moving data maintenance instructions out of
+  `CONTRIBUTING.md`.
 
 ### Changed
 

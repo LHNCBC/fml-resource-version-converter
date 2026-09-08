@@ -30,15 +30,6 @@ Artifact envelopes carry the identity, hash, source identities, codec, and
 uncompressed length needed for runtime assembly and strict maintainer
 validation.
 
-## Artifact regression thresholds
-
-The committed 13-artifact set should remain below 1.1 MB of Base64 payload and
-15% of its canonical uncompressed size. A representative R4-to-R5 selection
-(the mapping plus R4 and R5 tables) should have a median full initialization
-time below 150 ms on the project's Node 20-or-newer maintainer baseline. Full
-initialization includes Base64 decoding, decompression, JSON parsing, and
-schema validation. These deliberately loose limits catch
-substantial regressions without treating local timing noise as a failure.
 
 ## Engine factory compatibility
 

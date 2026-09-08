@@ -3,6 +3,7 @@
  * @fileoverview Component-oriented runtime-data build CLI.
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -10,9 +11,16 @@ import {
   buildRuntimeDataComponent,
   RUNTIME_COMPONENT,
 } from './runtime-data-generator.js';
+import {
+  formatBytes,
+  formatDuration,
+  formatReport,
+  startTimer,
+} from './measurements.js';
 
 const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(TOOL_DIR, '..');
+const DEFAULT_RUNTIME_DATA_ROOT = path.join(PROJECT_ROOT, 'data/runtime');
 const DEFAULT_FML_DATASET_ROOT = path.join(PROJECT_ROOT, 'data/fhir-cross-version');
 const DEFAULT_FHIR_DATASET_ROOT = path.join(PROJECT_ROOT, 'data/fhir-spec-downloads');
 
@@ -24,11 +32,13 @@ const DEFAULT_FHIR_DATASET_ROOT = path.join(PROJECT_ROOT, 'data/fhir-spec-downlo
 function printUsage() {
   console.log(`Usage:
   node tools/build-runtime-data.js <fml-mappings|fhir-tables> \\
-    --runtime-data-root DIR [--dataset-root DIR]
+    [--runtime-data-root DIR] [--dataset-root DIR]
 
-  node tools/build-runtime-data.js all --runtime-data-root DIR \\
+  node tools/build-runtime-data.js all \\
+    [--runtime-data-root DIR] \\
     [--fml-dataset-root DIR] [--fhir-dataset-root DIR]
 
+The build writes into the runtime root in place, defaulting to data/runtime.
 Each component build replaces only its owned directory and manifest section.
 The all build runs the same two builders and validates the complete result.
 `);
@@ -57,7 +67,7 @@ function optionValue(argv, index) {
 export function parseArgs(argv) {
   const options = {
     component: null,
-    runtimeDataRoot: null,
+    runtimeDataRoot: DEFAULT_RUNTIME_DATA_ROOT,
     datasetRoot: null,
     fmlDatasetRoot: DEFAULT_FML_DATASET_ROOT,
     fhirDatasetRoot: DEFAULT_FHIR_DATASET_ROOT,
@@ -96,7 +106,6 @@ export function parseArgs(argv) {
     }
   }
   if (options.help) return options;
-  if (!options.runtimeDataRoot) throw new Error('--runtime-data-root is required');
   if (![
     RUNTIME_COMPONENT.FML_MAPPINGS,
     RUNTIME_COMPONENT.FHIR_TABLES,
@@ -116,6 +125,25 @@ export function parseArgs(argv) {
 }
 
 /**
+ * Measure the generated modules a manifest section indexes.
+ *
+ * @param {string} root Runtime root written by the build.
+ * @param {Object[]} artifacts Manifest artifact entries.
+ * @returns {Array<[string, string]>} Measurement rows.
+ */
+function sizeRows(root, artifacts) {
+  const canonicalBytes = artifacts.reduce((sum, entry) => sum + entry.uncompressedLength, 0);
+  const moduleBytes = artifacts.reduce((sum, entry) =>
+    sum + fs.statSync(path.join(root, ...entry.modulePath.split('/'))).size, 0);
+
+  return [
+    ['canonical JSON', formatBytes(canonicalBytes)],
+    ['generated modules', formatBytes(moduleBytes)],
+    ['module size ratio', `${((moduleBytes / canonicalBytes) * 100).toFixed(1)}% of canonical`],
+  ];
+}
+
+/**
  * Run the maintainer build CLI.
  *
  * @param {string[]} argv Arguments after the script name.
@@ -129,13 +157,20 @@ export async function main(argv) {
 
       return 0;
     }
+    const root = path.resolve(options.runtimeDataRoot);
+    const elapsed = startTimer();
     if (options.component === 'all') {
       const manifest = await buildAllRuntimeData(options);
-      console.error(
-        `Built ${manifest.components.fmlMappings.artifacts.length} FML mapping and ` +
-        `${manifest.components.fhirTables.artifacts.length} FHIR table artifacts in ` +
-        path.resolve(options.runtimeDataRoot),
-      );
+      const artifacts = [
+        ...manifest.components.fmlMappings.artifacts,
+        ...manifest.components.fhirTables.artifacts,
+      ];
+      process.stderr.write(formatReport(`Built both components in ${root}.`, [
+        ['fml-mappings artifacts', manifest.components.fmlMappings.artifacts.length],
+        ['fhir-tables artifacts', manifest.components.fhirTables.artifacts.length],
+        ...sizeRows(root, artifacts),
+        ['build and validate', formatDuration(elapsed())],
+      ]));
     } else {
       const datasetRoot = options.datasetRoot || (
         options.component === RUNTIME_COMPONENT.FML_MAPPINGS
@@ -147,10 +182,11 @@ export async function main(argv) {
         datasetRoot,
         runtimeDataRoot: options.runtimeDataRoot,
       });
-      console.error(
-        `Built ${section.artifacts.length} ${options.component} artifacts in ` +
-        path.resolve(options.runtimeDataRoot),
-      );
+      process.stderr.write(formatReport(`Built ${options.component} in ${root}.`, [
+        ['artifacts', section.artifacts.length],
+        ...sizeRows(root, section.artifacts),
+        ['build', formatDuration(elapsed())],
+      ]));
     }
 
     return 0;

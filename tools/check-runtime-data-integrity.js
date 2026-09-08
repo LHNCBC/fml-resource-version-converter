@@ -13,6 +13,16 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadRuntimeArtifactRoot } from './runtime-data-root.js';
+import {
+  artifactSizeRows,
+  formatDuration,
+  formatReport,
+  startTimer,
+  summarizeArtifactSizes,
+} from './measurements.js';
+
+const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_RUNTIME_DATA_ROOT = path.resolve(TOOL_DIR, '../data/runtime');
 
 /**
  * Check the integrity of one runtime-data root.
@@ -40,7 +50,11 @@ export async function checkRuntimeDataIntegrity(runtimeDataRoot, options = {}) {
  * @returns {Object} Parsed options.
  */
 export function parseArgs(argv) {
-  const options = { runtimeDataRoot: null, complete: false, help: false };
+  const options = {
+    runtimeDataRoot: DEFAULT_RUNTIME_DATA_ROOT,
+    complete: false,
+    help: false,
+  };
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index];
     if (argument === '--complete') {
@@ -72,19 +86,27 @@ export async function main(argv) {
     if (options.help) {
       console.log(
         'Usage: node tools/check-runtime-data-integrity.js ' +
-        '--runtime-data-root DIR [--complete]',
+        '[--runtime-data-root DIR] [--complete]\n' +
+        'The runtime-data root defaults to data/runtime.',
       );
 
       return 0;
     }
-    if (!options.runtimeDataRoot) throw new Error('--runtime-data-root is required');
+    const elapsed = startTimer();
     const loaded = await checkRuntimeDataIntegrity(options.runtimeDataRoot, {
       complete: options.complete,
     });
-    console.error(
-      `Validated ${loaded.artifacts.length} runtime artifacts in ` +
-      `${path.resolve(options.runtimeDataRoot)}${options.complete ? ' as a complete root' : ''}.`,
-    );
+    const milliseconds = elapsed();
+    const sizes = summarizeArtifactSizes(loaded.artifacts.map(item => item.envelope));
+    process.stderr.write(formatReport(
+      `Integrity verified for ${path.resolve(options.runtimeDataRoot)}` +
+      `${options.complete ? ' as a complete root' : ''}.`,
+      [
+        ['artifacts', sizes.count],
+        ...artifactSizeRows(sizes),
+        ['load, decode, validate', formatDuration(milliseconds)],
+      ],
+    ));
 
     return 0;
   } catch (error) {

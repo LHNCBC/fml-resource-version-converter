@@ -14,6 +14,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkRuntimeDataFreshness } from './runtime-data-generator.js';
+import { formatDuration, formatReport, startTimer } from './measurements.js';
 
 const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(TOOL_DIR, '..');
@@ -113,11 +114,15 @@ export async function main(argv) {
 
       return 0;
     }
+    const elapsed = startTimer();
     const result = await runFreshnessCheck(options);
-    console.error(
-      `${options.component} runtime data matches declared sources ` +
-      `(${result.outputsCompared} indexed outputs).`,
-    );
+    process.stderr.write(formatReport(
+      `${options.component} runtime data matches declared sources.`,
+      [
+        ['indexed outputs compared', result.outputsCompared],
+        ['rebuild and compare', formatDuration(elapsed())],
+      ],
+    ));
 
     return 0;
   } catch (error) {

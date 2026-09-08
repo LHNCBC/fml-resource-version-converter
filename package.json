@@ -42,6 +42,7 @@
     "CHANGELOG.md",
     "COVERAGE.md",
     "CONTRIBUTING.md",
+    "DATA-MAINTENANCE.md",
     "CONVERSION-AMBIGUITY.md",
     "LICENSE.md"
   ],
@@ -68,8 +69,7 @@
     "build:coverage": "node tools/build-coverage.js",
     "download:fhir-specs": "node tools/download-fhir-specs.js",
     "build:runtime-data": "node tools/build-runtime-data.js",
-    "build:runtime-data:all": "node tools/build-runtime-data.js all",
-    "migrate:runtime-data": "node tools/migrate-runtime-data.js",
+    "copy:runtime-data": "node tools/copy-runtime-data.js",
     "check:runtime-data-integrity": "node tools/check-runtime-data-integrity.js",
     "check:runtime-data-freshness": "node tools/check-runtime-data-freshness.js",
     "check:package": "node tools/check-package.js",

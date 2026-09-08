@@ -2,23 +2,22 @@
 
 Thank you for helping improve the FML-based FHIR Resource Version Converter.
 
-Due to the number of FHIR resource types and versions, this project is meant to
-grow incrementally, and community help is invaluable.
-The FML mapping engine provides the base conversion, but the mapping files are
-sometimes incomplete. Individual assessments are therefore needed, and
-postprocessors can be added to address the issues found - this is an area where
-community contributions make the most impact.
+If not already, please read the [README.md](README.md) and
+[COVERAGE.md](COVERAGE.md) to better understand the project and its current
+coverage status.
 
-For example, if you find yourself converting resources of type T from version V1
-to V2 and this package's coverage status for this conversion is "not_reviewed"
-or "known_gaps", you can review the FML mapping/conversion, create a postprocessor
-if needed, and contribute your work back to this project. Thank you!
+For the most part, contributions come in the form of reviewing FML
+(FHIR Mapping Language) mapping based conversions
+and implementing postprocessors as needed to improve the conversion output.
+For example, you can review the mapping for the Patient resource conversion
+from R4 to R5, identify the gaps, and then implement a postprocessor to
+address the issues to the best degree possible.
 
-This repository retains an HL7 fhir-cross-version snapshot and specification
-inputs used to generate the compressed runtime data shipped by the package.
-Normally you would not need to update these datasets, but if you do, for
-example to add a FHIR version or adopt newer mapping files, see the
-`Repository data` section for instructions.
+This package ships with a runtime dataset that is generated from HL7's
+fhir-cross-version mapping data and the FHIR specifications. Normally you
+wouldn't need to worry about updating these datasets, but if you do, for
+example to add a new FHIR version or to adopt a newer version of the mapping
+files, see [DATA-MAINTENANCE.md](DATA-MAINTENANCE.md) for instructions.
 
 
 ## Development setup
@@ -35,16 +34,17 @@ Run the full test suite:
 npm test
 ```
 
-Run the build, which will generate/regenerate the coverage document, `COVERAGE.md`:
+Regenerate the coverage document, `COVERAGE.md` (`npm run build` is an alias
+for this, and is the only "build" that contributors normally run):
 
 ```bash
-npm run build
+npm run build:coverage
 ```
 
 Before submitting a change, run both:
 
 ```bash
-npm run build
+npm run build:coverage
 npm test
 ```
 
@@ -56,27 +56,23 @@ A single-hop conversion (between adjacent versions) runs in this order:
 2. Deep-clone the caller's input resource.
 3. Run caller preprocessors, if any.
 4. Run the FML mapping.
-5. Run package and/or caller postprocessors.
-6. Return the converted resource plus coverage, status, and diagnostics.
+5. Run package and/or caller-provided postprocessors.
+6. Return the result object that includes converted resource plus coverage,
+   status, and diagnostics.
 
-Conversions are defined only between adjacent versions and per direction (for
-example, R3->R4 and R4->R3 are separate). A non-adjacent conversion such as
-R3->R5 runs as a chain of single hops (R3->R4->R5), and the chain's coverage
-rolls up to the lowest hop. Each hop is therefore reviewed and labeled
-independently.
-
-The FML engine code under `src/fml_base_conv/` should faithfully execute the
+The FML engine under `src/fml_base_conv/` should faithfully execute the
 FML mappings. When an FML mapping is found to be incomplete or erroneous, either:
 - add a postprocessor to correct the output, rather than making ad hoc fixes
   to the engine for a specific mapping, or
 - fix the FML mapping file itself and work with HL7 to get the fix into the
-  official fhir-cross-version project.
+  official fhir-cross-version project - see
+  [DATA-MAINTENANCE.md](DATA-MAINTENANCE.md) for further details.
 
 ## Coverage levels
 
 Coverage describes the level of completeness of conversions. It is separate
 from runtime status. The coverage levels are **not_reviewed**, **known_gaps**,
-**best_effort**, and **complete**. See [Coverage levels](README.md#coverage-levels)
+**best_effort**, **complete**, and **neutral**. See [Coverage levels](README.md#coverage-levels)
 in `README.md` for their definitions.
 
 The postprocessor registry files, e.g. `src/postprocessors/R4_R5/registry_R4_to_R5.js`,
@@ -92,22 +88,19 @@ When you assign a coverage level:
   input. Inter-version extensions (IVE) and `contained[]` conversion are out of
   scope and do not lower a coverage claim.
 - "Lossy but unavoidable" (source content with no target representation) is
-  conventionally best_effort, not complete.
+  conventionally **best_effort**, not **complete**.
 - A postprocessor must never lower the running coverage level.
 
 
 ## Onboarding a resource type
 
-The FML engine already maps every resource type for the versions supported,
-so onboarding is not about adding a mapping. It means reviewing a resource's
-FML conversion for a version pair, assigning an honest coverage level, and,
+The FML engine can already convert every resource type for the versions
+supported by executing the FML mapping files. Therefore, onboarding is not
+about adding support for new resource types or versions, it's about
+reviewing a resource's FML conversion, assigning an honest coverage level, and,
 where the FML falls short, adding a postprocessor to improve the output.
-The review is the real work; any code follows from it.
 
-### Step 1 - Review the FML output
-
-Goal: find the concrete gaps between the FML-converted result and a correct
-target-version resource.
+### Step 1 - Review the FML conversion and identifying gaps
 
 1. Compare the FHIR specification for the source and target versions to see
    the differences. A good place to start is the target version's specification
@@ -117,8 +110,8 @@ target-version resource.
    has a "R3 Diff" tab that shows the changes from R3.
 2. Review the FML mapping to identify the gaps. If you are comfortable with FML,
    you can review the mapping file directly and see whether/where it falls short.
-   Otherwise, you can create one or more representative source resources under
-   `test/data/` to cover the fields you expect to be risky, run the conversion,
+   Otherwise, you can create one or more representative source resources
+   to cover the fields you expect to be risky, run the conversion,
    and inspect the output. Such tests are recommended even if you've reviewed
    the FML mappings, and the sample resources are handy for writing mocha tests.
    A quick harness:
@@ -133,7 +126,7 @@ target-version resource.
 Typical gap categories to look for:
 
 - Elements valid in the source with no target equivalent (dropped -> lossy).
-- Elements renamed or restructured across versions (FML leaves the old shape).
+- Elements renamed or restructured across versions.
 - Cardinality changes, e.g. target 0..1 vs source 0..*, or vice versa.
 - Choice type `[x]` mismatches and value-set/enum changes.
 - Invalid output: the FML emitted a field the target schema does not allow.
@@ -204,12 +197,12 @@ src/postprocessors/
 The top-level registry, `src/postprocessors/registry.js`, automatically combines
 the direction-specific registries during initialization. If a resource type has
 no explicit entry in a specific registry (e.g., registry_R4_to_R5.js) but an FML
-mapping exists, the lookup returns the default entry with FML coverage set to
+mapping exists, the lookup returns a default entry with FML coverage set to
 **not_reviewed** and no package postprocessors.
 
-Registry resource type keys use the type entering the conversion hop. If
-the mapping renames the resource, register the postprocessor under the source
-type; its `target` argument still contains the converted output resource.
+Registry resource type keys use the resource type from the **source** (from)
+version. For example, if the resource type is renamed in the target version,
+register the postprocessor under the source type.
 
 Let's walk through a hypothetical example before explaining the details. Suppose
 the FML mapping for ResourceTypeX from R4 to R5 drops the field someFieldFoo when
@@ -275,13 +268,13 @@ export { registry };
 The postprocessor entries in the registries are postprocessor descriptors,
 which are objects with the following properties:
 
-- `name`: required stable name for reporting and diagnostics.
-- `execute`: required postprocessor function. It receives the
+- `name`: required, stable name for reporting and diagnostics.
+- `execute`: required, postprocessor function. It receives the
   FML-converted target resource and a conversion context, and returns
   `{ resource, status, messages }`.
-- `coverage`: optional coverage level after this postprocessor runs. Omit it or
+- `coverage`: optional, coverage level after this postprocessor runs. Omit it or
   use `COVERAGE.NEUTRAL` when the processor does not change the coverage claim.
-- `description`: optional human-readable explanation of what the processor does
+- `description`: optional, human-readable explanation of what the processor does
   and any important limitations.
 
 Postprocessor descriptors may contain additional fields for local use, but the
@@ -294,14 +287,12 @@ Processor rules:
 - Return `{ resource, status, messages }`.
 - `status` must match message severity in both directions: `status` is `warning`
   if and only if at least one warning message is present. Deriving it with
-  `statusFromMessages(messages)` satisfies this automatically. (A warning-level
-  message must raise the status; if no status impact is intended, use an info
-  message instead.)
+  `statusFromMessages(messages)` satisfies this automatically.
 - Use `infoMessage()` for non-lossy notes and `warningMessage()` for lossy or
   potentially surprising behavior.
 - Add JSDoc to functions.
 
-The postprocessor context includes:
+The postprocessor conversion context includes:
 - `sourceResource`: the resource immediately before the FML step, after any
   caller preprocessors.
 - `fromVer`: source version token.
@@ -359,7 +350,6 @@ Cover, at minimum:
 - Each corrected field, before and after.
 - The status/message contract: a warning message is present if and only if the
   status is `warning`.
-- No-op safety on inputs that have none of the risky fields.
 
 Useful test locations include:
 
@@ -370,232 +360,14 @@ Useful test locations include:
 - `test/mocha/fml_base_conv/` for FML parser and engine behavior.
 - `test/data/` for representative FHIR input resources.
 
-
-Run:
-
-```bash
-npm run build
-npm test
-```
-
 ## Submitting a pull request
 
 - Work on a branch and open the pull request against `master`.
-- Keep the change focused - one resource type and version pair per pull request
-  where practical.
-- Make sure `npm run build` and `npm test` both pass, and include the
+- Make sure `npm run build:coverage` and `npm test` both pass, and include the
   regenerated `COVERAGE.md` if you changed a registry entry.
 - In the description, summarize what you reviewed and why you chose the
   coverage level.
 
-## Repository data
-
-The repository retains two categories of FHIR source data with different
-purposes and update procedures. The npm package ships only the generated runtime
-artifacts under `data/runtime/`.
-
-### Directory `data/fhir-cross-version/`
-
-This directory contains a checked-in snapshot of HL7's
-`fhir-cross-version` project. It remains reviewable in the repository but is
-not published in the npm package. The runtime generator distills its FML and
-ConceptMap inputs into the committed modules under `data/runtime/`.
-
-Please exercise caution if you plan to update the snapshot. An update to the FML
-mapping files may invalidate some postprocessors, because they operate on the
-output of the FML mapping step. The fhir-cross-version project is also still at
-an early stage. That said, if an update is justified, go ahead.
-
-Use the canonical HL7 repository whenever practical. Adopting a fork is a last
-resort that requires explicit maintainer approval because the project must then
-keep that fork synchronized with upstream. The comments and fields in
-`data/fhir-cross-version/sources.yaml` are the authoritative source and fork
-policy.
-
-To update this snapshot:
-
-1. Update `data/fhir-cross-version/sources.yaml`, including the source URL,
-   commit, snapshot date, license, `modifiedFromUpstream` status, and any
-   applicable modification notes.
-2. Update the snapshot files in `data/fhir-cross-version/input` with the new
-   files from the fhir-cross-version project.
-3. Build the FML component into a candidate runtime root:
-
-   ```bash
-   npm run build:runtime-data -- \
-     fml-mappings \
-     --runtime-data-root /path/to/candidate-runtime
-   ```
-
-4. If a complete candidate is useful, explicitly migrate the unchanged FHIR
-   component and validate the result:
-
-   ```bash
-   npm run migrate:runtime-data -- \
-     fhir-tables \
-     --from-runtime-data-root data/runtime \
-     --to-runtime-data-root /path/to/candidate-runtime
-
-   npm run check:runtime-data-integrity -- \
-     --runtime-data-root /path/to/candidate-runtime \
-     --complete
-   ```
-
-5. After review, run the FML component build with `data/runtime` as its selected
-   target. It replaces only `fml-mappings/` and
-   `manifest.components.fmlMappings`.
-6. Run the data-integrity check (see below) and address anything it reports.
-7. Re-run the FML parser tests and conversion tests.
-8. Review behavior changes for any resource and version pair affected by the
-   new mappings.
-9. Update postprocessors as needed and regenerate (no hand editing) `COVERAGE.md`.
-10. Run the complete runtime integrity, freshness, package, and full test checks
-    described below.
-
-#### Checking the snapshot with `tools/check-data.js`
-
-After refreshing the snapshot, run:
-
-```bash
-node tools/check-data.js
-```
-
-Snapshot refreshes are infrequent, so this is deliberately a manual step and is
-not part of `npm test`. The tool reports two things:
-
-- **ConceptMap integrity.** Every standalone ConceptMap referenced by the FML
-  mappings must be present and parseable. A problem here is a genuine error and
-  the tool exits non-zero.
-- **Mapping selection ambiguities (informational).** The FML files may declare
-  a source resource type with more than one target type (Type A), or a single
-  source/target pair served by more than one mapping file (Type B). These are
-  not errors and do not affect the exit code, but they are something you should
-  be aware of and address appropriately.
-
-Compare the reported ambiguities against
-[CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md). If an entry has appeared or
-disappeared, update that document, and update `README.md` as well if a
-documented limitation changed. A new Type B ambiguity on an actively supported
-version pair is worth a closer look, since the converter cannot currently
-resolve one on its own.
-
-### FHIR table sources and `data/fhir-spec-downloads/`
-
-The directory `data/fhir-spec-downloads/` contains official FHIR specification
-archives. They are not shipped with the package, but maintainers use them to
-build the FHIR tables embedded in `data/runtime/`.
-
-`data/fhir-spec-downloads/sources.yaml` is the authoritative source
-configuration for these archives. The downloader and builder both read it, so
-publication URLs, versions, paths, dates, and licenses are not duplicated in
-code or documentation. The FHIR builder reads the declared bundles from each
-ZIP in memory and writes the compressed runtime artifacts directly. The FML
-engine uses those artifacts to understand FHIR JSON details that are not
-explicitly represented in the FML mappings, such as:
-
-- polymorphic field names, for example `Observation.value[x]`
-- array/cardinality paths
-- scalar element types that may need type conversion
-
-Do not edit the generated runtime artifacts or manifest by hand.
-
-#### Regenerate the FHIR table artifacts
-
-Download missing specification archives and verify every declared ZIP:
-
-```bash
-npm run download:fhir-specs
-```
-
-Build only the FHIR component into a selected runtime-data root:
-
-```bash
-npm run build:runtime-data -- \
-  fhir-tables \
-  --runtime-data-root /path/to/candidate-runtime
-```
-
-This may produce a valid partial workspace. To make it complete without
-rebuilding the unchanged FML component, migrate that component explicitly and
-then validate the complete root:
-
-```bash
-npm run migrate:runtime-data -- \
-  fml-mappings \
-  --from-runtime-data-root data/runtime \
-  --to-runtime-data-root /path/to/candidate-runtime
-
-npm run check:runtime-data-integrity -- \
-  --runtime-data-root /path/to/candidate-runtime \
-  --complete
-```
-
-To rebuild both components directly from their authoritative source datasets:
-
-```bash
-npm run build:runtime-data:all -- \
-  --runtime-data-root /path/to/candidate-runtime
-```
-
-#### Alternate datasets and runtime roots
-
-An alternate dataset is a complete directory with `sources.yaml` at its root
-and all referenced inputs below that root. Select one alternate dataset for an
-individual component build:
-
-```bash
-npm run build:runtime-data -- \
-  fml-mappings \
-  --runtime-data-root /path/to/alternate-runtime \
-  --dataset-root /path/to/alternate-fml-dataset
-```
-
-For a full build, use `--fml-dataset-root` and `--fhir-dataset-root` to select
-either or both alternate datasets. Individual metadata fields cannot be
-overridden on the command line.
-
-Generated data is reused only through the explicit, symmetric migration
-command. It accepts either `fml-mappings` or `fhir-tables` and copies only the
-selected component directory and manifest section.
-
-Runtime-data build and migration commands assume a single writer. Do not run
-concurrent mutating commands against the same runtime-data root.
-
-Alternate runtime roots are trusted maintainer inputs. Loading their
-JavaScript artifact modules executes code from the selected root before the
-exported envelopes are decoded and checked. Do not load a root from an
-untrusted source.
-
-Validate the selected committed root without rebuilding it:
-
-```bash
-npm run check:runtime-data-integrity -- \
-  --runtime-data-root data/runtime \
-  --complete
-```
-
-Test the complete source-to-runtime build before release or after changing
-raw sources:
-
-```bash
-npm run check:runtime-data-freshness
-```
-
-It requires all declared official archives. The command rebuilds both
-components under a temporary directory, compares the 14 indexed outputs
-byte-for-byte, and removes the temporary build. It never rewrites the selected
-runtime-data root.
-
-During component development, select only the component being changed:
-
-```bash
-npm run check:runtime-data-freshness -- fml-mappings
-npm run check:runtime-data-freshness -- fhir-tables
-```
-
-A component check compares only its manifest section and artifact files and
-does not inspect the other component. Always use the default full check for
-release validation.
 
 Please feel free to reach out if you have any questions or need assistance -
 open an [issue](https://github.com/LHNCBC/fml-resource-version-converter/issues).

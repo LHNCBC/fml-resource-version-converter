@@ -12,14 +12,13 @@ The package uses two artifact families:
 
 Each JavaScript artifact is a dependency-free envelope containing identifying
 metadata and a Base64-encoded deterministic zlib-wrapped DEFLATE payload.
-Maintainer generation, alternate-root loading, and package validation verify
-the SHA-256 digest and canonical JSON. At application startup, package-owned
-artifacts retain envelope, codec, decoded-length, JSON, and payload-schema
-validation without repeating those publication checks. `manifest.json` is the
-generated artifact index. Its independent `components.fmlMappings` and
-`components.fhirTables` sections each record their own generator, format,
-sources, hashes, and artifact entries. Builders replace their complete owned
-section; the manifest is not source configuration.
+`manifest.json` is the generated artifact index. Its independent
+`components.fmlMappings` and `components.fhirTables` sections each record their
+own generator, format, sources, hashes, and artifact entries. Builders replace
+their complete owned section; the manifest is not source configuration.
+
+`src/runtime/README.md` describes the envelope formats, the schema versions,
+and which validation runs at publication time versus application startup.
 
 ## FHIR structure tables
 
@@ -38,47 +37,11 @@ official HL7 FHIR publications. They contain:
 The single authoritative list of publications, URLs, archive paths, versions,
 dates, licenses, and ZIP-internal bundle paths is
 `data/fhir-spec-downloads/sources.yaml`. The downloader and builder both read
-that file; these values are not duplicated in code or this README.
+that file.
 
-## Repository maintainer regeneration
+## Runtime data regeneration/maintenance
 
-The following commands are available only from a source checkout. The
-published package does not include the source datasets or `tools/` programs
-needed to regenerate runtime data.
-
-The source archives are downloaded beneath the mostly Git-ignored
-`data/fhir-spec-downloads/` dataset and are neither required at runtime nor
-published with the package. The tracked `sources.yaml` remains beside them.
-
-Download missing archives and verify all declared ZIPs:
-
-```bash
-npm run download:fhir-specs
-```
-
-Build either component into a selected runtime-data root:
-
-```bash
-npm run build:runtime-data -- \
-  fml-mappings --runtime-data-root <directory>
-
-npm run build:runtime-data -- \
-  fhir-tables --runtime-data-root <directory>
-```
-
-Or build both directly from their authoritative datasets:
-
-```bash
-npm run build:runtime-data:all -- --runtime-data-root <directory>
-```
-
-The FHIR builder reads the two declared StructureDefinition bundles directly
-from each ZIP in memory. It creates no persistent intermediate files. See
-`CONTRIBUTING.md` for migration, alternate-dataset, and validation commands.
-
-Run `npm run check:runtime-data-freshness` to rebuild both components in a
-temporary directory and prove that the committed manifest and artifact modules
-match the outputs their declared sources produce, without rewriting the selected
-runtime-data root. During component work, append `-- fml-mappings` or
-`-- fhir-tables` to rebuild and compare only that component. Release validation
-uses the default full check.
+This data is generated from source datasets that are not published with the
+package, using programs under `tools/` that are not in the published package,
+either. See the repository-root `DATA-MAINTENANCE.md` for the build process and
+every command, option, and default.

@@ -26,5 +26,5 @@ Download missing archives and verify all existing or downloaded files:
 npm run download:fhir-specs
 ```
 
-See `../runtime/README.md` and the repository-root `CONTRIBUTING.md` for source
-details and the complete regeneration workflow.
+See the `DATA-MAINTENANCE.md` for the complete regeneration
+workflow, and `../runtime/README.md` for what the generated artifacts contain.

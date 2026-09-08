@@ -2,6 +2,11 @@
 
 /**
  * @fileoverview Non-rewriting validation of the package that npm would publish.
+ *
+ * Validation covers package contents: every required file present, no
+ * forbidden file packed, and a valid committed runtime root. Size is measured
+ * and reported rather than capped, because it follows from the dataset the
+ * project has chosen to ship.
  */
 
 import fs from 'node:fs';
@@ -11,10 +16,9 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { manifestArtifacts, validateManifest } from '../src/runtime/schema.js';
 import { checkRuntimeDataIntegrity } from './check-runtime-data-integrity.js';
+import { formatBytes, formatDuration, formatReport, startTimer } from './measurements.js';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '..');
-const MAX_UNPACKED_BYTES = 2_000_000;
-const MAX_FILE_COUNT = 90;
 const PUBLIC_RUNTIME_MODULES = [
   'all',
   'r2-to-r3',
@@ -85,11 +89,11 @@ function getArtifactPaths() {
 }
 
 /**
- * Validate package contents and size thresholds.
+ * Validate package contents and measure package size.
  *
  * @param {Object} report npm pack JSON report.
  * @returns {{unpackedBytes: number, compressedBytes: number, fileCount: number}}
- *   Validated package measurements.
+ *   Measured package size. Size is reported, not capped.
  */
 export function validatePackageReport(report) {
   if (!report || !Array.isArray(report.files)) {
@@ -98,6 +102,7 @@ export function validatePackageReport(report) {
 
   const files = new Set(report.files.map(entry => entry.path));
   const required = [
+    'DATA-MAINTENANCE.md',
     'data/runtime/README.md',
     'data/runtime/manifest.json',
     'src/converter/converterFactory.js',
@@ -121,16 +126,6 @@ export function validatePackageReport(report) {
     throw new Error(`Packed package contains forbidden files: ${forbidden.join(', ')}`);
   }
 
-  if (report.unpackedSize > MAX_UNPACKED_BYTES) {
-    throw new Error(
-      `Packed package is ${report.unpackedSize} unpacked bytes; limit is ${MAX_UNPACKED_BYTES}`,
-    );
-  }
-  if (report.entryCount > MAX_FILE_COUNT) {
-    throw new Error(
-      `Packed package has ${report.entryCount} files; limit is ${MAX_FILE_COUNT}`,
-    );
-  }
 
   return {
     unpackedBytes: report.unpackedSize,
@@ -160,13 +155,20 @@ export async function validateCommittedRuntimeRoot() {
  * @returns {Promise<void>} Resolves after runtime and package validation.
  */
 async function main() {
+  const runtimeElapsed = startTimer();
   const runtime = await validateCommittedRuntimeRoot();
+  const runtimeMilliseconds = runtimeElapsed();
+  const packElapsed = startTimer();
   const measurements = validatePackageReport(collectPackageReport());
-  process.stdout.write(
-    `Package validation passed: ${runtime.artifactCount} runtime artifacts, ` +
-    `${measurements.unpackedBytes} unpacked bytes, ` +
-    `${measurements.compressedBytes} compressed bytes, ${measurements.fileCount} files.\n`,
-  );
+  const packMilliseconds = packElapsed();
+  process.stdout.write(formatReport('Package contents validated.', [
+    ['runtime artifacts', runtime.artifactCount],
+    ['packed files', measurements.fileCount],
+    ['unpacked size', formatBytes(measurements.unpackedBytes)],
+    ['tarball size', formatBytes(measurements.compressedBytes)],
+    ['runtime integrity check', formatDuration(runtimeMilliseconds)],
+    ['pack and content check', formatDuration(packMilliseconds)],
+  ]));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

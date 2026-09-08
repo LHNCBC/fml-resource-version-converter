@@ -10,7 +10,3 @@ test/data/output
 data/fhir-spec-downloads/*
 !data/fhir-spec-downloads/README.md
 !data/fhir-spec-downloads/sources.yaml
-
-# Interrupted runtime-data publication
-data/.runtime-data-*
-data/runtime.backup-*

@@ -1,9 +1,9 @@
 /**
- * @fileoverview Independent runtime-data component generation and migration.
+ * @fileoverview Independent runtime-data component generation and copying.
  *
  * FML mappings and FHIR tables each own one directory and one manifest
  * section. Builders replace only their selected component. The full builder
- * invokes the same component implementations in one candidate root.
+ * invokes the same component implementations in one runtime root.
  *
  * @module tools/runtime-data-generator
  */
@@ -320,18 +320,17 @@ function fhirManifestSource(source, sha256) {
 }
 
 /**
- * Generate one component into an existing caller-owned candidate directory.
+ * Generate one component into a runtime root the caller has already cleared.
  *
  * @param {string} component Runtime component.
  * @param {string} datasetRoot Source dataset root.
- * @param {string} candidate Candidate runtime root.
+ * @param {string} root Runtime root to write into.
  * @returns {Promise<Object>} Generated manifest component section.
  */
-async function generateComponentInto(component, datasetRoot, candidate) {
+async function generateComponentInto(component, datasetRoot, root) {
   const info = COMPONENT_INFO[component];
   if (!info) throw new Error(`Unsupported runtime component: ${String(component)}`);
   const dataset = loadSourceDataset(datasetRoot, component);
-  fs.rmSync(path.join(candidate, info.directory), { recursive: true, force: true });
   const artifacts = [];
   const sources = [];
 
@@ -340,7 +339,7 @@ async function generateComponentInto(component, datasetRoot, candidate) {
     sources.push(fmlManifestSource(source));
     for (const [fromVer, toVer] of DIRECTION_PAIRS) {
       const pair = `${fromVer}to${toVer}`;
-      writeArtifact(candidate, artifacts, {
+      writeArtifact(root, artifacts, {
         id: `fml-mappings/${pair}`,
         kind: ARTIFACT_KIND.FML_MAPPINGS,
         sourceIds: [source.id],
@@ -352,7 +351,7 @@ async function generateComponentInto(component, datasetRoot, candidate) {
     for (const source of dataset.sources) {
       const parsed = await parseFhirSpecArchive(source);
       sources.push(fhirManifestSource(source, parsed.sha256));
-      writeArtifact(candidate, artifacts, {
+      writeArtifact(root, artifacts, {
         id: `fhir-tables/${source.tableVersion}`,
         kind: ARTIFACT_KIND.FHIR_TABLE,
         sourceIds: [source.id],
@@ -391,7 +390,7 @@ function safeOutputPath(output, sourceRoots) {
   for (const sourceRoot of sourceRoots.map(value => path.resolve(value))) {
     if (resolved === sourceRoot || sourceRoot.startsWith(`${resolved}${path.sep}`) ||
         resolved.startsWith(`${sourceRoot}${path.sep}`)) {
-      throw new Error(`Runtime data root ${resolved} overlaps source dataset ${sourceRoot}`);
+      throw new Error(`Runtime data root ${resolved} overlaps protected input ${sourceRoot}`);
     }
   }
 
@@ -427,51 +426,52 @@ function readManifestForUpdate(root) {
 }
 
 /**
- * Create a candidate initialized from an existing target when present.
+ * Read a runtime root's manifest for update, or start an empty one.
  *
- * @param {string} output Absolute runtime root.
- * @returns {string} Temporary sibling candidate directory.
+ * @param {string} root Runtime root, which need not exist yet.
+ * @returns {Object} Manifest to update in place.
  */
-function createCandidate(output) {
-  fs.mkdirSync(path.dirname(output), { recursive: true });
-  const candidate = fs.mkdtempSync(path.join(path.dirname(output), '.runtime-data-'));
-  if (fs.existsSync(output)) {
-    if (!fs.statSync(output).isDirectory()) {
-      fs.rmSync(candidate, { recursive: true, force: true });
-      throw new Error(`Runtime data root is not a directory: ${output}`);
-    }
-    fs.cpSync(output, candidate, { recursive: true });
-  }
-
-  return candidate;
+function openManifestForUpdate(root) {
+  return fs.existsSync(path.join(root, 'manifest.json'))
+    ? readManifestForUpdate(root)
+    : { schemaVersion: SCHEMA_VERSION.MANIFEST, components: {} };
 }
 
 /**
- * Atomically replace one local runtime root with a prepared candidate.
+ * Write a manifest to a runtime root in canonical form.
  *
- * @param {string} candidate Prepared sibling directory.
- * @param {string} output Destination runtime root.
+ * @param {string} root Runtime root.
+ * @param {Object} manifest Manifest to write.
  * @returns {void}
  */
-function publishCandidate(candidate, output) {
-  if (!fs.existsSync(output)) {
-    fs.renameSync(candidate, output);
-    return;
-  }
-  const backup = `${output}.backup-${process.pid}`;
-  if (fs.existsSync(backup)) throw new Error(`Runtime backup path already exists: ${backup}`);
-  fs.renameSync(output, backup);
-  try {
-    fs.renameSync(candidate, output);
-  } catch (error) {
-    fs.renameSync(backup, output);
-    throw error;
-  }
-  fs.rmSync(backup, { recursive: true });
+function writeManifest(root, manifest) {
+  writeText(root, 'manifest.json', `${canonicalStringify(manifest)}\n`);
 }
 
 /**
- * Build and publish one independently owned runtime component.
+ * Remove one component from a runtime root before it is rebuilt or replaced.
+ *
+ * The manifest section is dropped first and written out, so a run interrupted
+ * at any later point leaves a root that simply lacks this component instead of
+ * a directory and manifest that disagree.
+ *
+ * @param {string} root Runtime root.
+ * @param {Object} info Component descriptor.
+ * @param {Object} manifest Manifest being updated in place.
+ * @returns {void}
+ */
+function clearComponent(root, info, manifest) {
+  delete manifest.components[info.manifestKey];
+  writeManifest(root, manifest);
+  fs.rmSync(path.join(root, info.directory), { recursive: true, force: true });
+}
+
+/**
+ * Build one independently owned runtime component in place.
+ *
+ * The other component is never read or written. A failed build leaves the
+ * target without this component; recover from an explicit copy, or from
+ * version control.
  *
  * @param {Object} options Build options.
  * @param {'fml-mappings'|'fhir-tables'} options.component Component to build.
@@ -479,29 +479,27 @@ function publishCandidate(candidate, output) {
  * @param {string} options.runtimeDataRoot Target runtime-data root.
  * @returns {Promise<Object>} Generated component section.
  */
-export async function buildRuntimeDataComponent({ component, datasetRoot, runtimeDataRoot }) {
+export async function buildRuntimeDataComponent({
+  component,
+  datasetRoot,
+  runtimeDataRoot,
+}) {
   const info = COMPONENT_INFO[component];
   if (!info) throw new Error(`Unsupported runtime component: ${String(component)}`);
   const output = safeOutputPath(runtimeDataRoot, [datasetRoot]);
-  const candidate = createCandidate(output);
-  try {
-    const manifest = fs.existsSync(path.join(candidate, 'manifest.json'))
-      ? readManifestForUpdate(candidate)
-      : { schemaVersion: SCHEMA_VERSION.MANIFEST, components: {} };
-    const section = await generateComponentInto(component, datasetRoot, candidate);
-    manifest.components[info.manifestKey] = section;
-    writeText(candidate, 'manifest.json', `${canonicalStringify(manifest)}\n`);
-    publishCandidate(candidate, output);
+  fs.mkdirSync(output, { recursive: true });
 
-    return section;
-  } catch (error) {
-    if (fs.existsSync(candidate)) fs.rmSync(candidate, { recursive: true, force: true });
-    throw error;
-  }
+  const manifest = openManifestForUpdate(output);
+  clearComponent(output, info, manifest);
+  manifest.components[info.manifestKey] =
+    await generateComponentInto(component, datasetRoot, output);
+  writeManifest(output, manifest);
+
+  return manifest.components[info.manifestKey];
 }
 
 /**
- * Build both components in one candidate and publish a complete runtime root.
+ * Build both components in place and validate the complete runtime root.
  *
  * @param {Object} options Build options.
  * @param {string} options.fmlDatasetRoot FML source dataset root.
@@ -515,45 +513,37 @@ export async function buildAllRuntimeData({
   runtimeDataRoot,
 }) {
   const output = safeOutputPath(runtimeDataRoot, [fmlDatasetRoot, fhirDatasetRoot]);
-  const candidate = createCandidate(output);
-  try {
-    const manifest = {
-      schemaVersion: SCHEMA_VERSION.MANIFEST,
-      components: {
-        fmlMappings: await generateComponentInto(
-          RUNTIME_COMPONENT.FML_MAPPINGS,
-          fmlDatasetRoot,
-          candidate,
-        ),
-        fhirTables: await generateComponentInto(
-          RUNTIME_COMPONENT.FHIR_TABLES,
-          fhirDatasetRoot,
-          candidate,
-        ),
-      },
-    };
-    validateManifest(manifest);
-    writeText(candidate, 'manifest.json', `${canonicalStringify(manifest)}\n`);
-    await loadRuntimeArtifactRoot(candidate);
-    publishCandidate(candidate, output);
+  fs.mkdirSync(output, { recursive: true });
 
-    return manifest;
-  } catch (error) {
-    if (fs.existsSync(candidate)) fs.rmSync(candidate, { recursive: true, force: true });
-    throw error;
-  }
+  const manifest = { schemaVersion: SCHEMA_VERSION.MANIFEST, components: {} };
+  for (const info of Object.values(COMPONENT_INFO)) clearComponent(output, info, manifest);
+  manifest.components.fmlMappings = await generateComponentInto(
+    RUNTIME_COMPONENT.FML_MAPPINGS,
+    fmlDatasetRoot,
+    output,
+  );
+  manifest.components.fhirTables = await generateComponentInto(
+    RUNTIME_COMPONENT.FHIR_TABLES,
+    fhirDatasetRoot,
+    output,
+  );
+  validateManifest(manifest);
+  writeManifest(output, manifest);
+  await loadRuntimeArtifactRoot(output);
+
+  return manifest;
 }
 
 /**
  * Copy one generated component between runtime roots without rebuilding it.
  *
- * @param {Object} options Migration options.
+ * @param {Object} options Copy options.
  * @param {'fml-mappings'|'fhir-tables'} options.component Component to copy.
  * @param {string} options.fromRuntimeDataRoot Source runtime root.
  * @param {string} options.toRuntimeDataRoot Target runtime root.
  * @returns {Promise<Object>} Copied manifest component section.
  */
-export async function migrateRuntimeDataComponent({
+export async function copyRuntimeDataComponent({
   component,
   fromRuntimeDataRoot,
   toRuntimeDataRoot,
@@ -566,22 +556,46 @@ export async function migrateRuntimeDataComponent({
   const section = loaded.manifest.components[info.manifestKey];
   if (!section) throw new Error(`Source runtime root has no ${component} component: ${from}`);
 
-  const candidate = createCandidate(to);
-  try {
-    const manifest = fs.existsSync(path.join(candidate, 'manifest.json'))
-      ? readManifestForUpdate(candidate)
-      : { schemaVersion: SCHEMA_VERSION.MANIFEST, components: {} };
-    fs.rmSync(path.join(candidate, info.directory), { recursive: true, force: true });
-    fs.cpSync(path.join(from, info.directory), path.join(candidate, info.directory), {
-      recursive: true,
-    });
-    manifest.components[info.manifestKey] = section;
-    writeText(candidate, 'manifest.json', `${canonicalStringify(manifest)}\n`);
-    publishCandidate(candidate, to);
+  fs.mkdirSync(to, { recursive: true });
 
-    return section;
+  const manifest = openManifestForUpdate(to);
+  clearComponent(to, info, manifest);
+  fs.cpSync(path.join(from, info.directory), path.join(to, info.directory), {
+    recursive: true,
+  });
+  manifest.components[info.manifestKey] = section;
+  writeManifest(to, manifest);
+
+  return section;
+}
+
+/**
+ * Copy a complete runtime-data root without changing its contents.
+ *
+ * The source is validated before copying, and the destination must not exist.
+ *
+ * @param {Object} options Copy options.
+ * @param {string} options.fromRuntimeDataRoot Source runtime root.
+ * @param {string} options.toRuntimeDataRoot New target runtime root.
+ * @returns {Promise<Object>} Loaded and validated target root.
+ */
+export async function copyRuntimeDataRoot({
+  fromRuntimeDataRoot,
+  toRuntimeDataRoot,
+}) {
+  const from = path.resolve(fromRuntimeDataRoot);
+  const to = safeOutputPath(toRuntimeDataRoot, [from]);
+  if (fs.existsSync(to)) {
+    throw new Error(`Complete-copy target already exists: ${to}`);
+  }
+  await loadRuntimeArtifactRoot(from);
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  try {
+    fs.cpSync(from, to, { recursive: true, errorOnExist: true, force: false });
+
+    return await loadRuntimeArtifactRoot(to);
   } catch (error) {
-    if (fs.existsSync(candidate)) fs.rmSync(candidate, { recursive: true, force: true });
+    if (fs.existsSync(to)) fs.rmSync(to, { recursive: true, force: true });
     throw error;
   }
 }
