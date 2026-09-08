@@ -30,17 +30,17 @@ This project follows [Semantic Versioning](http://semver.org/).
   especially browser applications, should import `./converter-factory` with the
   directional `./runtime/*` entry points instead.
 - Mapping descriptors returned by the low-level engine now expose the portable
-  root-relative `virtualFile` field instead of the filesystem-only `filePath`.
+  root-relative `virtualFile` field instead of the filesystem-only `filePath`,
+  for use in diagnostic messages.
 - Missing standalone ConceptMaps now fail runtime artifact generation. Strict
   conversion still rejects missing or unmappable translations, but no longer
   performs a separate filesystem-resolution check during engine construction.
 - The npm package now excludes the raw fhir-cross-version snapshot, FHIR
   specification inputs, and generated definition intermediates.
-- Runtime manifest schema 2 gives FML mappings and FHIR tables independently
-  owned source and artifact sections. FHIR tables are now derived directly
-  from the declared specification ZIP entries without a persistent
-  intermediate. Existing schema 1 alternate runtime roots must be rebuilt from
-  their source datasets before use with the schema 2 tooling.
+- The runtime manifest now keeps FML mapping and FHIR table sources and
+  artifacts in separate, independently managed sections. FHIR tables are
+  derived directly from the declared specification ZIP entries without a
+  persistent intermediate.
 
 ### Removed
 
