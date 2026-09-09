@@ -78,7 +78,7 @@ function inspectComposeEntry(entry, branch, paths) {
 }
 
 /**
- * Inspect expansion contains entries recursively for R5-only properties.
+ * Inspect expansion contains entries recursively for R5-only content.
  *
  * @param {Array<Object>|undefined} entries R5 expansion contains entries.
  * @param {Set<string>} paths R5-only paths found.
@@ -86,6 +86,15 @@ function inspectComposeEntry(entry, branch, paths) {
 function inspectExpansionContains(entries, paths) {
   for (const entry of entries || []) {
     addPathForContent(paths, 'ValueSet.expansion.contains.property', entry?.property);
+
+    for (const designation of entry?.designation || []) {
+      addPathForContent(
+        paths,
+        'ValueSet.expansion.contains.designation.additionalUse',
+        designation?.additionalUse,
+      );
+    }
+
     inspectExpansionContains(entry?.contains, paths);
   }
 }
