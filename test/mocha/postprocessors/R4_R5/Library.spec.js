@@ -5,6 +5,7 @@ import { strict as assert } from 'node:assert';
 import { COVERAGE } from '../../../../src/converter/coverage.js';
 import { MESSAGE_TYPE, STATUS } from '../../../../src/converter/diagnostics.js';
 import { singleHopConverter } from '../../../../src/converter/singleHopConverter.js';
+import { getRegistryEntry } from '../../../../src/index.js';
 import { conv_R4_to_R5, conv_R5_to_R4 } from '../../../../src/postprocessors/R4_R5/Library.js';
 
 /**
@@ -566,6 +567,85 @@ describe('postprocessors/R4_R5 Library', function () {
       assert.deepEqual(targetR4, beforeR4);
       assert.equal(upgrade.status, STATUS.OK);
       assert.equal(downgrade.status, STATUS.OK);
+    });
+  });
+
+  describe('unreviewed hop without a required-type policy', function () {
+    /**
+     * Build a Library carrying a required type code in both collections.
+     *
+     * @returns {Object} Fresh Library fixture.
+     */
+    function makeTypedLibrary() {
+      return {
+        resourceType: 'Library',
+        status: 'active',
+        parameter: [{ name: 'subject', use: 'in', type: 'Patient' }],
+        dataRequirement: [{ type: 'Observation' }],
+      };
+    }
+
+    it('throws rather than leaving required type codes unchecked', function () {
+      assert.throws(
+        () => conv_R5_to_R4.execute(makeTypedLibrary(), {
+          sourceResource: makeTypedLibrary(),
+          fromVer: 'R5',
+          toVer: 'STU3',
+        }),
+        /no reviewed FHIR type policy for the R5->STU3 hop/,
+      );
+    });
+
+    it('throws even when the source carries no required type code', function () {
+      assert.throws(
+        () => conv_R5_to_R4.execute({ resourceType: 'Library' }, {
+          sourceResource: { resourceType: 'Library' },
+          fromVer: 'R5',
+          toVer: 'STU3',
+        }),
+        /no reviewed FHIR type policy for the R5->STU3 hop/,
+      );
+    });
+
+    it('names the supported hops so the wiring mistake is actionable', function () {
+      assert.throws(
+        () => conv_R4_to_R5.execute(makeTypedLibrary(), {
+          sourceResource: makeTypedLibrary(),
+          fromVer: 'R4',
+          toVer: 'R2',
+        }),
+        /supports only R4->R5, R4B->R5, R5->R4, R5->R4B/,
+      );
+    });
+
+    it('surfaces the wiring mistake through the converter, not as a silent result',
+      function () {
+        const entry = getRegistryEntry('Library', 'R5', 'R4');
+
+        assert.throws(
+          () => singleHopConverter.convert(makeTypedLibrary(), 'R4', 'R3', {
+            postprocs: { 'Library:R4->R3': { policy: 'replace', psps: entry.processors } },
+          }),
+          /no reviewed FHIR type policy for the R4->R3 hop/,
+        );
+      });
+
+    it('accepts every reviewed hop', function () {
+      for (const [descriptor, fromVer, toVer] of [
+        [conv_R4_to_R5, 'R4', 'R5'],
+        [conv_R4_to_R5, 'R4B', 'R5'],
+        [conv_R5_to_R4, 'R5', 'R4'],
+        [conv_R5_to_R4, 'R5', 'R4B'],
+      ]) {
+        assert.doesNotThrow(
+          () => descriptor.execute(makeTypedLibrary(), {
+            sourceResource: makeTypedLibrary(),
+            fromVer,
+            toVer,
+          }),
+          `unexpected throw for ${fromVer}->${toVer}`,
+        );
+      }
     });
   });
 });

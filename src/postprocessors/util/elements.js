@@ -100,14 +100,20 @@ export function stripCanonicalVersion(reference) {
  * type (no `_`-companion exists) this simply copies the value object, whose
  * id/extension already live inline.
  *
+ * Both halves are deep-copied. A bare primitive value would copy by value
+ * anyway, but the `_`-companion is always an object and a complex value[x]
+ * (for example a Coding) is one too; sharing either would leave the target
+ * aliasing source structure, so that a later edit to one silently changed the
+ * other. structuredClone passes primitives through unchanged.
+ *
  * @param {Object} src Source object (read-only).
  * @param {string} fromKey Source key (e.g. "valueString").
  * @param {Object} dst Target object, mutated in place.
  * @param {string} toKey Target key (e.g. "initialString").
  */
 export function copyPrimitive(src, fromKey, dst, toKey) {
-  if (fromKey in src) dst[toKey] = src[fromKey];
-  if (`_${fromKey}` in src) dst[`_${toKey}`] = src[`_${fromKey}`];
+  if (fromKey in src) dst[toKey] = structuredClone(src[fromKey]);
+  if (`_${fromKey}` in src) dst[`_${toKey}`] = structuredClone(src[`_${fromKey}`]);
 }
 
 /**

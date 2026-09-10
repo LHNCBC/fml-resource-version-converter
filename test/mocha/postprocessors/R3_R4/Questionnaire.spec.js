@@ -630,6 +630,37 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.INFO && /initialString/.test(m.text)));
     });
 
+    it('does not alias source structure into the converted resource', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'choice',
+          answerValueSet: 'http://example.org/ValueSet/vs',
+          _answerValueSet: { id: 'avs-id', extension: [{ url: 'http://x', valueCode: 'v' }] },
+          answerOption: [{
+            valueCoding: { code: 'c', display: 'Green' },
+            initialSelected: true,
+          }],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'choice', option: [{ valueCoding: { code: 'c', display: 'Green' } }] }],
+      };
+      const res = run(target, source);
+      const item = res.resource.item[0];
+
+      // Complex value[x] copied by copyPrimitive.
+      assert.notEqual(item.initialCoding, source.item[0].answerOption[0].valueCoding);
+      item.initialCoding.display = 'mutated';
+      assert.equal(source.item[0].answerOption[0].valueCoding.display, 'Green');
+
+      // Primitive _companion copied by copyPrimitive.
+      assert.notEqual(item.options._reference, source.item[0]._answerValueSet);
+      item.options._reference.extension[0].valueCode = 'mutated';
+      assert.equal(source.item[0]._answerValueSet.extension[0].valueCode, 'v');
+    });
+
     it('carries initial[x] primitive id/extension when reducing to the first value', function () {
       const source = {
         resourceType: 'Questionnaire',

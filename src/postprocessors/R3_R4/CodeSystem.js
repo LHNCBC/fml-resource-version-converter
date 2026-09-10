@@ -109,7 +109,10 @@ function convertDecimalValue(sourceProperty, targetProperty, path, messages) {
     targetProperty.valueString = String(sourceProperty.valueDecimal);
   }
   if (Object.hasOwn(sourceProperty, '_valueDecimal')) {
-    targetProperty._valueString = sourceProperty._valueDecimal;
+    // The bare value is a JSON number and copies by value, but the `_`-companion
+    // is an object; assigning it directly would leave the target sharing the
+    // source's id/extension, so a later mutation of one would alter the other.
+    targetProperty._valueString = structuredClone(sourceProperty._valueDecimal);
   }
 
   messages.push(warningMessage(
