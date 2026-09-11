@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { inspectFhirSpecArchive } from './fhir-spec-parser.js';
 import { loadSourceDataset, SOURCE_COMPONENT } from './runtime-data-sources.js';
@@ -48,12 +49,11 @@ function downloadToTemporaryFile(urlText, temporaryFile, redirectsLeft) {
         return;
       }
       const output = fs.createWriteStream(temporaryFile);
-      response.pipe(output);
-      output.on('finish', () => output.close(error => {
-        if (error) reject(error);
-        else resolve();
-      }));
-      output.on('error', reject);
+      pipeline(response, output).then(resolve, error => {
+        reject(new Error(`Download failed for ${urlText}: ${error.message}`, {
+          cause: error,
+        }));
+      });
     });
     request.on('error', reject);
     request.setTimeout(120000, () => {
