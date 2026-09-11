@@ -29,7 +29,7 @@
 import fs from 'node:fs';
 import { chainedConverter } from '../src/converter/chainedConverter.js';
 import { singleHopConverter } from '../src/converter/singleHopConverter.js';
-import { planHops } from '../src/fml_base_conv/create_converter.js';
+import { planHops } from '../src/fml_base_conv/version_graph.js';
 
 /**
  * Read the whole of a readable stream as a UTF-8 string.

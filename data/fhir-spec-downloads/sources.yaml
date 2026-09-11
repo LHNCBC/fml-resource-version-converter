@@ -1,0 +1,59 @@
+# Source configuration for the official FHIR specification archives.
+# Paths are relative to this file's directory. The downloader and builder both
+# consume this file. The build computes archive SHA-256 values automatically.
+schemaVersion: 1
+sources:
+  - id: hl7-fhir-DSTU2
+    tableVersion: DSTU2
+    version: 1.0.2
+    date: '2015-10-24'
+    license: HL7 FHIR License
+    uri: https://hl7.org/fhir/DSTU2/fhir-spec.zip
+    archivePath: DSTU2/fhir-spec.zip
+    bundlePaths:
+      - site/profiles-resources.json
+      - site/profiles-types.json
+
+  - id: hl7-fhir-STU3
+    tableVersion: STU3
+    version: 3.0.2
+    date: '2019-10-24'
+    license: HL7 FHIR License
+    uri: https://hl7.org/fhir/STU3/definitions.json.zip
+    archivePath: STU3/definitions.json.zip
+    bundlePaths:
+      - profiles-resources.json
+      - profiles-types.json
+
+  - id: hl7-fhir-R4
+    tableVersion: R4
+    version: 4.0.1
+    date: '2019-11-01'
+    license: HL7 FHIR License
+    uri: https://hl7.org/fhir/R4/definitions.json.zip
+    archivePath: R4/definitions.json.zip
+    bundlePaths:
+      - profiles-resources.json
+      - profiles-types.json
+
+  - id: hl7-fhir-R4B
+    tableVersion: R4B
+    version: 4.3.0
+    date: '2022-05-28'
+    license: HL7 FHIR License
+    uri: https://hl7.org/fhir/R4B/definitions.json.zip
+    archivePath: R4B/definitions.json.zip
+    bundlePaths:
+      - definitions.json/profiles-resources.json
+      - definitions.json/profiles-types.json
+
+  - id: hl7-fhir-R5
+    tableVersion: R5
+    version: 5.0.0
+    date: '2023-03-26'
+    license: HL7 FHIR License
+    uri: https://hl7.org/fhir/R5/definitions.json.zip
+    archivePath: R5/definitions.json.zip
+    bundlePaths:
+      - profiles-resources.json
+      - profiles-types.json

@@ -7,8 +7,7 @@
  * tables.
  */
 import { strict as assert } from 'node:assert';
-import { classifyElement, processElements, BUNDLE_ENTRY_RE }
-  from '../../../tools/fhir-tables-lib.js';
+import { classifyElement, processElements } from '../../../tools/fhir-tables-lib.js';
 
 describe('fhir-tables-lib: classifyElement', () => {
 
@@ -198,26 +197,5 @@ describe('fhir-tables-lib: processElements', () => {
       'FooSD'
     );
     assert.deepEqual(calls, [['Foo.bar[x]', 'FooSD']]);
-  });
-});
-
-describe('fhir-tables-lib: BUNDLE_ENTRY_RE', () => {
-
-  it('matches the two relevant bundle filenames at the zip root', () => {
-    assert.ok(BUNDLE_ENTRY_RE.test('profiles-resources.json'));
-    assert.ok(BUNDLE_ENTRY_RE.test('profiles-types.json'));
-  });
-
-  it('matches under a forward-slash prefix (R4B layout)', () => {
-    assert.ok(BUNDLE_ENTRY_RE.test('definitions.json/profiles-resources.json'));
-  });
-
-  it('matches under a backslash prefix (DSTU2 fhir-spec.zip layout)', () => {
-    assert.ok(BUNDLE_ENTRY_RE.test('site\\profiles-types.json'));
-  });
-
-  it('rejects similarly-named but unrelated files', () => {
-    assert.ok(!BUNDLE_ENTRY_RE.test('profiles-others.json'));
-    assert.ok(!BUNDLE_ENTRY_RE.test('valuesets.json'));
   });
 });

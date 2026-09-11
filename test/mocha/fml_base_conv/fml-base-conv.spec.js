@@ -7,7 +7,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createFmlEngineFactory, planHops } from '../../../src/fml_base_conv/create_converter.js';
-import { compileFmlXver } from '../../../src/fml_base_conv/fml_xver_engine.js';
+import { createFmlMappingCatalog } from '../../../tools/fml-mapping-catalog.js';
+import {
+  compileFmlXver,
+  createConceptMapIndex,
+} from '../../../src/fml_base_conv/fml_xver_engine.js';
 
 const { createEngine } = createFmlEngineFactory();
 
@@ -39,12 +43,25 @@ describe('fml_base_conv/createEngine', function () {
     assert.equal(factory.hasMapping('NoSuchResource', 'R4', 'R5'), false);
   });
 
+  it('accepts an empty compatibility options object', function () {
+    const factory = createFmlEngineFactory({});
+
+    assert.equal(factory.hasMapping('Questionnaire', 'R4', 'R5'), true);
+  });
+
   it('throws for unknown resource type', function () {
     assert.throws(() => createEngine('NoSuchResource', 'R4', 'R5'), /FML mapping not found/);
   });
 
   it('throws for unknown FHIR version', function () {
     assert.throws(() => createEngine('Questionnaire', 'R4', 'R99'), /not found|Unknown/);
+  });
+
+  it('rejects the removed xverInputRoot option', function () {
+    assert.throws(
+      () => createFmlEngineFactory({ xverInputRoot: '/tmp/alternate-root' }),
+      /options are no longer supported; xverInputRoot was removed/,
+    );
   });
 });
 
@@ -71,8 +88,8 @@ group Patient(source src : PatientR4, target tgt : PatientR5) extends DomainReso
       fs.writeFileSync(path.join(direction, 'AValid.fml'), validFml, 'utf-8');
       fs.writeFileSync(path.join(direction, 'ZInvalid.fml'), 'group Broken(', 'utf-8');
 
-      const factory = createFmlEngineFactory({ xverInputRoot: root });
-      const inspect = () => factory.hasMapping('Patient', 'R4', 'R5');
+      const catalog = createFmlMappingCatalog(root);
+      const inspect = () => catalog.hasMapping('Patient', 'R4', 'R5');
 
       assert.throws(inspect, /failed to inspect.*ZInvalid\.fml/);
       assert.throws(
@@ -1039,7 +1056,8 @@ group Test(source src, target tgt) extends DomainResource {
         }],
       }],
     };
-    const engine = compileFmlXver({ fmlText: fml, conceptMaps: [cm] });
+    const conceptMapIndex = createConceptMapIndex([cm]);
+    const engine = compileFmlXver({ fmlText: fml, conceptMapIndex });
     const { resource: out } = engine.convert({
       input: { resourceType: 'Test', status: 'active' },
     });

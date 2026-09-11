@@ -59,27 +59,7 @@
  */
 
 import fhirpathLib from 'fhirpath';
-import dstu2Model from 'fhirpath/fhir-context/dstu2/index.js';
-import stu3Model  from 'fhirpath/fhir-context/stu3/index.js';
-import r4Model    from 'fhirpath/fhir-context/r4/index.js';
-import r5Model    from 'fhirpath/fhir-context/r5/index.js';
 import { parseFml } from './fml_parser.js';
-
-/**
- * FHIRPath model objects per FHIR version label. A model gives the
- * fhirpath.js evaluator FHIR-schema awareness (polymorphic JSON field
- * collapsing, `ofType(T)` / `is T` / `as T`, type-inheritance checks).
- * Without it, only plain field navigation and generic FHIRPath functions
- * work. R4B has no dedicated bundled model; we reuse R4 (the two are
- * structurally compatible for FHIRPath purposes).
- */
-const FHIRPATH_MODEL = {
-  R2:  dstu2Model,
-  R3:  stu3Model,
-  R4:  r4Model,
-  R4B: r4Model,
-  R5:  r5Model,
-};
 
 /**
  * Match a leading bare identifier in a FHIRPath expression. The FML
@@ -337,6 +317,22 @@ function indexConceptMap(cm) {
 }
 
 /**
+ * Build the reusable URL index for a set of ConceptMaps.
+ *
+ * @param {Object[]} conceptMaps ConceptMap JSON resources.
+ * @returns {Map<string, Object>} Indexed ConceptMaps keyed by canonical URL.
+ */
+export function createConceptMapIndex(conceptMaps) {
+  const byUrl = new Map();
+  for (const conceptMap of conceptMaps) {
+    const indexed = indexConceptMap(conceptMap);
+    byUrl.set(indexed.url, indexed);
+  }
+
+  return byUrl;
+}
+
+/**
  * Normalize a FHIR code, Coding, or CodeableConcept into candidate Codings.
  * Coding order is retained so a CodeableConcept is tried deterministically.
  *
@@ -414,20 +410,14 @@ function selectUnchangedTranslationOutput(source, firstCoding, output) {
  *                                                       in the target system
  *   7. Otherwise: return source code unchanged (WARNS), or throw if strict.
  *
- * @param {Object[]} conceptMaps                Indexed at construction time.
+ * @param {Map<string, Object>} conceptMapIndex Reusable ConceptMap URL index.
  * @param {Object}   opts
  * @param {boolean}  [opts.strict=false]        Throw on missing map / unmappable.
  * @param {Function} [opts.onWarning]
  * @param {Function} [opts.onInfo]
  * @returns {{translate: (source: *, mapUrl: string, output: string) => *}}
  */
-function makeTranslator(conceptMaps, { strict = false, onWarning, onInfo } = {}) {
-  const byUrl = new Map();
-  for (const cm of conceptMaps) {
-    const idx = indexConceptMap(cm);
-    byUrl.set(idx.url, idx);
-  }
-
+function makeTranslator(conceptMapIndex, { strict = false, onWarning, onInfo } = {}) {
   // Exact or safe (widening) -- no information lost in forward direction.
   const EXACT = new Set(['equivalent', 'equal']);
   const SAFE  = new Set(['source-is-narrower-than-target', 'wider']);
@@ -532,7 +522,7 @@ function makeTranslator(conceptMaps, { strict = false, onWarning, onInfo } = {})
       return undefined;
     }
 
-    const idx = byUrl.get(mapUrl);
+    const idx = conceptMapIndex.get(mapUrl);
     if (!idx) {
       if (strict) throw new Error(`Missing ConceptMap: ${mapUrl}`);
       onWarning?.(`translate: ConceptMap not found - ${mapUrl}; returning source coding unchanged`);
@@ -659,6 +649,8 @@ class Scope {
  * @param {Object}   opts
  * @param {string}   opts.fmlText                FML mapping source.
  * @param {Object[]} [opts.conceptMaps=[]]       ConceptMap JSON resources.
+ * @param {Map<string, Object>} [opts.conceptMapIndex] Prebuilt ConceptMap URL
+ *                                               index for repeated compilation.
  * @param {boolean}  [opts.strict=false]
  * @param {string}   [opts.fromVer]              Source FHIR version (e.g. 'R4').
  *                                               Used to update meta.profile after
@@ -668,6 +660,7 @@ class Scope {
  *                                               descriptor. Factory-created
  *                                               engines always provide this;
  *                                               raw compiler callers may omit it.
+ * @param {Object}   [opts.fhirPathModel]         Source-version FHIRPath model.
  * @param {Function} [opts.onWarning]            (msg: string) => void
  * @param {Function} [opts.onInfo]               (msg: string) => void
  * @param {Function} [opts.onRuleExec]           ({rule, srcVal}) => void
@@ -680,6 +673,7 @@ class Scope {
 export function compileFmlXver({
   fmlText,
   conceptMaps     = [],
+  conceptMapIndex = null,
   importedFmlTexts = [],
   strict          = false,
   fromVer         = null,
@@ -687,6 +681,7 @@ export function compileFmlXver({
   mapping         = null,
   srcDefs         = null,
   tgtDefs         = null,
+  fhirPathModel   = null,
   onWarning       = null,
   onInfo          = null,
   onRuleExec      = null,
@@ -709,7 +704,10 @@ export function compileFmlXver({
     }
   }
 
-  const translator = makeTranslator(conceptMaps, { strict: strict || false, onWarning, onInfo });
+  const translator = makeTranslator(
+    conceptMapIndex || createConceptMapIndex(conceptMaps),
+    { strict: strict || false, onWarning, onInfo },
+  );
 
   /**
    * FHIRPath model for the source FHIR version (used by all
@@ -717,7 +715,7 @@ export function compileFmlXver({
    * undefined when fromVer is unknown, in which case fhirpath.js runs
    * in plain-JSON mode (no FHIR-schema awareness).
    */
-  const fpModel = fromVer ? FHIRPATH_MODEL[fromVer] : undefined;
+  const fpModel = fhirPathModel || undefined;
 
   /**
    * Evaluate a FHIRPath expression authored in an FML rule.
@@ -785,7 +783,7 @@ export function compileFmlXver({
    * Build the set of last-segment names that appear as polymorphic fields
    * anywhere in a FHIR version (e.g. "value", "initial", "deceased").
    *
-   * The input is the consolidated defs object (see data/fhir-defs/{VER}.json);
+   * The input is a consolidated FHIR-table payload;
    * its `polyPaths` keys are full dotted paths from the resource root,
    * e.g. "Observation.value", "Questionnaire.item.initial.value",
    * "Patient.deceased". Only the final segment is retained here.

@@ -1,6 +1,6 @@
 {
   "name": "@lhncbc/fml-resource-version-converter",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "For converting FHIR resources between FHIR versions.",
   "keywords": [
     "fml",
@@ -16,21 +16,33 @@
   ],
   "main": "src/index.js",
   "type": "module",
+  "sideEffects": [
+    "./bin/convert.js"
+  ],
   "exports": {
     ".": "./src/index.js",
+    "./converter-factory": "./src/converter/converterFactory.js",
     "./fml-engine": "./src/fml-engine.js",
+    "./runtime/all": "./src/runtime/data_modules/all.js",
+    "./runtime/r2-to-r3": "./src/runtime/data_modules/r2-to-r3.js",
+    "./runtime/r3-to-r2": "./src/runtime/data_modules/r3-to-r2.js",
+    "./runtime/r3-to-r4": "./src/runtime/data_modules/r3-to-r4.js",
+    "./runtime/r4-to-r3": "./src/runtime/data_modules/r4-to-r3.js",
+    "./runtime/r4-to-r5": "./src/runtime/data_modules/r4-to-r5.js",
+    "./runtime/r4b-to-r5": "./src/runtime/data_modules/r4b-to-r5.js",
+    "./runtime/r5-to-r4": "./src/runtime/data_modules/r5-to-r4.js",
+    "./runtime/r5-to-r4b": "./src/runtime/data_modules/r5-to-r4b.js",
     "./package.json": "./package.json"
   },
   "files": [
     "bin/",
     "src/",
-    "data/fhir-cross-version/",
-    "data/fhir-defs/",
-    "data/fhir-spec-downloads/README.md",
+    "data/runtime/",
     "README.md",
     "CHANGELOG.md",
     "COVERAGE.md",
     "CONTRIBUTING.md",
+    "DATA-MAINTENANCE.md",
     "CONVERSION-AMBIGUITY.md",
     "LICENSE.md"
   ],
@@ -51,15 +63,31 @@
   },
   "scripts": {
     "test": "mocha test/mocha --recursive --timeout 15000",
+    "install:test-browser": "playwright install chromium",
+    "test:installed-package": "node test/installed-package.js",
     "build": "npm run build:coverage",
     "build:coverage": "node tools/build-coverage.js",
-    "build:fhir-defs": "node tools/build-fhir-defs.js"
+    "download:fhir-specs": "node tools/download-fhir-specs.js",
+    "build:runtime-data": "node tools/build-runtime-data.js",
+    "copy:runtime-data": "node tools/copy-runtime-data.js",
+    "check:runtime-data-integrity": "node tools/check-runtime-data-integrity.js",
+    "check:runtime-data-freshness": "node tools/check-runtime-data-freshness.js",
+    "check:package": "node tools/check-package.js",
+    "prepack": "npm run check:package"
   },
   "devDependencies": {
+    "js-yaml": "^4.3.1",
     "jszip": "^3.10.1",
-    "mocha": "^11.8.0"
+    "mocha": "^11.8.0",
+    "playwright": "^1.62.1",
+    "vite": "^6.4.3"
+  },
+  "overrides": {
+    "diff": "^8.0.3",
+    "serialize-javascript": "^7.0.5"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "fhirpath": "^4.11.0"
   }
 }

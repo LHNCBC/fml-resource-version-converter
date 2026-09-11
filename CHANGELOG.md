@@ -3,6 +3,54 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
+## [0.3.0] - 2026-09-08
+
+### Added
+
+- Added the `./converter-factory` entry point, directional runtime
+  data entry points under `./runtime/`, and the complete `./runtime/all`
+  entry point for synchronous Node and browser use.
+- Added deterministic compressed runtime artifacts, provenance validation,
+  alternate-root maintainer tooling, and package-content validation.
+- Added strictly validated `sources.yaml` datasets, independent in-place FML and
+  FHIR component build commands that default to `data/runtime`, symmetric
+  component and complete-root copy tooling, and explicit runtime-root and
+  component-selectable freshness checks.
+- Added `DATA-MAINTENANCE.md`, moving data maintenance instructions out of
+  `CONTRIBUTING.md`.
+
+### Changed
+
+- The default converters and low-level FML engine now use committed in-memory
+  runtime artifacts instead of reading raw data files. The default package
+  entry still loads all supported runtime data modules.
+- Importing the default package entry now decodes all runtime data up front, so
+  it costs more time and memory than in 0.2.x, while the first and subsequent
+  conversions are faster. Applications that need only some version directions,
+  especially browser applications, should import `./converter-factory` with the
+  directional `./runtime/*` entry points instead.
+- Mapping descriptors returned by the low-level engine now expose the portable
+  root-relative `virtualFile` field instead of the filesystem-only `filePath`,
+  for use in diagnostic messages.
+- Missing standalone ConceptMaps now fail runtime artifact generation. Strict
+  conversion still rejects missing or unmappable translations, but no longer
+  performs a separate filesystem-resolution check during engine construction.
+- The npm package now excludes the raw fhir-cross-version snapshot, FHIR
+  specification inputs, and generated definition intermediates.
+- The runtime manifest now keeps FML mapping and FHIR table sources and
+  artifacts in separate, independently managed sections. FHIR tables are
+  derived directly from the declared specification ZIP entries without a
+  persistent intermediate.
+
+### Removed
+
+- Removed the `xverInputRoot` runtime option. Repository maintainers can load
+  alternate mapping roots with the internal Node-only loader, then bind the
+  loaded runtime data with the public `converterFactory` entry point.
+- Removed unsupported raw package data paths from the published package.
+- Removed the retired `data/fhir-defs/` build path and the separate
+  cross-version `source.json` and `SOURCE.md` metadata files.
+
 ## [0.2.2] - 2026-08-20
 
 ### Changed

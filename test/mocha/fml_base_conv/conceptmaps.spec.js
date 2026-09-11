@@ -10,10 +10,20 @@ import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { scanConceptMaps } from '../../../src/fml_base_conv/conceptmaps.js';
-import { getAdjacentPairs } from '../../../src/fml_base_conv/create_converter.js';
+import { scanConceptMaps } from '../../../tools/conceptmaps.js';
+import { getAdjacentPairs } from '../../../src/fml_base_conv/version_graph.js';
+import {
+  loadSourceDataset,
+  SOURCE_COMPONENT,
+} from '../../../tools/runtime-data-sources.js';
 
-describe('fml_base_conv/conceptmaps: scanConceptMaps', function () {
+const FML_DATASET_ROOT = path.resolve(import.meta.dirname, '../../../data/fhir-cross-version');
+const BUNDLED_XVER_ROOT = loadSourceDataset(
+  FML_DATASET_ROOT,
+  SOURCE_COMPONENT.FML_MAPPINGS,
+).sources[0].inputRoot;
+
+describe('tools/conceptmaps: scanConceptMaps', function () {
   let root;
 
   before(function () {
@@ -64,10 +74,20 @@ describe('fml_base_conv/conceptmaps: scanConceptMaps', function () {
 // Ship-time guarantee: the bundled cross-version data must reference no absent
 // or unparseable standalone ConceptMaps. This is the automated counterpart of
 // running tools/check-data.js against the default (bundled) data root.
-describe('fml_base_conv/conceptmaps: bundled data integrity', function () {
+describe('tools/conceptmaps: bundled data integrity', function () {
+  // This scan performs roughly 3,400 synchronous file operations across the
+  // bundled snapshot: under 100 ms with a warm page cache, but tens of seconds
+  // on a cold one. The scan is synchronous, so this limit cannot interrupt it;
+  // it only decides whether the completed run is reported as a failure.
+  this.timeout(60000);
+
   it('every adjacent pair resolves all referenced standalone ConceptMaps', function () {
     for (const [from, to] of getAdjacentPairs()) {
-      const { missingConceptMaps, parseErrors } = scanConceptMaps(from, to);
+      const { missingConceptMaps, parseErrors } = scanConceptMaps(
+        from,
+        to,
+        BUNDLED_XVER_ROOT,
+      );
       assert.deepEqual(
         missingConceptMaps, [],
         `${from}->${to} references absent standalone ConceptMap(s): ${missingConceptMaps.join(', ')}`,
@@ -79,6 +99,3 @@ describe('fml_base_conv/conceptmaps: bundled data integrity', function () {
     }
   });
 });
-
-
-
