@@ -5,11 +5,12 @@
  * invariant csd-0 for `name`; a conforming STU3 name may violate it, so the
  * postprocessor reports the condition without changing the identifier.
  *
- * R4 -> R3: the FML does not account for identifier cardinality narrowing,
- * canonical version pins, R4 supplements, the R4-only `supplement` content
- * code, or decimal concept properties. The postprocessor repairs the target
- * shape and preserves parsed decimal values as strings where STU3 cannot
- * preserve their numeric property type.
+ * R4 -> R3: the FML does not account for canonical version pins, R4
+ * supplements, the R4-only `supplement` content code, or decimal concept
+ * properties. The postprocessor repairs the target shape and preserves parsed
+ * decimal values as strings where STU3 cannot preserve their numeric property
+ * type. Identifier cardinality narrowing is enforced and reported by the FML
+ * engine; the postprocessor keeps a defensive narrowing for direct calls.
  *
  * Neither direction implements inter-version extensions.
  *
@@ -31,27 +32,35 @@ const CSD_0_NAME = /^[A-Z][A-Za-z0-9_]{0,254}$/;
 /**
  * Reduce R4's repeating identifier to STU3's single Identifier.
  *
- * The loss is counted from the R4 source rather than from the FML output: the
- * engine already honors the STU3 `0..1` cardinality and hands over a single
- * value, so the converted resource no longer records how many identifiers
- * existed. The target is still normalized defensively, because this
- * postprocessor is also callable on a hand-built target.
+ * This is a defensive repair, not the primary report. The FML engine already
+ * honors the STU3 `0..1` cardinality while writing, and reports the dropped
+ * identifiers itself, so in the normal pipeline this function finds a single
+ * value and stays silent rather than duplicating that warning. It still
+ * narrows and reports when it is handed a target that really does carry an
+ * array, which is what happens when the postprocessor is invoked directly on a
+ * hand-built resource.
+ *
+ * The message therefore describes only what this function did. Counting the
+ * loss from the source instead would claim an identifier was retained even
+ * when the target has none.
  *
  * @param {Object} target FML-converted STU3 CodeSystem, mutated in place.
- * @param {Object} source Read-only R4 source snapshot.
  * @param {Array<Object>} messages Diagnostic messages to append.
  */
-function narrowIdentifier(target, source, messages) {
-  if (Array.isArray(target?.identifier)) {
-    if (target.identifier.length === 0) delete target.identifier;
-    else target.identifier = target.identifier[0];
+function narrowIdentifier(target, messages) {
+  if (!Array.isArray(target?.identifier)) return;
+
+  const identifiers = target.identifier;
+  if (identifiers.length === 0) {
+    delete target.identifier;
+    return;
   }
 
-  const sourceIdentifiers = source?.identifier;
-  if (!Array.isArray(sourceIdentifiers) || sourceIdentifiers.length <= 1) return;
+  target.identifier = identifiers[0];
+  if (identifiers.length === 1) return;
 
   messages.push(warningMessage(
-    `CodeSystem.identifier has ${sourceIdentifiers.length} entries in R4 but STU3 allows only one; `
+    `CodeSystem.identifier has ${identifiers.length} entries in R4 but STU3 allows only one; `
     + 'the first identifier was retained and the additional identifiers were dropped',
   ));
 }
@@ -248,9 +257,10 @@ export const conv_R4_to_R3 = {
   name: 'CodeSystem_R4_to_R3',
   coverage: COVERAGE.BEST_EFFORT,
   description:
-    'Narrows identifier cardinality, removes canonical version pins, reports dropped '
-    + 'supplements, approximates supplement content as fragment, and preserves decimal '
-    + 'property values as strings with warnings. Does not handle inter-version extensions.',
+    'Removes canonical version pins, reports dropped supplements, approximates supplement '
+    + 'content as fragment, and preserves decimal property values as strings with warnings. '
+    + 'Also narrows identifier cardinality defensively; the FML engine normally enforces and '
+    + 'reports that narrowing already. Does not handle inter-version extensions.',
 
   /**
    * @param {Object} target FML-converted STU3 CodeSystem, mutated in place.
@@ -261,7 +271,7 @@ export const conv_R4_to_R3 = {
     const messages = [];
     const source = ctx?.sourceResource || {};
 
-    narrowIdentifier(target, source, messages);
+    narrowIdentifier(target, messages);
     normalizeValueSet(target, messages);
     reportSupplements(source, messages);
     normalizeContent(target, messages);

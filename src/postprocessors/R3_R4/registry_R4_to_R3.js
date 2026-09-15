@@ -44,9 +44,10 @@ export const registry = {
     fml: {
       coverage: COVERAGE.KNOWN_GAPS,
       description:
-        'FML leaves R4-only cardinality, canonical, supplement, and decimal '
-        + 'CodeSystem differences unresolved; corrected or approximated with '
-        + 'diagnostics by the CodeSystem_R4_to_R3 postprocessor.',
+        'FML leaves R4-only canonical, supplement, and decimal CodeSystem '
+        + 'differences unresolved; corrected or approximated with diagnostics '
+        + 'by the CodeSystem_R4_to_R3 postprocessor. The identifier cardinality '
+        + 'narrowing R4 -> R3 requires is enforced and reported by the engine.',
     },
     processors: [convCodeSystem_R4_to_R3],
   },

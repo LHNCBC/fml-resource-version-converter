@@ -1247,10 +1247,23 @@ export function compileFmlXver({
    * "unknown" as "scalar" would let this collapse arrays the engine has no
    * evidence about.
    *
-   * A path counts as known when `elementTypes` resolves it, which covers both
-   * leaf elements and backbone containers (e.g. `Questionnaire.group ->
-   * BackboneElement`), including resolution through content references and
-   * datatype boundaries.
+   * A path counts as known when ANY target sub-table describes it, because the
+   * tables partition element paths rather than duplicating them:
+   *
+   *   - `elementTypes` holds single-typed elements, including backbone
+   *     containers (e.g. `Questionnaire.group -> BackboneElement`);
+   *   - `polyPaths` holds choice elements and, importantly, any element whose
+   *     StructureDefinition lists several `type` entries even when they share
+   *     one code (e.g. DSTU2 `Schedule.actor`, a `0..1 Reference` with one
+   *     entry per allowed profile). Such elements never reach `elementTypes`;
+   *   - `contentReferences` holds elements that borrow their children from
+   *     another element and therefore carry no type of their own (e.g. DSTU2
+   *     `TestScript.setup.metadata`).
+   *
+   * `arrayPaths` is not consulted: a hit there means the path is an array,
+   * which `isTgtArrayPath()` has already excluded.
+   *
+   * Each lookup resolves through content references and datatype boundaries.
    *
    * @param {string} absPath Absolute resource-rooted dotted path.
    * @returns {boolean}
@@ -1258,12 +1271,10 @@ export function compileFmlXver({
   function isKnownTgtScalarPath(absPath) {
     if (!absPath || isTgtArrayPath(absPath)) return false;
     const schemaPath = targetSchemaPath(absPath);
-    return lookupSchemaEntry(
-      tgtElementTypes,
-      tgtElementTypes,
-      tgtContentReferences,
-      schemaPath,
-    ) !== undefined;
+
+    return [tgtElementTypes, tgtPolyTypeLists, tgtContentReferences].some(index => (
+      lookupSchemaEntry(index, tgtElementTypes, tgtContentReferences, schemaPath) !== undefined
+    ));
   }
 
   /**

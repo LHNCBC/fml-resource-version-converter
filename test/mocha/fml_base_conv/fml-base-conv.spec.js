@@ -549,6 +549,61 @@ group Test(source src, target tgt) {
     assert.deepEqual(warnings, []);
   });
 
+  it('narrows a scalar element that is described only by polyPaths', function () {
+    // An element with several `type` entries lands in polyPaths even when the
+    // entries share one code, which is how DSTU2 expresses a `0..1 Reference`
+    // with one entry per allowed profile (e.g. Schedule.actor). Such elements
+    // never appear in elementTypes.
+    const warnings = [];
+    const engine = engineFor({
+      polyPaths: { 'Test.out': ['Reference'] },
+      elementTypes: {},
+      arrayPaths: [],
+    }, warnings);
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', value: ['first', 'second'] },
+    });
+
+    assert.equal(out.out, 'first');
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Test\.out accepts at most one value/);
+  });
+
+  it('leaves a repeating polyPaths element untouched', function () {
+    const warnings = [];
+    const engine = engineFor({
+      polyPaths: { 'Test.out': ['Reference'] },
+      elementTypes: {},
+      arrayPaths: ['Test.out'],
+    }, warnings);
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', value: ['first', 'second'] },
+    });
+
+    assert.deepEqual(out.out, ['first', 'second']);
+    assert.deepEqual(warnings, []);
+  });
+
+  it('narrows a scalar element that is described only by contentReferences', function () {
+    // An element that borrows its children from another element carries no
+    // type of its own, so it appears only in contentReferences (e.g. DSTU2
+    // TestScript.setup.metadata -> TestScript.metadata).
+    const warnings = [];
+    const engine = engineFor({
+      polyPaths: {},
+      elementTypes: {},
+      arrayPaths: [],
+      contentReferences: { 'Test.out': 'Test.shared' },
+    }, warnings);
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', value: ['first', 'second'] },
+    });
+
+    assert.equal(out.out, 'first');
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Test\.out accepts at most one value/);
+  });
+
   it('resolves target cardinality through a content reference', function () {
     // `Test.out` is only defined below `Test.item`, reached via the content
     // reference. This is the shape DSTU2 expresses as `nameReference`.

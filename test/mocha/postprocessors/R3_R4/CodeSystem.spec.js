@@ -150,6 +150,7 @@ describe('postprocessors/R3_R4 CodeSystem', function () {
       };
       const converted = singleHopConverter.convert(source, 'R4', 'R3');
       const text = converted.postprocessors[0].messages.map(message => message.text).join('\n');
+      const engineText = converted.fml_base_conv.messages.map(message => message.text).join('\n');
 
       assert.deepEqual(converted.resource.identifier, source.identifier[0]);
       assert.equal(converted.resource.valueSet, 'http://example.org/fhir/ValueSet/base#part');
@@ -158,10 +159,14 @@ describe('postprocessors/R3_R4 CodeSystem', function () {
       assert.deepEqual(converted.resource._content, contentCompanion);
       assert.equal('supplements' in converted.resource, false);
       assert.deepEqual(converted.resource.concept, source.concept);
-      assert.match(text, /additional identifiers were dropped/);
       assert.match(text, /pins a canonical version/);
       assert.match(text, /supplements has no STU3 equivalent/);
       assert.match(text, /supplement.*approximated as.*fragment/s);
+
+      // The engine enforces STU3's identifier 0..1 while writing and reports
+      // the loss, so the postprocessor must not report it a second time.
+      assert.match(engineText, /CodeSystem\.identifier accepts at most one value/);
+      assert.equal(/identifier/.test(text), false);
     });
 
     it('preserves all shared hierarchyMeaning codes without warnings', function () {
@@ -278,6 +283,49 @@ describe('postprocessors/R3_R4 CodeSystem', function () {
 
       assert.ok(result.messages.length > 0);
       assert.ok(result.messages.every(message => message.type === MESSAGE_TYPE.WARNING));
+    });
+
+    it('R4 -> R3 narrows a target that still carries an identifier array', function () {
+      const target = {
+        resourceType: 'CodeSystem',
+        identifier: [{ value: 'one' }, { value: 'two' }],
+      };
+      const result = conv_R4_to_R3.execute(target, {
+        sourceResource: { resourceType: 'CodeSystem', identifier: target.identifier },
+      });
+      const text = result.messages.map(message => message.text).join('\n');
+
+      assert.deepEqual(result.resource.identifier, { value: 'one' });
+      assert.match(text, /additional identifiers were dropped/);
+    });
+
+    it('R4 -> R3 does not claim an identifier was retained when none was', function () {
+      // The source had two identifiers but the target carries none, so there
+      // is nothing for this postprocessor to narrow and nothing it can honestly
+      // describe as retained.
+      const target = { resourceType: 'CodeSystem' };
+      const result = conv_R4_to_R3.execute(target, {
+        sourceResource: {
+          resourceType: 'CodeSystem',
+          identifier: [{ value: 'one' }, { value: 'two' }],
+        },
+      });
+
+      assert.equal('identifier' in result.resource, false);
+      assert.equal(
+        result.messages.some(message => /identifier/.test(message.text)),
+        false,
+      );
+    });
+
+    it('R4 -> R3 drops an empty identifier array without reporting a loss', function () {
+      const target = { resourceType: 'CodeSystem', identifier: [] };
+      const result = conv_R4_to_R3.execute(target, {
+        sourceResource: { resourceType: 'CodeSystem' },
+      });
+
+      assert.equal('identifier' in result.resource, false);
+      assert.deepEqual(result.messages, []);
     });
   });
 });
