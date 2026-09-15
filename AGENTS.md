@@ -8,18 +8,28 @@ npm test                            # run the full mocha suite
 node bin/convert.js R4 R5 in.json   # CLI conversion, result to stdout
 
 npm run build:coverage       # maintainer: regenerate COVERAGE.md (do not edit it by hand)
-npm run build:fhir-defs      # maintainer: regenerate data/fhir-defs/ from the spec zips
+npm run check:package        # maintainer: validate package contents; report size
+npm run install:test-browser # maintainer: one-time Chromium install for the harness below
+npm run test:installed-package
+                             # maintainer: smoke-test the packed package
 node tools/check-data.js     # maintainer: check bundled cross-version data; report ambiguities
 ```
+
+Maintainer data commands - `download:fhir-specs`, `build:runtime-data`,
+`copy:runtime-data`, `check:runtime-data-integrity`, and
+`check:runtime-data-freshness` - are documented in `DATA-MAINTENANCE.md`.
 
 ## General
 - The .scratch/ directory is a work area for use to communicate between the
   developer and the AI.
   - It's git-ignored and is not going into the build.
   - .scratch/AI/: this is your scratch area, put your stuff here.
+  - For FHIR specification investigation, extract only the needed ZIP entries
+    into .scratch/AI/ and reuse them; do not repeatedly unzip the archives.
   - .scratch/human/: this is my area. You can read from here, but
-    DO NOT write/update anything there unless explicitly asked to.
-
+    DO NOT write/update anything there unless explicitly asked.
+- DO NOT show your own probe/scratch files in the "files changed" list unless
+  explicitly asked.
 - Check my instructions before execution to see if they make sense.
 - If, at any point, you feel that my instructions are off, please
   pause and confirm with me first.
@@ -40,6 +50,7 @@ node tools/check-data.js     # maintainer: check bundled cross-version data; rep
 - New files: Propose before creating.
 - Destructive actions: Always ask before deleting or renaming files.
 - Context: Read relevant files before editing; don't guess.
+- Do NOT stage changes unless explicitly asked to do so.
 
 ## Code Style
 - Add JSDoc to functions

@@ -1,55 +1,36 @@
 # FML-based FHIR Resource Version Converter
 
 This FML-based FHIR Resource Version Converter is a JavaScript package
-designed to be a general, extensible framework to support the conversion
-of FHIR resources between versions by leveraging the HL7 FHIR cross-version
-FML (FHIR Mapping Language) mapping files.
+for converting FHIR resources between FHIR versions by leveraging HL7's
+FHIR cross-version FML (FHIR Mapping Language) mapping files.
 
-At the core of the package is an FML engine that executes these mappings.
-The mappings handle most data elements, but some still contain gaps. The
-package provides a framework for:
-- documenting FML mapping coverage and limitations
-- adding postprocessors incrementally to improve conversions
-- chaining conversions between non-adjacent versions, such as R3 to R5
+The HL7's fhir-cross-version project provides FML mapping files for
+converting FHIR resources between adjacent FHIR versions. While there are
+rare exceptions (as documented in CONVERSION-AMBIGUITY.md), there is
+generally one FML mapping file for each **conversion triple** of
+(resource-type, from-version, to-version),
+where from-version and to-version are adjacent versions. Unless otherwise
+specified, this document assumes one FML mapping file per conversion triple.
 
-As a baseline, this package supports every conversion for which a bundled
-FML mapping is available, to the extent covered by that mapping. Building on
-that baseline:
+The base case conversion is to convert a resource of a given type from one
+version to the next adjacent version (in either direction), which we refer
+to as a "conversion hop", or simply, a **hop**. A conversion between
+non-adjacent versions may be performed as a **chain** of hops.
 
-- Individual FML mappings need to be reviewed and gaps identified.
-- Identified gaps can be addressed with postprocessors where possible.
-- This package currently ships with postprocessors for a limited number of
-  resource types and version pairs.
-- The community is encouraged to contribute by reviewing the FML conversions
-  and by providing postprocessors to improve the conversion. Detailed instructions
-  for contributing are in [CONTRIBUTING.md](CONTRIBUTING.md).
+At the core of the package is an FML engine that executes the FML mappings
+to make the conversion. However, the mappings can often be incomplete or
+contain errors. This package provides a flexible framework for supporting
+incremental improvements:
+- registries for documenting FML mapping coverage and limitations
+- postprocessors may be added/contributed to this package to fill the gaps.
+- users may specify custom postprocessors to address any remaining concerns.
 
-Here are a few key terms used in this package:
-
-**Conversion tuple:** A combination of resource type, source version, and target
-version. Where the context is clear, this document uses **conversion** as
-shorthand. For a single-hop conversion, the versions are adjacent and a bundled
-FML mapping exists for that combination. For example,
-`data/fhir-cross-version/input/R4toR5/Patient4to5.fml`
-is the FML mapping file for converting a Patient resource from R4 to R5.
-
-**Onboarding:** the term onboarding is used to describe the process of
-reviewing an FML conversion mapping and adding postprocessors as needed to
-achieve the best conversion currently practical. Therefore, a fully
-onboarded conversion is one that meets the following criteria:
-- the FML mapping has been reviewed for completeness and correctness
-- any known gaps in the FML mapping have been addressed to the fullest extent
-  possible with postprocessors
-- the review status and postprocessors (where applicable) have been documented and
-  registered in the postprocessor registry (see [CONTRIBUTING.md](CONTRIBUTING.md)
-  for details).
-
-Reviewed conversions currently cover:
-- **Binary (R2 <-> R3, R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
-- **CodeSystem (R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
-- **Library (R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
-- **Questionnaire (R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
-- **ValueSet (R3 <-> R4, R4 <-> R5, and R4B <-> R5)**
+Please refer to COVERAGE.md for the current coverage status for specific
+conversions. The community is encouraged to help improve this package by
+reviewing the FML conversions and by providing postprocessors as needed
+to fill the gaps. It's relatively straightforward to address one conversion
+triple at a time. Detailed instructions for contributing are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 As a historical note, this project evolved from the now-deprecated
 [questionnaire-version-converter](https://github.com/LHNCBC/questionnaire-version-converter),
@@ -107,8 +88,74 @@ an unsupported version path.
 The input resource is deep-cloned before conversion. Your original resource object
 is not modified.
 
-Because resources are sometimes renamed or split between FHIR versions, a
-source resource type can map to more than one target type on a single hop. Use
+The conversion uses runtime data prepared from the HL7 FML mapping data
+and the FHIR spec. Users of this package normally do not need to worry
+about how the runtime data have been built. In case you are curious, the
+source datasets and regeneration workflow are documented in
+[DATA-MAINTENANCE.md](DATA-MAINTENANCE.md).
+
+The default package entry preloads the runtime data
+for all supported conversions (resource types, source-target versions),
+which incurs moderate initialization time and memory cost. Applications
+that need fewer combinations of source-target version conversions, especially
+browser applications, may import the converter factory and only the
+required runtime data, as illustrated below.
+
+```js
+import { converterFactory } from
+  '@lhncbc/fml-resource-version-converter/converter-factory';
+import runtimeData from
+  '@lhncbc/fml-resource-version-converter/runtime/r4-to-r5';
+
+const { singleHopConverter } = converterFactory.create(runtimeData);
+const result = singleHopConverter.convert(questionnaireR4, 'R4', 'R5');
+```
+
+`converterFactory.create()` accepts one runtime data module or an array. The
+returned `singleHopConverter`, `chainedConverter`, and `getRegistryEntry` are
+all scoped to those modules. A chain is available only when every required hop
+was included:
+
+```js
+import r2ToR3 from
+  '@lhncbc/fml-resource-version-converter/runtime/r2-to-r3';
+import r3ToR4 from
+  '@lhncbc/fml-resource-version-converter/runtime/r3-to-r4';
+
+const { chainedConverter } = converterFactory.create([r2ToR3, r3ToR4]);
+const result = chainedConverter.convert(resourceR2, 'R2', 'R4');
+```
+
+The package also exports `runtime/all`, which contains the same complete runtime
+selection used internally by the default package entry. Pass it explicitly to
+`converterFactory.create()` when constructing an all-data converter; the factory
+requires one runtime data module or a non-empty array and has no implicit default.
+
+Runtime data objects are opaque and read-only by contract. Conversion remains
+synchronous; a dynamic import can be used when an application wants to defer
+loading and initialization.
+
+When a browser build emits sourcemaps, configure the builder not to embed
+dependency source text. Otherwise a builder can copy the large Base64 runtime
+payloads into `sourcesContent`. For Vite/Rollup:
+
+```js
+export default {
+  build: {
+    sourcemap: true,
+    rollupOptions: {
+      output: { sourcemapExcludeSources: true },
+    },
+  },
+};
+```
+
+This preserves sourcemap locations while keeping the runtime payload only in
+the JavaScript bundle.
+
+Due to the spec changes from version to version, there are rare cases (details
+see CONVERSION-AMBIGUITY.md) where for a given source resource, there are
+ambiguities on what the target resource type should be. In such cases, use
 `opts.targetResourceType` to assert the intended target:
 
 ```js
@@ -125,9 +172,9 @@ only when the source resource maps to more than one target on the hop (as with
 supplied, it is checked against the target type declared by the FML
 StructureMap, so a mismatched value is rejected rather than silently ignored.
 
-Naming a target type does not always identify a single mapping: `ProcedureRequest`
-R3 -> R2 targeting `DiagnosticOrder` is served by two FML StructureMaps and
-therefore cannot be run. See [Limitations](#limitations).
+Naming a target type does not always uniquely identify a mapping. For example,
+there are two FML mapping files corresponding to `ProcedureRequest` R3 -> R2
+targeting `DiagnosticOrder`. See [Limitations](#limitations) for further details.
 
 ## Supported version pairs
 
@@ -145,10 +192,8 @@ R4  <-> R5
 R4B <-> R5
 ```
 
-`chainedConverter.convert()` supports adjacent pairs and multi-hop paths along
-the supported lanes. For example, **R3 -> R5** runs as **R3 -> R4 -> R5**.
-Use `singleHopConverter.convert()` only when you specifically want the flat
-single-hop result shape for one adjacent pair.
+`chainedConverter.convert()` supports adjacent pairs and multi-hop paths.
+For example, **R3 -> R5** runs as **R3 -> R4 -> R5**.
 
 R4B only has FML mappings to and from R5, and specifically, there is no FML mapping
 between **R4 <-> R4B** (not needed).
@@ -157,17 +202,16 @@ For conversions between **R3 <-> R4B**, use **R4** instead of
 
 ## Limitations
 
-This initial release focuses on top-level resource conversion. Please keep the
-following in mind:
+The converter currently focuses on top-level resource conversion. Please keep
+the following in mind:
 
-- **Contained resources are not version-converted.** A resource's `contained[]`
+- **Contained resources are not yet converted.** A resource's `contained[]`
   entries are carried through as-is and are not converted to the target version.
   If your resource holds contained resources that must match the target version,
   convert them separately for now. Automatic conversion of contained resources
-  is planned for a future release, at which point the conversion report will
-  include a per-contained-resource status you can check.
-- **Bundle entry resources are not version-converted.** Bundle structure is
-  mapped, but each `entry.resource` is carried through as-is. Recursive
+  is planned for a future release.
+- **Bundle entry resources are not yet converted.** The bundle resource itself
+  is converted, but each `entry.resource` is carried through as-is. Recursive
   conversion of Bundle entries is planned for a future release.
 - **One-to-many conversion is not yet supported.** A future release will handle
   cases such as R2 -> R3 `CarePlan` -> `CarePlan` + `CareTeam` when needed.
@@ -175,9 +219,12 @@ following in mind:
   `--target-resource-type`) is supported only for a single hop.** Support for
   selecting targets within a multi-hop conversion may be added in a future
   release.
-- **Reviewed conversions** currently cover a few resource types and versions.
-  The FML conversions for other resource types and versions have not been
-  reviewed (see [COVERAGE.md](COVERAGE.md)).
+- **Reviewed conversions** currently only a limited set of conversions, that is,
+  (resource-type, from-version, to-version) triples, have been reviewed and have
+  postprocessors supplied where needed. For the rest, the conversions
+  are based on the FML mappings only. While most of the data elements (fields)
+  should have been handled by the FML mappings, the exact coverage status is
+  unknown. See [COVERAGE.md](COVERAGE.md) for details.
 - **A few FML language features are not yet implemented:** `let` constants and
   inline `conceptmap` declarations. Bundled mappings do not use them; the engine
   emits a warning if it sees one.
@@ -265,9 +312,11 @@ See [COVERAGE.md](COVERAGE.md) for the current coverage level report.
 
 ## Custom pre- and postprocessors
 
-Most users do not need custom processors. If you do, pass them in the optional
-fourth argument:
+Custom processors may be passed in to further improve or reshape the
+conversion the way you want. They may be provided as part of the fourth
+argument (options).
 
+### Passing in a single preprocessor and/or postprocessor
 ```js
 const result = chainedConverter.convert(resource, 'R3', 'R5', {
   preproc: [myPreprocessor],
@@ -278,19 +327,20 @@ const result = chainedConverter.convert(resource, 'R3', 'R5', {
 
 `preproc` is applied to the first hop for the primary resource - the very first
 processor to run. `postproc` is applied to the last hop for the primary resource
-- the very last processor to run, so its output is the final result. The
-postprocessor `policy` controls
+- the very last processor to run. The postprocessor `policy` controls
 how your postprocessors combine with the package's registered postprocessors
 for that hop:
 
 - **append** (default): run package postprocessors first, then yours.
-- **replace**: run only the postprocessors specified in the request -
+- **replace**: run only the postprocessors specified in your request -
   this may include the package postprocessors if you explicitly include
   them in your list (in any order you deem appropriate). The package
   postprocessors may be obtained using the `getRegistryEntry()`
   function in the public API.
 
-For a specific hop, use keyed `preprocs` or `postprocs`:
+### Passing in preprocessors and/or postprocessors for specific hops
+
+To pass in processors for specific hops, use keyed `preprocs` or `postprocs`:
 
 ```js
 const result = chainedConverter.convert(resource, 'R3', 'R5', {
@@ -310,7 +360,7 @@ For `singleHopConverter.convert()`, keyed maps may use either the full
 `'Questionnaire:R4->R5'` key or the type-only `'Questionnaire'` key. These are
 two spellings of the same entry. If both occur in one map, the later property in
 the map takes precedence; their processor lists are not merged, just as if you
-specify two entries with the same key.
+specify two entries with the same key in a map.
 
 The package also exports helpers for authoring processors - `makeProcessor`,
 `validateProcessorDescriptor`, `makeMessage`, `infoMessage`, `warningMessage`,
@@ -376,12 +426,10 @@ node bin/convert.js R4 R3 service-request-r4.json \
 
 ## Coverage and contributions
 
-Due to the sheer number of resource type and version pair combinations, this package
-is meant to grow incrementally: review one resource type and version pair at a time,
+Due to the sheer number of resource type and version pair combinations, this
+package is meant to grow incrementally: review one conversion triple a time,
 add a postprocessor if needed, test, and then regenerate the coverage report.
-
-Reviewed conversions currently cover only a few resource types and versions.
-Contributions for other resource types and version pairs are welcome.
+Contributions are welcome.
 
 See [COVERAGE.md](COVERAGE.md) for current coverage status.
 See [CONTRIBUTING.md](CONTRIBUTING.md) on how to contribute.
@@ -399,6 +447,8 @@ import {
   planHops,
 } from '@lhncbc/fml-resource-version-converter/fml-engine';
 ```
+
+`createFmlEngineFactory()` takes no arguments.
 
 There is also a lower-level experimental CLI at
 `src/fml_base_conv/convert_cli.js` for engine-level testing.

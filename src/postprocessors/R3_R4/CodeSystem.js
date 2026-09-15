@@ -31,23 +31,27 @@ const CSD_0_NAME = /^[A-Z][A-Za-z0-9_]{0,254}$/;
 /**
  * Reduce R4's repeating identifier to STU3's single Identifier.
  *
+ * The loss is counted from the R4 source rather than from the FML output: the
+ * engine already honors the STU3 `0..1` cardinality and hands over a single
+ * value, so the converted resource no longer records how many identifiers
+ * existed. The target is still normalized defensively, because this
+ * postprocessor is also callable on a hand-built target.
+ *
  * @param {Object} target FML-converted STU3 CodeSystem, mutated in place.
+ * @param {Object} source Read-only R4 source snapshot.
  * @param {Array<Object>} messages Diagnostic messages to append.
  */
-function narrowIdentifier(target, messages) {
-  if (!Array.isArray(target?.identifier)) return;
-
-  const identifiers = target.identifier;
-  if (identifiers.length === 0) {
-    delete target.identifier;
-    return;
+function narrowIdentifier(target, source, messages) {
+  if (Array.isArray(target?.identifier)) {
+    if (target.identifier.length === 0) delete target.identifier;
+    else target.identifier = target.identifier[0];
   }
 
-  target.identifier = identifiers[0];
-  if (identifiers.length === 1) return;
+  const sourceIdentifiers = source?.identifier;
+  if (!Array.isArray(sourceIdentifiers) || sourceIdentifiers.length <= 1) return;
 
   messages.push(warningMessage(
-    `CodeSystem.identifier has ${identifiers.length} entries in R4 but STU3 allows only one; `
+    `CodeSystem.identifier has ${sourceIdentifiers.length} entries in R4 but STU3 allows only one; `
     + 'the first identifier was retained and the additional identifiers were dropped',
   ));
 }
@@ -257,7 +261,7 @@ export const conv_R4_to_R3 = {
     const messages = [];
     const source = ctx?.sourceResource || {};
 
-    narrowIdentifier(target, messages);
+    narrowIdentifier(target, source, messages);
     normalizeValueSet(target, messages);
     reportSupplements(source, messages);
     normalizeContent(target, messages);

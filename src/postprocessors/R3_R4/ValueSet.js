@@ -42,7 +42,6 @@
  *
  * @module postprocessors/R3_R4/ValueSet
  */
-import { randomUUID } from 'node:crypto';
 import { COVERAGE } from '../../converter/coverage.js';
 import {
   statusFromMessages,
@@ -52,6 +51,7 @@ import {
   hasAnyContent,
   stripCanonicalVersion,
 } from '../util/elements.js';
+import { randomUuid } from '../util/uuid.js';
 
 // STU3 defines `code` as "a string which has at least one character and no
 // leading or trailing whitespace and where there is no whitespace other than
@@ -184,7 +184,7 @@ function ensureExpansionIdentifier(target, messages) {
   if (!expansion || typeof expansion !== 'object' || Array.isArray(expansion)) return;
   if (hasAnyContent(expansion, ['identifier', '_identifier'])) return;
 
-  const generated = `urn:uuid:${randomUUID()}`;
+  const generated = `urn:uuid:${randomUuid()}`;
   expansion.identifier = generated;
   messages.push(warningMessage(
     'ValueSet.expansion.identifier is optional in R4 but required in STU3; '
@@ -231,7 +231,7 @@ function reportDateTimeParameters(source, messages) {
 function ensureComposeOrExpansion(target, messages) {
   if (hasAnyContent(target, ['compose', 'expansion'])) return;
 
-  const identifier = `urn:uuid:${randomUUID()}`;
+  const identifier = `urn:uuid:${randomUuid()}`;
   target.expansion = { identifier, timestamp: new Date().toISOString() };
   messages.push(warningMessage(
     'STU3 requires a ValueSet to carry a compose or an expansion (vsd-5) but '

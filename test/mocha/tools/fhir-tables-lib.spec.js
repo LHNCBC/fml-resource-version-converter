@@ -7,8 +7,7 @@
  * tables.
  */
 import { strict as assert } from 'node:assert';
-import { classifyElement, processElements, BUNDLE_ENTRY_RE }
-  from '../../../tools/fhir-tables-lib.js';
+import { classifyElement, processElements } from '../../../tools/fhir-tables-lib.js';
 
 describe('fhir-tables-lib: classifyElement', () => {
 
@@ -86,6 +85,42 @@ describe('fhir-tables-lib: classifyElement', () => {
       path: 'Foo.part',
       contentReference: '#Foo..parameter',
     }).contentReference, null);
+  });
+
+  it('resolves a DSTU2 nameReference through the supplied name index', () => {
+    const names = new Map([['parameter', 'Parameters.parameter']]);
+    const c = classifyElement(
+      { path: 'Parameters.parameter.part', nameReference: 'parameter' },
+      names,
+    );
+    assert.equal(c.contentReference, 'Parameters.parameter');
+  });
+
+  it('strips a [x] suffix from the resolved nameReference target path', () => {
+    const names = new Map([['choice', 'Foo.value[x]']]);
+    const c = classifyElement({ path: 'Foo.other', nameReference: 'choice' }, names);
+    assert.equal(c.contentReference, 'Foo.value');
+  });
+
+  it('leaves nameReference unresolved when no name index is supplied', () => {
+    const c = classifyElement({ path: 'Foo.part', nameReference: 'parameter' });
+    assert.equal(c.contentReference, null);
+  });
+
+  it('leaves nameReference unresolved when the name is not declared', () => {
+    const c = classifyElement(
+      { path: 'Foo.part', nameReference: 'missing' },
+      new Map([['other', 'Foo.other']]),
+    );
+    assert.equal(c.contentReference, null);
+  });
+
+  it('prefers contentReference over nameReference when both are present', () => {
+    const c = classifyElement(
+      { path: 'Foo.part', contentReference: '#Foo.parameter', nameReference: 'other' },
+      new Map([['other', 'Foo.other']]),
+    );
+    assert.equal(c.contentReference, 'Foo.parameter');
   });
 
   it('counts type entries with missing code and excludes them from types', () => {
@@ -243,25 +278,47 @@ describe('fhir-tables-lib: processElements', () => {
       ['Foo.bad', 'Foo.parameter', null, 'FooSD'],
     ]);
   });
-});
 
-describe('fhir-tables-lib: BUNDLE_ENTRY_RE', () => {
+  it('resolves DSTU2 nameReference against names in the same element list', () => {
+    const references = new Map();
+    processElements([
+      { path: 'ValueSet.expansion.contains', name: 'contains', max: '*' },
+      { path: 'ValueSet.expansion.contains.contains', nameReference: 'contains', max: '*' },
+    ], new Map(), new Set(), new Map(), null, 'ValueSet', references);
 
-  it('matches the two relevant bundle filenames at the zip root', () => {
-    assert.ok(BUNDLE_ENTRY_RE.test('profiles-resources.json'));
-    assert.ok(BUNDLE_ENTRY_RE.test('profiles-types.json'));
+    assert.deepEqual(
+      [...references],
+      [['ValueSet.expansion.contains.contains', 'ValueSet.expansion.contains']],
+    );
   });
 
-  it('matches under a forward-slash prefix (R4B layout)', () => {
-    assert.ok(BUNDLE_ENTRY_RE.test('definitions.json/profiles-resources.json'));
+  it('reports an unresolvable nameReference as a content-reference issue', () => {
+    const issues = [];
+    processElements(
+      [{ path: 'Foo.part', nameReference: 'absent' }],
+      new Map(), new Set(), new Map(), null, 'FooSD', new Map(),
+      (...args) => issues.push(args),
+    );
+
+    assert.deepEqual(issues, [['Foo.part', 'absent', null, 'FooSD']]);
   });
 
-  it('matches under a backslash prefix (DSTU2 fhir-spec.zip layout)', () => {
-    assert.ok(BUNDLE_ENTRY_RE.test('site\\profiles-types.json'));
-  });
+  it('does not let one definition\'s names resolve another definition\'s references', () => {
+    const references = new Map();
+    const issues = [];
+    // Two separate calls model two StructureDefinitions.
+    processElements(
+      [{ path: 'A.thing', name: 'thing' }],
+      new Map(), new Set(), new Map(), null, 'A', references,
+      (...args) => issues.push(args),
+    );
+    processElements(
+      [{ path: 'B.part', nameReference: 'thing' }],
+      new Map(), new Set(), new Map(), null, 'B', references,
+      (...args) => issues.push(args),
+    );
 
-  it('rejects similarly-named but unrelated files', () => {
-    assert.ok(!BUNDLE_ENTRY_RE.test('profiles-others.json'));
-    assert.ok(!BUNDLE_ENTRY_RE.test('valuesets.json'));
+    assert.equal(references.size, 0);
+    assert.deepEqual(issues, [['B.part', 'thing', null, 'B']]);
   });
 });

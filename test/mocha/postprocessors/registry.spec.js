@@ -3,7 +3,7 @@
  */
 import { strict as assert } from 'node:assert';
 import { COVERAGE } from '../../../src/converter/coverage.js';
-import { getAdjacentPairs } from '../../../src/fml_base_conv/create_converter.js';
+import { getAdjacentPairs } from '../../../src/fml_base_conv/version_graph.js';
 import { converterContext } from '../../../src/converter/converterContext.js';
 import { registeredDirections, cloneDescriptor } from '../../../src/postprocessors/registry.js';
 

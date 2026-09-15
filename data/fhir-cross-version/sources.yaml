@@ -1,0 +1,24 @@
+# Source configuration for the cross-version FML mapping dataset.
+# Paths are relative to this file's directory. The build computes the exact
+# input-tree SHA-256; maintainers do not enter generated hashes here.
+schemaVersion: 1
+sources:
+  - id: hl7-fhir-cross-version
+    inputPath: input
+    uri: https://github.com/HL7/fhir-cross-version
+    commit: 72779598c1bbfffbfd99a901938af495ddd91ff1
+    date: '2026-02-24'
+    license: HL7 FHIR License
+
+    # Set this to true when this snapshot differs from the named upstream
+    # commit. A true value requires nonempty modifications text.
+    modifiedFromUpstream: false
+    modifications: >-
+      No local modifications are recorded for this snapshot.
+
+# Source-maintenance policy:
+# - Keep a checked-in snapshot because upstream main is not stable enough to
+#   use directly as a reproducible build input.
+# - Use an upstream release branch or tag when one is suitable.
+# - Maintain a fork only as a last resort, and only one maintainer-approved
+#   fork at a time. Record any local changes above.

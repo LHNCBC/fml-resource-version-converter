@@ -7,7 +7,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createFmlEngineFactory, planHops } from '../../../src/fml_base_conv/create_converter.js';
-import { compileFmlXver } from '../../../src/fml_base_conv/fml_xver_engine.js';
+import { createFmlMappingCatalog } from '../../../tools/fml-mapping-catalog.js';
+import {
+  compileFmlXver,
+  createConceptMapIndex,
+} from '../../../src/fml_base_conv/fml_xver_engine.js';
 
 const { createEngine } = createFmlEngineFactory();
 
@@ -39,12 +43,25 @@ describe('fml_base_conv/createEngine', function () {
     assert.equal(factory.hasMapping('NoSuchResource', 'R4', 'R5'), false);
   });
 
+  it('accepts an empty compatibility options object', function () {
+    const factory = createFmlEngineFactory({});
+
+    assert.equal(factory.hasMapping('Questionnaire', 'R4', 'R5'), true);
+  });
+
   it('throws for unknown resource type', function () {
     assert.throws(() => createEngine('NoSuchResource', 'R4', 'R5'), /FML mapping not found/);
   });
 
   it('throws for unknown FHIR version', function () {
     assert.throws(() => createEngine('Questionnaire', 'R4', 'R99'), /not found|Unknown/);
+  });
+
+  it('rejects the removed xverInputRoot option', function () {
+    assert.throws(
+      () => createFmlEngineFactory({ xverInputRoot: '/tmp/alternate-root' }),
+      /options are no longer supported; xverInputRoot was removed/,
+    );
   });
 });
 
@@ -71,8 +88,8 @@ group Patient(source src : PatientR4, target tgt : PatientR5) extends DomainReso
       fs.writeFileSync(path.join(direction, 'AValid.fml'), validFml, 'utf-8');
       fs.writeFileSync(path.join(direction, 'ZInvalid.fml'), 'group Broken(', 'utf-8');
 
-      const factory = createFmlEngineFactory({ xverInputRoot: root });
-      const inspect = () => factory.hasMapping('Patient', 'R4', 'R5');
+      const catalog = createFmlMappingCatalog(root);
+      const inspect = () => catalog.hasMapping('Patient', 'R4', 'R5');
 
       assert.throws(inspect, /failed to inspect.*ZInvalid\.fml/);
       assert.throws(
@@ -437,6 +454,138 @@ group integer2boolean(source src : integerSource, target tgt : booleanTarget) ex
       },
     });
     assert.equal(info.length, 1, 'a reused engine must report once for each resource');
+  });
+});
+
+// ---------- target cardinality narrowing (array source, scalar target) -------
+
+describe('fml_base_conv: scalar target cardinality', function () {
+  const FML = `
+/// url = "http://test/ScalarTargetMap"
+/// name = "ScalarTargetMap"
+
+group Test(source src, target tgt) {
+  src.value as v -> tgt.out;
+}
+`;
+
+  /**
+   * Compile the fixture map against one target definition table.
+   *
+   * @param {Object} tgtDefs Target definition tables.
+   * @param {string[]} warnings Collector for engine warnings.
+   * @returns {Object} Compiled engine.
+   */
+  function engineFor(tgtDefs, warnings) {
+    return compileFmlXver({
+      fmlText: FML,
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.value': 'string' },
+        arrayPaths: ['Test.value'],
+      },
+      tgtDefs,
+      onWarning: message => warnings.push(message),
+    });
+  }
+
+  it('keeps only the first value when the target declares max = 1', function () {
+    const warnings = [];
+    const engine = engineFor({
+      polyPaths: {},
+      elementTypes: { 'Test.out': 'string' },
+      arrayPaths: [],
+    }, warnings);
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', value: ['first', 'second', 'third'] },
+    });
+
+    assert.equal(out.out, 'first');
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Test\.out accepts at most one value/);
+    assert.match(warnings[0], /kept the first of 3 and dropped the other 2/);
+  });
+
+  it('narrows a single-element result silently', function () {
+    const warnings = [];
+    const engine = engineFor({
+      polyPaths: {},
+      elementTypes: { 'Test.out': 'string' },
+      arrayPaths: [],
+    }, warnings);
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', value: ['only'] },
+    });
+
+    assert.equal(out.out, 'only');
+    assert.deepEqual(warnings, []);
+  });
+
+  it('leaves an array-typed target untouched', function () {
+    const warnings = [];
+    const engine = engineFor({
+      polyPaths: {},
+      elementTypes: { 'Test.out': 'string' },
+      arrayPaths: ['Test.out'],
+    }, warnings);
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', value: ['first', 'second'] },
+    });
+
+    assert.deepEqual(out.out, ['first', 'second']);
+    assert.deepEqual(warnings, []);
+  });
+
+  it('does not narrow a target path the tables do not describe', function () {
+    // "Unknown" must not be read as "max = 1": with no evidence the engine
+    // has to preserve what the mapping produced.
+    const warnings = [];
+    const engine = engineFor({ polyPaths: {}, elementTypes: {}, arrayPaths: [] }, warnings);
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', value: ['first', 'second'] },
+    });
+
+    assert.deepEqual(out.out, ['first', 'second']);
+    assert.deepEqual(warnings, []);
+  });
+
+  it('resolves target cardinality through a content reference', function () {
+    // `Test.out` is only defined below `Test.item`, reached via the content
+    // reference. This is the shape DSTU2 expresses as `nameReference`.
+    const warnings = [];
+    const engine = compileFmlXver({
+      fmlText: `
+/// url = "http://test/ContentRefScalarMap"
+/// name = "ContentRefScalarMap"
+
+group Test(source src, target tgt) {
+  src.wrap as w -> tgt.nested as n then Inner(w, n);
+}
+
+group Inner(source src, target tgt) {
+  src.value as v -> tgt.out;
+}
+`,
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.wrap.value': 'string' },
+        arrayPaths: ['Test.wrap.value'],
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.item.out': 'string' },
+        arrayPaths: [],
+        contentReferences: { 'Test.nested': 'Test.item' },
+      },
+      onWarning: message => warnings.push(message),
+    });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', wrap: { value: ['first', 'second'] } },
+    });
+
+    assert.equal(out.nested.out, 'first');
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Test\.nested\.out accepts at most one value/);
   });
 });
 
@@ -1089,7 +1238,8 @@ group Test(source src, target tgt) extends DomainResource {
         }],
       }],
     };
-    const engine = compileFmlXver({ fmlText: fml, conceptMaps: [cm] });
+    const conceptMapIndex = createConceptMapIndex([cm]);
+    const engine = compileFmlXver({ fmlText: fml, conceptMapIndex });
     const { resource: out } = engine.convert({
       input: { resourceType: 'Test', status: 'active' },
     });

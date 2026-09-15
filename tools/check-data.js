@@ -30,14 +30,20 @@
  * Usage:
  *   node tools/check-data.js [dataRoot]
  *     dataRoot - optional FML input root to check
- *                (default: the bundled data/fhir-cross-version/input)
+ *                (default: the input declared by the bundled sources.yaml)
  *
  * @module tools/check-data
  */
 import path from 'node:path';
-import { getAdjacentPairs } from '../src/fml_base_conv/create_converter.js';
-import { scanConceptMaps, DEFAULT_XVER_ROOT } from '../src/fml_base_conv/conceptmaps.js';
-import { scanResourceMappings } from '../src/fml_base_conv/fml_mapping_catalog.js';
+import { getAdjacentPairs } from '../src/fml_base_conv/version_graph.js';
+import { scanConceptMaps } from './conceptmaps.js';
+import { scanResourceMappings } from './fml-mapping-catalog.js';
+import { loadSourceDataset, SOURCE_COMPONENT } from './runtime-data-sources.js';
+
+const DEFAULT_FML_DATASET_ROOT = path.resolve(
+  import.meta.dirname,
+  '../data/fhir-cross-version',
+);
 
 /**
  * Find the mapping-selection ambiguities declared for one version direction.
@@ -150,7 +156,10 @@ function reportMappingAmbiguities(pairs, dataRoot) {
  * @returns {void}
  */
 function main() {
-  const dataRoot = process.argv[2] || DEFAULT_XVER_ROOT;
+  const dataRoot = process.argv[2] || loadSourceDataset(
+    DEFAULT_FML_DATASET_ROOT,
+    SOURCE_COMPONENT.FML_MAPPINGS,
+  ).sources[0].inputRoot;
   console.log(`Checking data root: ${dataRoot}\n`);
 
 
@@ -210,4 +219,3 @@ function main() {
 }
 
 main();
-

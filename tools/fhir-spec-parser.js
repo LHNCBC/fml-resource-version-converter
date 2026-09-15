@@ -1,342 +1,250 @@
 #!/usr/bin/env node
 /**
- * @fileoverview Extract derived FHIR element tables from a spec zip.
+ * @fileoverview Derive runtime FHIR lookup tables directly from a spec ZIP.
  *
- * Walks an HL7 FHIR specification zip archive, scans every element of
- * every StructureDefinition inside profiles-resources.json and
- * profiles-types.json, and writes a single consolidated JSON file per
- * FHIR version under the chosen output directory:
+ * The parser reads the archive once, hashes the exact bytes it parses, and
+ * extracts only the two bundle paths declared by the source dataset. It does
+ * not create a persistent intermediate directory.
  *
- *   <out-dir>/<VERSION>.json
+ * A single pass over the StructureDefinitions derives four sibling sub-tables,
+ * all keyed by FHIR dotted path: polyPaths, arrayPaths, elementTypes, and
+ * contentReferences. Deriving them together keeps the cost at one archive read
+ * per version and stops the tables drifting apart in their reading of the
+ * source data.
  *
- * The file groups four sibling sub-tables, all keyed by FHIR dotted
- * path (with any trailing "[x]" stripped uniformly via classifyElement):
- *
- *   polyPaths     Polymorphic field paths and their allowed FHIR type
- *                 codes. Consumed by the FML engine to expand bare
- *                 polymorphic references (e.g. STU3 "src.initial" ->
- *                 "src.initialString") and to decide whether to apply a
- *                 typed suffix on the target side.
- *
- *   arrayPaths    Paths whose max cardinality is > 1 (arrays in the JSON
- *                 encoding). Consumed by the FML engine to know when to
- *                 wrap a target write in an array container (e.g. R4
- *                 "Questionnaire.item.initial" is an array but R3
- *                 "Questionnaire.item.initial" is scalar).
- *
- *   elementTypes  Single concrete FHIR type code for each non-poly
- *                 scalar element. Consumed by the FML engine to know
- *                 when source and target element types differ across
- *                 versions, so a <<types>> conversion group can be
- *                 auto-invoked (e.g. R4 canonical -> R3 Reference).
- *
- *   contentReferences  Paths whose child definitions are supplied by another
- *                 element in the same StructureDefinition. Consumed by the
- *                 FML engine to resolve schema metadata below recursive
- *                 backbone elements.
- *
- * All four are produced from a single pass over the StructureDefinitions
- * so the cost stays at one zip read per version, and the tables
- * cannot drift apart in their interpretation of the source data.
- *
- * Output file shape:
- *
- *   <out-dir>/<VERSION>.json
- *   {
- *     "fhirVersion":    "R4",
- *     "generated":      "2026-06-04",
- *     "sourceArchive":  "definitions.json.zip",
- *     "sourceBundles":  ["profiles-resources.json", "profiles-types.json"],
- *     "pathCounts": {
- *       "poly":         186,
- *       "array":        3153,
- *       "elementTypes": 7245,
- *       "contentReferences": 55
- *     },
- *     "polyPaths": {
- *       "Observation.value":                 ["CodeableConcept", "Quantity", "..."],
- *       "Questionnaire.item.initial.value":  ["Attachment", "Coding", "..."]
- *     },
- *     "arrayPaths": [
- *       "Bundle.entry",
- *       "Patient.name",
- *       "..."
- *     ],
- *     "elementTypes": {
- *       "Patient.gender":                    "code",
- *       "Patient.identifier":                "Identifier",
- *       "Questionnaire.item.answerValueSet": "canonical"
- *     },
- *     "contentReferences": {
- *       "Questionnaire.item.item": "Questionnaire.item"
- *     },
- *     "resourceTypes": ["Account", "ActivityDefinition", "..."]
- *   }
- *
- * Detection rules:
- *
- *   Polymorphic: element.path ends with "[x]" OR element.type has more
- *   than one entry. The two signals usually coincide; using both is
- *   defensive (constrained/sliced polymorphics may carry a single type
- *   but still have the "[x]" path).
- *
- *   Array: element.max is present and is neither "0" nor "1". Most
- *   arrays use max="*" but FHIR also permits numeric bounds like "2".
- *
- *   Scalar type: element is non-poly (single type[] entry, path does
- *   not end in "[x]") AND that entry has a non-empty `code` string.
- *
- * Usage:
- *   node tools/fhir-spec-parser.js <VERSION> <archive.zip> <out-dir>
- *
- * Arguments:
- *   <VERSION>       Label written verbatim into the output JSON's
- *                   "fhirVersion" field. Convention: DSTU2, STU3, R4,
- *                   R4B, R5. The script does not validate it.
- *   <archive.zip>   FHIR specification zip. The script scans entries for
- *                   names ending in "profiles-resources.json" or
- *                   "profiles-types.json" (under any directory prefix,
- *                   with forward or backward slashes). Forms found in
- *                   the wild that are handled:
- *                     - STU3/R4/R5:  entries at the zip root
- *                     - R4B:         entries under "definitions.json/"
- *                     - DSTU2:       entries under "site\" (backslashes)
- *   <out-dir>       Directory under which the per-version output JSON
- *                   files will be created. Existing per-version output
- *                   files are overwritten without prompting.
- *
- * Example:
- *   node tools/fhir-spec-parser.js R4 \
- *        data/fhir-spec-downloads/R4/definitions.json.zip \
- *        data/fhir-defs
- *
- * Where to get the archives:
- *   See data/fhir-spec-downloads/README.md.
- *
- * Exit codes:
- *   0  success
- *   1  I/O error reading the archive, or no matching bundles found inside
- *   2  bad or missing arguments
- *
- * Diagnostics (written to stderr):
- *   - List of matched bundle entries inside the archive.
- *   - Per-bundle warning when the parsed JSON is not a FHIR Bundle.
- *   - Summary at end: StructureDefinitions seen / skipped, elements
- *     scanned, counts of polymorphic, array, and scalar-type paths.
- *   - One-line note for each of the first 5 elements whose type.code is
- *     missing or empty (older spec versions occasionally encode the type
- *     via an extension instead of a code).
+ * contentReferences maps a path whose child definitions are supplied by another
+ * element of the same StructureDefinition to that referenced path (for example
+ * "Questionnaire.item.item" -> "Questionnaire.item"). The FML engine uses it to
+ * resolve schema metadata below recursive backbone elements. DSTU2 predates the
+ * `contentReference` element and expresses the same idea as `nameReference`
+ * (a pointer to another element's `name`); both spellings are normalized into
+ * this one table, so the table is populated for every supported version.
  *
  * @module tools/fhir-spec-parser
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import JSZip from 'jszip';
-import { BUNDLE_ENTRY_RE, processElements } from './fhir-tables-lib.js';
-
-const args = process.argv.slice(2);
-
-if (args.length !== 3) {
-  console.error('Usage: node tools/fhir-spec-parser.js <VERSION> <archive.zip> <out-dir>');
-  process.exit(2);
-}
-
-const [version, zipFile, outDir] = args;
-
-/** path -> Set<string> of FHIR type codes the field may hold */
-const polyPaths = new Map();
-
-/** Set<string> of paths whose max cardinality is greater than 1 */
-const arrayPaths = new Set();
-
-/** path -> single concrete FHIR type code for non-polymorphic scalar elements */
-const elementTypes = new Map();
-
-/** referencing element path -> referenced element path */
-const contentReferences = new Map();
+import { canonicalStringify } from '../src/runtime/schema.js';
+import { processElements } from './fhir-tables-lib.js';
 
 /**
- * Names of StructureDefinitions whose kind is "resource" (i.e. actual FHIR
- * resources, as opposed to complex/primitive datatypes or logical models).
- * Consumed by the FML engine so `create('X')` only tags resources with
- * `resourceType`. DSTU2 spells datatypes as kind "datatype"; STU3+ split
- * them into "complex-type"/"primitive-type"; only "resource" is collected
- * here, so the distinction does not matter.
+ * Normalize an archive entry name for comparison with source configuration.
+ *
+ * @param {string} entryName ZIP entry name.
+ * @returns {string} POSIX-style entry name.
  */
-const resourceTypes = new Set();
-
-let sdSeen = 0;
-let sdSkipped = 0;
-let elementsSeen = 0;
-let missingTypeCodes = 0;
-let contentReferenceIssues = 0;
-
-/** Diagnostic sink for processElements, throttled to the first 5 notes. */
-function noteMissingTypeCode(elPath, sdId) {
-  missingTypeCodes++;
-  if (missingTypeCodes <= 5) {
-    console.error(`Note: missing type.code at ${elPath} in ${sdId}`);
-  }
+function normalizeEntryName(entryName) {
+  return entryName.replaceAll('\\', '/');
 }
 
-/** Diagnostic sink for invalid or conflicting content references. */
-function noteContentReferenceIssue(elPath, reference, existing, sdId) {
-  contentReferenceIssues++;
-  if (contentReferenceIssues <= 5) {
-    const detail = existing == null
-      ? `invalid reference ${JSON.stringify(reference)}`
-      : `conflicts with ${JSON.stringify(existing)} (keeping first)`;
-    console.error(`Warning: contentReference at ${elPath} in ${sdId} ${detail}`);
-  }
-}
-
-let zipBytes;
-try {
-  zipBytes = fs.readFileSync(zipFile);
-}
-catch (e) {
-  console.error(`Error reading ${zipFile}: ${e.message}`);
-  process.exit(1);
-}
-
-const zip = await JSZip.loadAsync(zipBytes);
-
-const matchedEntries = [];
-zip.forEach((entryName, entry) => {
-  if (!entry.dir && BUNDLE_ENTRY_RE.test(entryName)) {
-    matchedEntries.push(entry);
-  }
-});
-matchedEntries.sort((a, b) => a.name.localeCompare(b.name));
-
-if (matchedEntries.length === 0) {
-  console.error(`Error: no profiles-resources.json or profiles-types.json entries found in ${zipFile}`);
-  process.exit(1);
-}
-
-console.error(`Matched ${matchedEntries.length} bundle(s) in ${path.basename(zipFile)}:`);
-for (const e of matchedEntries) console.error(`  ${e.name}`);
-
-const sourceBundleNames = [];
-for (const entry of matchedEntries) {
-  const text = await entry.async('string');
-  sourceBundleNames.push(entry.name.split(/[\\/]/).pop());
-
-  let bundle;
+/**
+ * Read and open a specification archive from exact file bytes.
+ *
+ * @param {string} archiveFile Archive filename.
+ * @returns {Promise<{sha256: string, zip: JSZip}>} Open archive.
+ */
+async function openArchive(archiveFile) {
+  let bytes;
   try {
-    bundle = JSON.parse(text);
-  }
-  catch (e) {
-    console.error(`Warning: failed to parse ${entry.name}: ${e.message}, skipping`);
-    continue;
-  }
-
-  if (bundle.resourceType !== 'Bundle') {
-    console.error(`Warning: ${entry.name} is not a Bundle (resourceType=${bundle.resourceType}), skipping`);
-    continue;
+    bytes = fs.readFileSync(archiveFile);
+  } catch (error) {
+    throw new Error(`FHIR specification archive cannot be read: ${archiveFile}: ${error.message}`, {
+      cause: error,
+    });
   }
 
-  for (const bEntry of bundle.entry || []) {
-    const sd = bEntry.resource;
-    if (sd?.resourceType !== 'StructureDefinition') continue;
-    sdSeen++;
-
-    // Record resource type names (kind === 'resource') for the FML engine's
-    // create() classification. The type name is `type` in STU3+ and falls
-    // back to id/name for DSTU2.
-    if (sd.kind === 'resource') {
-      const typeName = sd.type || sd.id || sd.name;
-      if (typeName) resourceTypes.add(typeName);
-    }
-
-    const elements = sd.snapshot?.element || sd.differential?.element || [];
-    if (elements.length === 0) {
-      sdSkipped++;
-      continue;
-    }
-
-    const sdId = sd.id || sd.name || '(unknown)';
-    elementsSeen += processElements(
-      elements,
-      polyPaths,
-      arrayPaths,
-      elementTypes,
-      noteMissingTypeCode,
-      sdId,
-      contentReferences,
-      noteContentReferenceIssue,
-    );
+  let zip;
+  try {
+    zip = await JSZip.loadAsync(bytes);
+  } catch (error) {
+    throw new Error(`FHIR specification archive is not a readable ZIP: ${archiveFile}: ${error.message}`, {
+      cause: error,
+    });
   }
+
+  return {
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    zip,
+  };
 }
 
 /**
- * Write a JSON file with sorted, deterministic content. Creates parent
- * directories as needed.
+ * Select the exact declared bundle entries from an open ZIP.
+ *
+ * @param {JSZip} zip Open ZIP archive.
+ * @param {string[]} bundlePaths Declared POSIX bundle paths.
+ * @param {string} archiveFile Archive name for diagnostics.
+ * @returns {Object[]} Selected JSZip entries in declared order.
  */
-function writeJson(file, payload) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(payload, null, 2) + '\n');
+function selectBundleEntries(zip, bundlePaths, archiveFile) {
+  if (!Array.isArray(bundlePaths) || bundlePaths.length !== 2) {
+    throw new Error('FHIR specification bundlePaths must contain exactly two paths');
+  }
+  const entryByPath = new Map();
+  zip.forEach((entryName, entry) => {
+    if (!entry.dir) entryByPath.set(normalizeEntryName(entryName), entry);
+  });
+
+  return bundlePaths.map(bundlePath => {
+    const entry = entryByPath.get(bundlePath);
+    if (!entry) {
+      throw new Error(
+        `FHIR specification archive ${archiveFile} does not contain ${bundlePath}`,
+      );
+    }
+
+    return entry;
+  });
 }
 
-const generated = new Date().toISOString().split('T')[0];
-const sourceArchive = path.basename(zipFile);
+/**
+ * Verify that an archive is readable and contains its declared bundles.
+ *
+ * @param {Object} options Archive options.
+ * @param {string} options.archiveFile Archive filename.
+ * @param {string[]} options.bundlePaths Declared ZIP-internal paths.
+ * @returns {Promise<{sha256: string}>} Exact archive digest.
+ */
+export async function inspectFhirSpecArchive({ archiveFile, bundlePaths }) {
+  const opened = await openArchive(archiveFile);
+  selectBundleEntries(opened.zip, bundlePaths, archiveFile);
 
-// ----- Build consolidated payload (Layout A: three sibling sub-tables) -----
-
-const sortedPolyPaths = [...polyPaths.keys()].sort();
-/** @type {Object<string,string[]>} */
-const polyPathsObj = {};
-for (const p of sortedPolyPaths) {
-  polyPathsObj[p] = [...polyPaths.get(p)].sort();
+  return Object.freeze({ sha256: opened.sha256 });
 }
 
-const sortedArrayPaths = [...arrayPaths].sort();
+/**
+ * Derive deterministic lookup tables from one specification archive.
+ *
+ * @param {Object} options Parser options.
+ * @param {string} options.tableVersion Runtime FHIR table label.
+ * @param {string} options.archiveFile Archive filename.
+ * @param {string[]} options.bundlePaths Exact ZIP-internal bundle paths.
+ * @returns {Promise<{data: Object, sha256: string, stats: Object}>} Derived data,
+ *   exact archive hash, and diagnostics.
+ */
+export async function parseFhirSpecArchive({ tableVersion, archiveFile, bundlePaths }) {
+  const opened = await openArchive(archiveFile);
+  const entries = selectBundleEntries(opened.zip, bundlePaths, archiveFile);
+  const polyPaths = new Map();
+  const arrayPaths = new Set();
+  const elementTypes = new Map();
+  const resourceTypes = new Set();
+  const contentReferences = new Map();
+  const stats = {
+    structureDefinitions: 0,
+    skippedStructureDefinitions: 0,
+    elements: 0,
+    missingTypeCodes: 0,
+    contentReferenceIssues: 0,
+  };
 
-const sortedElementTypePaths = [...elementTypes.keys()].sort();
-/** @type {Object<string,string>} */
-const elementTypesObj = {};
-for (const p of sortedElementTypePaths) {
-  elementTypesObj[p] = elementTypes.get(p);
+  for (const entry of entries) {
+    let bundle;
+    try {
+      bundle = JSON.parse(await entry.async('string'));
+    } catch (error) {
+      throw new Error(`FHIR bundle cannot be parsed: ${entry.name}: ${error.message}`, {
+        cause: error,
+      });
+    }
+    if (bundle.resourceType !== 'Bundle') {
+      throw new Error(`FHIR bundle ${entry.name} does not declare resourceType Bundle`);
+    }
+
+    for (const bundleEntry of bundle.entry || []) {
+      const definition = bundleEntry.resource;
+      if (definition?.resourceType !== 'StructureDefinition') continue;
+      stats.structureDefinitions++;
+      if (definition.kind === 'resource') {
+        const typeName = definition.type || definition.id || definition.name;
+        if (typeName) resourceTypes.add(typeName);
+      }
+
+      const elements = definition.snapshot?.element || definition.differential?.element || [];
+      if (elements.length === 0) {
+        stats.skippedStructureDefinitions++;
+        continue;
+      }
+      stats.elements += processElements(
+        elements,
+        polyPaths,
+        arrayPaths,
+        elementTypes,
+        () => stats.missingTypeCodes++,
+        definition.id || definition.name || '(unknown)',
+        contentReferences,
+        () => stats.contentReferenceIssues++,
+      );
+    }
+  }
+
+  const polyPathsObject = {};
+  for (const key of [...polyPaths.keys()].sort()) {
+    polyPathsObject[key] = [...polyPaths.get(key)].sort();
+  }
+  const elementTypesObject = {};
+  for (const key of [...elementTypes.keys()].sort()) {
+    elementTypesObject[key] = elementTypes.get(key);
+  }
+  const contentReferencesObject = {};
+  for (const key of [...contentReferences.keys()].sort()) {
+    contentReferencesObject[key] = contentReferences.get(key);
+  }
+
+  return Object.freeze({
+    data: Object.freeze({
+      fhirVersion: tableVersion,
+      polyPaths: polyPathsObject,
+      arrayPaths: [...arrayPaths].sort(),
+      elementTypes: elementTypesObject,
+      contentReferences: contentReferencesObject,
+      resourceTypes: [...resourceTypes].sort(),
+    }),
+    sha256: opened.sha256,
+    stats: Object.freeze(stats),
+  });
 }
 
-const sortedContentReferencePaths = [...contentReferences.keys()].sort();
-/** @type {Object<string,string>} */
-const contentReferencesObj = {};
-for (const p of sortedContentReferencePaths) {
-  contentReferencesObj[p] = contentReferences.get(p);
+/**
+ * Run the investigation-oriented command-line interface.
+ *
+ * @param {string[]} argv Arguments after the script name.
+ * @returns {Promise<number>} Process exit code.
+ */
+export async function main(argv) {
+  if (argv.length !== 4 || argv.includes('--help') || argv.includes('-h')) {
+    console.error(
+      'Usage: node tools/fhir-spec-parser.js ' +
+      '<TABLE_VERSION> <ARCHIVE.zip> <profiles-resources-path> <profiles-types-path>',
+    );
+
+    return argv.includes('--help') || argv.includes('-h') ? 0 : 2;
+  }
+  const [tableVersion, archiveFile, resourcesPath, typesPath] = argv;
+  try {
+    const result = await parseFhirSpecArchive({
+      tableVersion,
+      archiveFile,
+      bundlePaths: [resourcesPath, typesPath],
+    });
+    process.stdout.write(`${canonicalStringify(result.data)}\n`);
+    console.error(
+      `Derived ${tableVersion} from ${path.basename(archiveFile)} ` +
+      `(${result.stats.elements} elements, sha256 ${result.sha256}).`,
+    );
+
+    return 0;
+  } catch (error) {
+    console.error(`Error: ${error.message}`);
+
+    return 1;
+  }
 }
 
-const outFile = path.join(outDir, `${version}.json`);
-writeJson(outFile, {
-  fhirVersion:   version,
-  generated,
-  sourceArchive,
-  sourceBundles: sourceBundleNames,
-  pathCounts: {
-    poly:         sortedPolyPaths.length,
-    array:        sortedArrayPaths.length,
-    elementTypes: sortedElementTypePaths.length,
-    contentReferences: sortedContentReferencePaths.length,
-  },
-  polyPaths:    polyPathsObj,
-  arrayPaths:   sortedArrayPaths,
-  elementTypes: elementTypesObj,
-  contentReferences: contentReferencesObj,
-  resourceTypes: [...resourceTypes].sort(),
-});
-
-console.error(`Wrote ${outFile}`);
-console.error(`  StructureDefinitions: ${sdSeen} (${sdSkipped} skipped, no snapshot/differential)`);
-console.error(`  Elements scanned:     ${elementsSeen}`);
-console.error(`  Polymorphic paths:    ${sortedPolyPaths.length}`);
-console.error(`  Array paths:          ${sortedArrayPaths.length}`);
-console.error(`  Scalar-type paths:    ${sortedElementTypePaths.length}`);
-console.error(`  Content references:   ${sortedContentReferencePaths.length}`);
-console.error(`  Resource types:       ${resourceTypes.size}`);
-if (missingTypeCodes > 0) {
-  console.error(`  Elements with missing type.code: ${missingTypeCodes}`);
-}
-if (contentReferenceIssues > 0) {
-  console.error(`  Invalid/conflicting content references: ${contentReferenceIssues}`);
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exitCode = await main(process.argv.slice(2));
 }
