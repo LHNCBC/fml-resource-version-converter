@@ -84,12 +84,12 @@ described above. Please do not manually edit `COVERAGE.md`.
 
 When you assign a coverage level:
 
-- Judge completeness against the resource's own top-level elements for valid
-  input. Inter-version extensions (IVE) and `contained[]` conversion are out of
-  scope and do not lower a coverage claim.
-- "Lossy but unavoidable" (source content with no target representation) is
+- Judge completeness against the resource's "own" elements for valid
+  input without considering `contained[]` resources and inter-version
+  extensions (IVE).
+- "Lossy but unavoidable" (e.g., source content with no target representation) is
   conventionally **best_effort**, not **complete**.
-- A postprocessor must never lower the running coverage level.
+- A registered postprocessor must never lower the running coverage level.
 
 ### Target validity and best-effort conversion
 
@@ -112,11 +112,11 @@ When you assign a coverage level:
 
 ## Onboarding a resource type
 
-The FML engine can already convert every resource type for the versions
-supported by executing the FML mapping files. Therefore, onboarding is not
-about adding support for new resource types or versions, it's about
-reviewing a resource's FML conversion, assigning an honest coverage level, and,
-where the FML falls short, adding a postprocessor to improve the output.
+The FML engine can already perform every conversion that is covered by the HL7
+FML mapping files. Therefore, onboarding is not about adding support for new
+resource types or versions, it's about reviewing the FML conversion for the
+specific resource type and versions, assigning an appropriate coverage level,
+and, where the FML falls short, adding a postprocessor to improve the output.
 
 ### Step 1 - Review the FML conversion and identifying gaps
 

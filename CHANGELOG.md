@@ -7,21 +7,14 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 ### Added
 
-- Completed Binary conversion onboarding for R2 <-> R3, R3 <-> R4,
-  R4 <-> R5, and R4B <-> R5.
-- Completed CodeSystem conversion onboarding for R3 <-> R4, R4 <-> R5, and
-  R4B <-> R5.
-- Completed Library conversion onboarding for R3 <-> R4, R4 <-> R5, and
-  R4B <-> R5.
-- Completed ValueSet conversion onboarding for R3 <-> R4, R4 <-> R5, and
-  R4B <-> R5.
-- Added reusable functions `removePrimitiveArrayEntries()`,
-  `hasPrimitiveValueOrExtension()`, and `addDataAbsentReasonExtension()` in
-  `postprocessors/util/elements.js`, and the reusable canonical helper
-  `stripCanonicalVersion()`.
-- Added the browser-safe helper `randomUuid()` in
-  `postprocessors/util/uuid.js`, so postprocessors that must generate a
-  `urn:uuid:` identifier do not depend on Node built-ins.
+- Completed the onboarding (review/postprocessors) for:
+  - Binary: R2 <-> R3, R3 <-> R4, R4 <-> R5, and R4B <-> R5.
+  - CodeSystem: R3 <-> R4, R4 <-> R5, and R4B <-> R5.
+  - Library: R3 <-> R4, R4 <-> R5, and R4B <-> R5.
+  - ValueSet: R3 <-> R4, R4 <-> R5, and R4B <-> R5.
+- Added a few reusable functions, e.g., `removePrimitiveArrayEntries()`.
+- Added the browser-safe helper `randomUuid()` in `postprocessors/util/uuid.js`,
+  so postprocessors can generate a`urn:uuid:` identifier without Node built-ins.
 - `CONTRIBUTING.md` guidance on handling a target version that adds a constraint
   the source does not have.
 
