@@ -2083,10 +2083,11 @@ export function compileFmlXver({
    * parameters.
    *
    * Order of operations:
-   *   1. If `groupName` resolves to a built-in base type, run that copier
-   *      and return.
-   *   2. If the group `extends` another type, run that base/group's copier
-   *      first (so derived rules can override inherited fields).
+   *   1. Resolve a declared FML group before falling back to a built-in base
+   *      copier of the same name.
+   *   2. If the group `extends` another type, execute that parent through the
+   *      same resolution path first (so derived rules can override inherited
+   *      fields).
    *   3. Create a fresh scope chained to `parentScope`, bind each parameter,
    *      then execute every rule in declaration order.
    *
@@ -2129,17 +2130,12 @@ export function compileFmlXver({
       return v;
     });
 
-    // Run extends-base copier first (for inheritance chains).
+    // Execute the inherited group first. Imported FML groups must take
+    // precedence over the built-in compatibility copiers, just as they do for
+    // direct group calls above. The built-ins remain a fallback for callers
+    // that compile a partial mapping without its base-type FML imports.
     if (g.extendsType) {
-      const srcObj = boundValues[0];
-      const tgtObj = boundValues[1];
-      if (BASE_COPIERS[g.extendsType]) {
-        if (isObject(srcObj) && isObject(tgtObj)) {
-          BASE_COPIERS[g.extendsType](srcObj, tgtObj);
-        } else {
-          onWarning?.(`Group "${groupName}" extends ${g.extendsType} but src/tgt are not both objects; skipping base copy`);
-        }
-      } else if (groups.has(g.extendsType)) {
+      if (groups.has(g.extendsType) || BASE_COPIERS[g.extendsType]) {
         execGroup(g.extendsType, boundValues, parentScope);
       } else {
         onWarning?.(`Group "${groupName}" extends unknown type "${g.extendsType}"`);
@@ -3463,6 +3459,41 @@ export function compileFmlXver({
     }
   }
 
+  /**
+   * Add the target base profile when Meta has no concrete profile value.
+   * Extension-only primitive entries are retained after the inserted profile,
+   * with `_profile` padded so its indexes remain aligned with `profile`.
+   *
+   * @param {Object} meta Resource metadata to update.
+   * @param {string} targetProfile Target resource's base profile URL.
+   * @returns {void}
+   */
+  function ensureMetaProfile(meta, targetProfile) {
+    const profiles = Array.isArray(meta.profile) ? meta.profile : [];
+    if (profiles.some(profile => typeof profile === 'string' && profile.length > 0)) {
+      return;
+    }
+
+    const companions = Array.isArray(meta._profile) ? meta._profile : [];
+    const entryCount = Math.max(profiles.length, companions.length);
+    const extensionOnlyProfiles = [];
+    const extensionOnlyCompanions = [];
+
+    for (let index = 0; index < entryCount; index++) {
+      const companion = companions[index] ?? null;
+      if (companion === null) continue;
+      extensionOnlyProfiles.push(null);
+      extensionOnlyCompanions.push(companion);
+    }
+
+    meta.profile = [targetProfile, ...extensionOnlyProfiles];
+    if (extensionOnlyCompanions.length > 0) {
+      meta._profile = [null, ...extensionOnlyCompanions];
+    } else {
+      delete meta._profile;
+    }
+  }
+
   function convert({ input, entryGroup } = {}) {
     reportedTypeMismatches.clear();
     _listModeWarned.clear();
@@ -3501,22 +3532,12 @@ export function compileFmlXver({
       const declaredTargetProfile = mapping?.targetProfile || null;
       if (Array.isArray(out.meta?.profile)) {
         rewriteMetaProfiles(out.meta, declaredTargetProfile);
-        if (Object.keys(out.meta).length === 0) delete out.meta;
-      } else {
-        // No profile on source -- add the target version's base profile.
-        if (!out.meta) out.meta = {};
-        const targetProfile = declaredTargetProfile ||
-          `http://hl7.org/fhir/${tgtVerNum}/StructureDefinition/${targetResourceType}`;
-        const companions = Array.isArray(out.meta._profile) ? out.meta._profile : [];
-
-        out.meta.profile = [targetProfile];
-        if (companions.some(value => value !== null)) {
-          out.meta.profile.push(...companions.map(() => null));
-          out.meta._profile = [null, ...companions.map(value => value ?? null)];
-        } else {
-          delete out.meta._profile;
-        }
       }
+
+      if (!out.meta) out.meta = {};
+      const targetProfile = declaredTargetProfile ||
+        `http://hl7.org/fhir/${tgtVerNum}/StructureDefinition/${targetResourceType}`;
+      ensureMetaProfile(out.meta, targetProfile);
     }
 
     return {

@@ -1082,6 +1082,28 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
 // ---------- meta.profile update --------------------------------------------
 
 describe('fml_base_conv: meta.profile handling', function () {
+  it('executes Resource and Meta FML through DomainResource inheritance', function () {
+    const input = {
+      resourceType: 'Questionnaire',
+      status: 'draft',
+      meta: {
+        id: 'meta-id',
+        versionId: 'version-1',
+        source: 'http://example.org/source',
+      },
+    };
+    const engine = createEngine('Questionnaire', 'R4', 'R3');
+    const { resource: out } = engine.convert({ input });
+
+    assert.equal(out.meta.id, 'meta-id');
+    assert.equal(out.meta.versionId, 'version-1');
+    assert.equal('source' in out.meta, false);
+    assert.deepEqual(
+      out.meta.profile,
+      ['http://hl7.org/fhir/3.0/StructureDefinition/Questionnaire'],
+    );
+  });
+
   it('updates standard R4 profile to R5', function () {
     const engine = createEngine('Questionnaire', 'R4', 'R5');
     const { resource: out } = engine.convert({ input: r4Questionnaire });
@@ -1273,6 +1295,35 @@ group Test(source src, target tgt) extends DomainResource {
     assert.ok(engine.convert);
     assert.ok(engine.groups.includes('Test'));
     assert.equal(engine.metadata.name, 'Test1');
+  });
+
+  it('prefers an imported FML parent group over a built-in base copier', function () {
+    const fml = `
+group Test(source src, target tgt) extends Resource {
+  src.status -> tgt.status;
+}
+`;
+    const importedResource = `
+group Resource(source src, target tgt) {
+  src.marker -> tgt.inheritedMarker;
+}
+`;
+    const engine = compileFmlXver({
+      fmlText: fml,
+      importedFmlTexts: [importedResource],
+    });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        id: 'built-in-copy-must-not-run',
+        marker: 'mapped-by-fml',
+        status: 'active',
+      },
+    });
+
+    assert.equal(out.inheritedMarker, 'mapped-by-fml');
+    assert.equal(out.status, 'active');
+    assert.equal('id' in out, false);
   });
 
   it('handles translate with ConceptMap', function () {

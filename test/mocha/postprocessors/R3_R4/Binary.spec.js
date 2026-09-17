@@ -61,6 +61,55 @@ describe('postprocessors/R3_R4 Binary', function () {
     assert.equal('data' in result.resource, false);
   });
 
+  it('executes the R4 to R3 Meta mapping before postprocessing', function () {
+    const metaExtension = {
+      url: 'http://example.org/fhir/StructureDefinition/meta-note',
+      valueString: 'preserved',
+    };
+    const source = {
+      resourceType: 'Binary',
+      contentType: 'application/octet-stream',
+      data: 'AAEC',
+      meta: {
+        id: 'meta-id',
+        extension: [metaExtension],
+        versionId: 'version-1',
+        _versionId: { id: 'version-id-metadata' },
+        source: 'http://example.org/source',
+        _source: { id: 'source-metadata' },
+        profile: [
+          'http://hl7.org/fhir/4.0/StructureDefinition/Binary',
+          'http://example.org/fhir/StructureDefinition/CustomBinary',
+        ],
+        _profile: [
+          { id: 'base-profile-metadata' },
+          { id: 'custom-profile-metadata' },
+        ],
+        security: [{ system: 'http://example.org/security', code: 'restricted' }],
+        tag: [{ system: 'http://example.org/tag', code: 'release-test' }],
+      },
+    };
+    const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+    assert.equal(result.status, STATUS.OK);
+    assert.equal(result.resource.meta.id, 'meta-id');
+    assert.deepEqual(result.resource.meta.extension, [metaExtension]);
+    assert.equal(result.resource.meta.versionId, 'version-1');
+    assert.deepEqual(result.resource.meta._versionId, { id: 'version-id-metadata' });
+    assert.equal('source' in result.resource.meta, false);
+    assert.equal('_source' in result.resource.meta, false);
+    assert.deepEqual(result.resource.meta.profile, [
+      'http://hl7.org/fhir/3.0/StructureDefinition/Binary',
+      'http://example.org/fhir/StructureDefinition/CustomBinary',
+    ]);
+    assert.deepEqual(result.resource.meta._profile, [
+      { id: 'base-profile-metadata' },
+      { id: 'custom-profile-metadata' },
+    ]);
+    assert.deepEqual(result.resource.meta.security, source.meta.security);
+    assert.deepEqual(result.resource.meta.tag, source.meta.tag);
+  });
+
   it('marks required STU3 content absent when optional R4 data is missing', function () {
     const source = {
       resourceType: 'Binary',
