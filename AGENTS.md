@@ -68,5 +68,7 @@ Maintainer data commands - `download:fhir-specs`, `build:runtime-data`,
 ## Special Notes
 - The FML engine code (under src/fml_base_conv) should execute the FML
   transformations faithfully, and that it does not need to, and should not,
-  implement any business logic or fixes that are specific to some resource
-  type(s). In other words, the engine should be absolutely pure.
+  implement any business logic or fixes for specific conversions. In other
+  words, the engine should be absolutely pure except in rare cases where
+  a "processing" covers a wide range of cases, for example, some specific
+  issue that is applicable to most resource types between two versions.

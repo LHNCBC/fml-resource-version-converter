@@ -3,7 +3,7 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
-## [0.4.0] - 2026-09-14
+## [0.4.0] - 2026-09-17
 
 ### Added
 
@@ -14,7 +14,7 @@ This project follows [Semantic Versioning](http://semver.org/).
   - ValueSet: R3 <-> R4, R4 <-> R5, and R4B <-> R5.
 - Added a few reusable functions, e.g., `removePrimitiveArrayEntries()`.
 - Added the browser-safe helper `randomUuid()` in `postprocessors/util/uuid.js`,
-  so postprocessors can generate a`urn:uuid:` identifier without Node built-ins.
+  so postprocessors can generate a `urn:uuid:` identifier without Node built-ins.
 - `CONTRIBUTING.md` guidance on handling a target version that adds a constraint
   the source does not have.
 
