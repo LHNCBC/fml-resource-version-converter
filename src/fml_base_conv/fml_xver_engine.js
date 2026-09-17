@@ -19,9 +19,11 @@
  *     -> { resource: output JSON resource, spinOffResources? }
  *
  * Design tenets:
- *   - Tight: every operation that could produce an incorrect output emits
- *     a warning via `onWarning`. Information-level surprises (correct but
- *     possibly unexpected) go through `onInfo`.
+ *   - Diagnostics: detected recoverable execution problems, unsupported
+ *     features, known ConceptMap relationship risks, and concrete mechanical
+ *     losses emit a warning via `onWarning`. Warning detection is
+ *     non-exhaustive and does not determine mapping coverage. Information-level
+ *     surprises (correct but possibly unexpected) go through `onInfo`.
  *   - One execution path: `execRule` dispatches to `execScalarRule` or
  *     `execArrayRule`; both share `applyTarget` / `computeTargetValue` /
  *     `writeTarget`. No quick-path duplication.
@@ -635,10 +637,10 @@ class Scope {
  * Compile FML text (+ optional ConceptMaps) into an executable converter.
  *
  * Diagnostic policy:
- *   - `onWarning` fires whenever the engine takes an action that is not
- *     guaranteed to be semantically correct: lossy translation, missing
- *     map, unimplemented transform, missing source for a polymorphic
- *     read, group-arity mismatch, etc.
+ *   - `onWarning` fires for detected recoverable execution problems,
+ *     unsupported features, known ConceptMap relationship risks, and concrete
+ *     mechanical losses. Warning detection is non-exhaustive and does not
+ *     determine mapping coverage.
  *   - `onInfo` fires for correct-but-noteworthy events: `unmapped.mode=
  *     provided` fall-through, polymorphic field missing from source.
  *

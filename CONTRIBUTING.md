@@ -68,6 +68,19 @@ FML mappings. When an FML mapping is found to be incomplete or erroneous, either
   official fhir-cross-version project - see
   [DATA-MAINTENANCE.md](DATA-MAINTENANCE.md) for further details.
 
+### Scope and limitations of runtime engine warnings
+
+- The engine warns when it detects a recoverable execution problem, an
+  unsupported feature, a known ConceptMap relationship risk, or a concrete
+  mechanical loss such as cardinality truncation.
+- It does not determine whether the detected conditions compromise the
+  integrity of the conversion.
+- Warning detection is not exhaustive. The engine does not guarantee that
+  every warning sign will be detected or reported.
+- The engine does not determine the FML coverage level. Coverage is assigned
+  through comprehensive human review, which may consider conversion results
+  and runtime warnings as evidence.
+
 ## Coverage levels
 
 Coverage describes the level of completeness of conversions. It is separate
@@ -104,10 +117,10 @@ When you assign a coverage level:
   **best_effort**, even though individual inputs that do not encounter them may
   complete without warnings.
 - At the instance level:
-  - **best_effort + no warning** means the input was converted compatibly within
-    the reviewed scope.
-  - **best_effort + warning** means the input encountered an unavoidable semantic
-    change.
+  - **best_effort + no warning** means no warning was reported for the input;
+    documented coverage limitations still apply.
+  - **best_effort + warning** means one or more conversion components reported a
+    condition requiring attention; inspect the diagnostics.
 
 
 ## Onboarding a resource type

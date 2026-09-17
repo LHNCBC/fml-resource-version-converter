@@ -277,6 +277,9 @@ The two most important fields are:
 - **status**: whether the conversion completed without warnings (**ok**) or with
   warnings (**warning**). Hard failures throw instead of returning a result.
 
+Runtime engine warnings are non-exhaustive.
+See [Scope and limitations of runtime engine warnings](CONTRIBUTING.md#scope-and-limitations-of-runtime-engine-warnings).
+
 Coverage is separate from runtime status. It describes the capability and
 completeness of the FML mapping and any related postprocessors.
 
