@@ -236,6 +236,26 @@ describe('postprocessors/R3_R4 Library', function () {
   });
 
   describe('R4 -> R3 through singleHopConverter.convert', function () {
+    it('removes Reference-valued UsageContext while preserving supported siblings', function () {
+      const source = makeLibrary();
+      source.useContext = [{
+        code: { system: 'http://example.org/context', code: 'age' },
+        valueCodeableConcept: { text: 'Adults' },
+      }, {
+        code: { system: 'http://example.org/context', code: 'focus' },
+        valueReference: { reference: 'PlanDefinition/example' },
+      }];
+
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.equal(result.resource.useContext.length, 1);
+      assert.equal(result.resource.useContext[0].valueCodeableConcept.text, 'Adults');
+      assert.ok(result.postprocessors[0].messages.some(message =>
+        message.type === MESSAGE_TYPE.WARNING
+        && /Library\.useContext\[1\]\.valueReference/.test(message.text)));
+    });
+
     it('rebuilds valid contributors and marks an absent required name', function () {
       const source = makeLibrary();
       source.author = [{

@@ -172,6 +172,29 @@ describe('postprocessors/R3_R4 ValueSet', function () {
       assert.deepEqual(parameter.extension, source.expansion.parameter[0].extension);
     });
 
+    it('removes Reference-valued UsageContext while preserving supported siblings', function () {
+      const source = {
+        resourceType: 'ValueSet',
+        status: 'active',
+        compose: { include: [{ system: 'http://example.org/codes' }] },
+        useContext: [{
+          code: { system: 'http://example.org/context', code: 'age' },
+          valueCodeableConcept: { text: 'Adults' },
+        }, {
+          code: { system: 'http://example.org/context', code: 'focus' },
+          valueReference: { reference: 'PlanDefinition/example' },
+        }],
+      };
+      const converted = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.equal(converted.status, STATUS.WARNING);
+      assert.equal(converted.resource.useContext.length, 1);
+      assert.equal(converted.resource.useContext[0].valueCodeableConcept.text, 'Adults');
+      assert.ok(converted.postprocessors[0].messages.some(message =>
+        message.type === MESSAGE_TYPE.WARNING
+        && /ValueSet\.useContext\[1\]\.valueReference/.test(message.text)));
+    });
+
     it('emits only warning-level messages', function () {
       const messages = result.postprocessors[0].messages;
       assert.ok(messages.length > 0);

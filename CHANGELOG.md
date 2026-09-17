@@ -20,6 +20,14 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 ### Fixed
 
+- Imported FML base groups now take precedence over the engine's compatibility
+  copiers during group inheritance for faithful FML mapping execution.
+- Target base-profile insertion now handles extension-only `meta.profile`
+  occurrences while keeping the parallel `profile` and `_profile` arrays
+  correctly aligned.
+- R4 -> R3 Questionnaire conversions now remove Reference-valued UsageContext
+  entries that STU3 cannot represent, preserving valid output and warning
+  about the lost applicability context.
 - R4 -> R5 Questionnaire conversion now repairs the two-`enableWhen` que-12
   invariant gap without guessing `enableBehavior` semantics.
 - Questionnaire downgrades now warn when R5-only `versionAlgorithm[x]`,

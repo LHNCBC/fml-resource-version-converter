@@ -25,6 +25,7 @@ import {
   hasAnyContent,
   stripCanonicalVersion,
 } from '../util/elements.js';
+import { removeUnrepresentableUsageContexts } from './usageContext.js';
 
 // R4 invariant csd-0 (severity: warning). STU3 imposes no equivalent rule.
 const CSD_0_NAME = /^[A-Z][A-Za-z0-9_]{0,254}$/;
@@ -259,6 +260,7 @@ export const conv_R4_to_R3 = {
   description:
     'Removes canonical version pins, reports dropped supplements, approximates supplement '
     + 'content as fragment, and preserves decimal property values as strings with warnings. '
+    + 'Removes Reference-valued UsageContext entries that STU3 cannot represent. '
     + 'Also narrows identifier cardinality defensively; the FML engine normally enforces and '
     + 'reports that narrowing already. Does not handle inter-version extensions.',
 
@@ -271,6 +273,7 @@ export const conv_R4_to_R3 = {
     const messages = [];
     const source = ctx?.sourceResource || {};
 
+    removeUnrepresentableUsageContexts(target, source, messages);
     narrowIdentifier(target, messages);
     normalizeValueSet(target, messages);
     reportSupplements(source, messages);

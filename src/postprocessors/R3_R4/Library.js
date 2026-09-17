@@ -26,6 +26,7 @@ import {
   hasPrimitiveValueOrExtension,
   stripCanonicalVersion,
 } from '../util/elements.js';
+import { removeUnrepresentableUsageContexts } from './usageContext.js';
 
 const R4_LIB_0_NAME = /^[A-Z][A-Za-z0-9_]{0,254}$/;
 const RENDERED_VALUE_URL = 'http://hl7.org/fhir/StructureDefinition/rendered-value';
@@ -682,6 +683,7 @@ function convertR4ToR3(target, ctx) {
   const messages = [];
   const source = ctx?.sourceResource || {};
 
+  removeUnrepresentableUsageContexts(target, source, messages);
   reportR4OnlyContent(source, messages);
   rebuildR3Contributors(target, source, messages);
   normalizeLibraryTypeSystem(target, 'R4', 'R3', messages);
@@ -713,7 +715,8 @@ export const conv_R4_to_R3 = {
   description:
     'Rebuilds valid R3 contributors, repairs canonical-to-Reference fields and DataRequirement '
     + 'narrowing, normalizes required ParameterDefinition and DataRequirement FHIR types and '
-    + 'the LibraryType code system canonical, and reports R4-only content. Does not handle '
+    + 'the LibraryType code system canonical, removes Reference-valued UsageContext entries, '
+    + 'and reports R4-only content. Does not handle '
     + 'inter-version extensions.',
   execute: convertR4ToR3,
 };

@@ -357,6 +357,24 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
         && /source content dropped/.test(message.text)));
     });
 
+    it('removes a Reference-valued UsageContext that would be invalid in STU3', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        status: 'draft',
+        useContext: [{
+          code: { system: 'http://example.org/context', code: 'focus' },
+          valueReference: { reference: 'PlanDefinition/example' },
+        }],
+      };
+      const converted = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.equal(converted.status, STATUS.WARNING);
+      assert.equal('useContext' in converted.resource, false);
+      assert.ok(converted.postprocessors[0].messages.some(message =>
+        message.type === MESSAGE_TYPE.WARNING
+        && /Questionnaire\.useContext\[0\]\.valueReference/.test(message.text)));
+    });
+
     it('does not inject a conversion provenance meta.tag', function () {
       const inputTags = (r4Questionnaire.meta?.tag ?? []).length;
       const outputTags = (result.resource.meta?.tag ?? []).length;

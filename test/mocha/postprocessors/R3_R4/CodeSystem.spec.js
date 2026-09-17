@@ -134,6 +134,26 @@ describe('postprocessors/R3_R4 CodeSystem', function () {
       ]);
     });
 
+    it('removes a Reference-valued UsageContext that would be invalid in STU3', function () {
+      const source = {
+        resourceType: 'CodeSystem',
+        status: 'active',
+        content: 'complete',
+        useContext: [{
+          code: { system: 'http://example.org/context', code: 'focus' },
+          valueReference: { reference: 'PlanDefinition/example' },
+        }],
+      };
+      const converted = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.equal(converted.status, STATUS.WARNING);
+      assert.equal('useContext' in converted.resource, false);
+      assert.ok(converted.postprocessors[0].messages.some(message =>
+        message.type === MESSAGE_TYPE.WARNING
+        && /CodeSystem\.useContext\[0\]\.valueReference/.test(message.text)
+        && /entire UsageContext entry was removed/.test(message.text)));
+    });
+
     it('handles cardinality, canonical, and supplement losses together', function () {
       const contentCompanion = { id: 'content-id' };
       const valueSetCompanion = { id: 'value-set-id' };

@@ -24,10 +24,11 @@ import {
  */
 export const conv_R4_to_R3 = {
   name: 'Binary_R4_to_R3',
-  coverage: COVERAGE.COMPLETE,
+  coverage: COVERAGE.BEST_EFFORT,
   description:
     'Marks required Binary.content absent with the standard data-absent-reason extension '
     + 'when the optional R4 data element is absent, rather than inventing payload data. '
+    + 'R4 Reference.type on securityContext has no STU3 equivalent and is not retained. '
     + 'Does not handle inter-version extensions.',
 
   /**

@@ -52,6 +52,7 @@ import {
   stripCanonicalVersion,
 } from '../util/elements.js';
 import { randomUuid } from '../util/uuid.js';
+import { removeUnrepresentableUsageContexts } from './usageContext.js';
 
 // STU3 defines `code` as "a string which has at least one character and no
 // leading or trailing whitespace and where there is no whitespace other than
@@ -327,7 +328,8 @@ export const conv_R4_to_R3 = {
     + 'compose valueSet references, generates the expansion identifier STU3 '
     + 'requires, generates an empty expansion when the source satisfies neither '
     + 'half of vsd-5, and reports expansion parameter dateTime values that STU3 '
-    + 'cannot represent. Does not handle inter-version extensions.',
+    + 'cannot represent. Removes Reference-valued UsageContext entries. Does not '
+    + 'handle inter-version extensions.',
 
   /**
    * @param {Object} target FML-converted STU3 ValueSet, mutated in place.
@@ -337,6 +339,7 @@ export const conv_R4_to_R3 = {
   execute(target, ctx) {
     const messages = [];
 
+    removeUnrepresentableUsageContexts(target, ctx?.sourceResource, messages);
     for (const [branch, index, entry] of composeEntries(target)) {
       normalizeFilterValues(entry, branch, index, messages);
       stripValueSetVersions(entry, branch, index, messages);

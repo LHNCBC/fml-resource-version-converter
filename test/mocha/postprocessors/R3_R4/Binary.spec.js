@@ -49,16 +49,37 @@ describe('postprocessors/R3_R4 Binary', function () {
     };
     const result = singleHopConverter.convert(source, 'R4', 'R3');
 
-    assert.equal(result.coverage, COVERAGE.COMPLETE);
+    assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
     assert.equal(result.fml_base_conv.coverage, COVERAGE.KNOWN_GAPS);
     assert.equal(result.postprocessors[0].name, 'Binary_R4_to_R3');
-    assert.equal(result.postprocessors[0].coverage, COVERAGE.COMPLETE);
+    assert.equal(result.postprocessors[0].coverage, COVERAGE.BEST_EFFORT);
     assert.equal(result.status, STATUS.OK);
     assert.deepEqual(result.postprocessors[0].messages, []);
     assert.equal(result.resource.content, source.data);
     assert.deepEqual(result.resource._content, payloadCompanion);
     assert.deepEqual(result.resource.securityContext, source.securityContext);
     assert.equal('data' in result.resource, false);
+  });
+
+  it('rates R4 Reference.type loss as best-effort without inventing a warning', function () {
+    const source = {
+      resourceType: 'Binary',
+      contentType: 'application/octet-stream',
+      securityContext: {
+        type: 'Patient',
+        _type: { id: 'reference-type-metadata' },
+        identifier: { system: 'http://example.org/mrn', value: '12345' },
+      },
+      data: 'AAEC',
+    };
+    const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+    assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
+    assert.equal(result.status, STATUS.OK);
+    assert.deepEqual(result.postprocessors[0].messages, []);
+    assert.deepEqual(result.resource.securityContext.identifier, source.securityContext.identifier);
+    assert.equal('type' in result.resource.securityContext, false);
+    assert.equal('_type' in result.resource.securityContext, false);
   });
 
   it('executes the R4 to R3 Meta mapping before postprocessing', function () {
@@ -117,7 +138,7 @@ describe('postprocessors/R3_R4 Binary', function () {
     };
     const result = singleHopConverter.convert(source, 'R4', 'R3');
 
-    assert.equal(result.coverage, COVERAGE.COMPLETE);
+    assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
     assert.equal(result.status, STATUS.WARNING);
     assert.equal('content' in result.resource, false);
     assert.deepEqual(result.resource._content, {
