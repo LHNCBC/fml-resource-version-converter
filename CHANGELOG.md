@@ -3,7 +3,7 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
-## [0.4.0] - 2026-09-17
+## [Unreleased]
 
 ### Added
 
@@ -21,10 +21,16 @@ This project follows [Semantic Versioning](http://semver.org/).
 ### Fixed
 
 - Imported FML base groups now take precedence over the engine's compatibility
-  copiers during group inheritance for faithful FML mapping execution.
+  copiers during group inheritance for faithful FML mapping execution. The
+  R3/R4 Extension mappings now preserve the shared `valueMeta` choice in
+  ordinary extensions.
 - Target base-profile insertion now handles extension-only `meta.profile`
   occurrences while keeping the parallel `profile` and `_profile` arrays
   correctly aligned.
+- A `meta.profile` entry naming a base profile of a FHIR version other than the
+  hop's source or target is dropped, as before, but any `id` or extensions that
+  entry carried in `meta._profile` were dropped with it silently. That content
+  loss is now reported as a warning.
 - R4 -> R3 Questionnaire conversions now remove Reference-valued UsageContext
   entries that STU3 cannot represent, preserving valid output and warning
   about the lost applicability context.
@@ -45,6 +51,12 @@ This project follows [Semantic Versioning](http://semver.org/).
   could carry a JSON array in a field the target version defines as a single
   value, for example `Questionnaire.group` when converting R3 -> R2. The first
   value is kept and any dropped values are reported.
+- An FML rule whose repeating source feeds several independent targets, such as
+  `src.items where (...) -> tgt.first, tgt.second`, now fills every target
+  instead of only the first. Each target gets its own values, primitive
+  companions, default-group selection, polymorphic name, and cardinality
+  enforcement, while the source `where`, `check`, and `log` clauses are still
+  evaluated once per source item.
 
 ## [0.3.0] - 2026-09-08
 

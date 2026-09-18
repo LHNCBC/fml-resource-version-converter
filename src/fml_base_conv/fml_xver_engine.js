@@ -2288,9 +2288,13 @@ export function compileFmlXver({
       }
     }
 
-    // Iterate only when there's something to iterate over (alias, then-clause).
+    // Source where/check clauses are evaluated against each source occurrence.
+    // Evaluating either against the whole array gives FHIRPath a collection
+    // where the expression expects an item (for example, `url.startsWith()`).
     const isArray        = Array.isArray(primaryValue);
-    const needsIteration = isArray && (primary.spec.alias || rule.thenGroup || rule.thenRules);
+    const needsIteration = isArray && (
+      primary.spec.alias || primary.spec.where || primary.spec.check || rule.thenGroup || rule.thenRules
+    );
 
     if (needsIteration) {
       execArrayRule(rule, primary, primaryValue, primaryCompanion, bindings, scope);
@@ -2824,12 +2828,25 @@ export function compileFmlXver({
 
     const results = [];
     const resultCompanions = [];
-    let defaultPolySuffix = null;
     const inlineTargetAlias = !thenGroup && !thenRules &&
       targets.length > 1 && tgtSpec.alias &&
       targets.slice(1).some(target => target.context === tgtSpec.alias)
       ? tgtSpec.alias
       : null;
+    // Plain targets of one rule are independent slots: each collects its own
+    // values, primitive companions, and polymorphic type choice. A then-clause
+    // or an inline target alias instead fills one child per item, so only the
+    // primary target collects there; the other targets run inside the loop.
+    const collectedTargets = (thenGroup || thenRules || inlineTargetAlias
+      ? [tgtSpec]
+      : targets
+    ).map((target, index) => ({
+      target,
+      results: index === 0 ? results : [],
+      companions: index === 0 ? resultCompanions : [],
+      polySuffix: null,
+    }));
+
     for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
       const item = items[itemIndex];
       const itemCompanion = Array.isArray(itemCompanions)
@@ -2972,60 +2989,75 @@ export function compileFmlXver({
           resultCompanions.push(null);
         }
       } else {
-        // No then-clause: each iteration produces one value. Apply the
-        // applicable default group just as applyTarget() does for a scalar
-        // rule; an alias should affect scope, not dispatch semantics.
-        const defaultResult = tryDefaultGroup(tgtSpec, iterationPrimary, iterScope);
-        const value = defaultResult !== undefined
-          ? defaultResult.value
-          : computeTargetValue(
-            tgtSpec,
-            iterationPrimary,
-            iterationBindings,
-            iterScope,
-            item,
-          );
-        if (defaultResult?.polySuffix) defaultPolySuffix = defaultResult.polySuffix;
-        const provenance = defaultResult === undefined
-          ? targetSourceBinding(
-            tgtSpec,
-            iterationPrimary,
-            iterationBindings,
-          )
-          : null;
-        const resultCompanion = provenance?.companion;
-        if (value !== undefined || resultCompanion != null) {
-          results.push(value);
-          resultCompanions.push(resultCompanion ?? null);
+        // No then-clause: each iteration produces one value per target. Apply
+        // the applicable default group just as applyTarget() does for a scalar
+        // rule; an alias should affect scope, not dispatch semantics. The
+        // source guards, check, and log above already ran once for this item.
+        for (const collected of collectedTargets) {
+          const target = collected.target;
+          const defaultResult = tryDefaultGroup(target, iterationPrimary, iterScope);
+          const value = defaultResult !== undefined
+            ? defaultResult.value
+            : computeTargetValue(
+              target,
+              iterationPrimary,
+              iterationBindings,
+              iterScope,
+              item,
+            );
+          if (defaultResult?.polySuffix) collected.polySuffix = defaultResult.polySuffix;
+          const provenance = defaultResult === undefined
+            ? targetSourceBinding(
+              target,
+              iterationPrimary,
+              iterationBindings,
+            )
+            : null;
+          const resultCompanion = provenance?.companion;
+          if (value !== undefined || resultCompanion != null) {
+            collected.results.push(value);
+            collected.companions.push(resultCompanion ?? null);
+          }
         }
       }
     }
 
-    if (results.length === 0) return;
-    let targetPath = resolveWritePath(tgtSpec, primary, bindings, tctx);
-    if (defaultPolySuffix && tgtSpec.path && targetPolyTypes(
-      composeChildPath(tctx, tgtSpec.path),
-    )) {
-      const segs = tgtSpec.path.split('.');
-      segs[segs.length - 1] += defaultPolySuffix;
-      targetPath = segs.join('.');
+    for (const collected of collectedTargets) {
+      const { target, results: values, companions, polySuffix } = collected;
+      if (values.length === 0) continue;
+
+      const targetContext = scope.get(target.context);
+      if (targetContext == null) {
+        onWarning?.(`Array rule: target context "${target.context}" not in scope`);
+        continue;
+      }
+
+      let targetPath = resolveWritePath(target, primary, bindings, targetContext);
+      if (polySuffix && target.path && targetPolyTypes(
+        composeChildPath(targetContext, target.path),
+      )) {
+        const segs = target.path.split('.');
+        segs[segs.length - 1] += polySuffix;
+        targetPath = segs.join('.');
+      }
+      if (!targetPath) {
+        onWarning?.(`Array rule: no target path; cannot write ${values.length} item(s)`);
+        continue;
+      }
+
+      const { parent, key } = ensurePath(targetContext, targetPath);
+      // Route through writeToSlot for consistency with the rest of the
+      // write paths: it preserves the array contents on a fresh slot,
+      // concatenates into an existing array when two rules feed the same
+      // target field, and enforces target cardinality per slot.
+      writeToSlot(
+        parent,
+        key,
+        values,
+        composeChildPath(targetContext, targetPath),
+        companions,
+      );
     }
-    if (!targetPath) {
-      onWarning?.(`Array rule: no target path; cannot write ${results.length} item(s)`);
-      return;
-    }
-    const { parent, key } = ensurePath(tctx, targetPath);
-    // Route through writeToSlot for consistency with the rest of the
-    // write paths: it preserves the array contents on a fresh slot and
-    // concatenates into an existing array when two rules feed the same
-    // target field.
-    writeToSlot(
-      parent,
-      key,
-      results,
-      composeChildPath(tctx, targetPath),
-      resultCompanions,
-    );
   }
 
   /** Return whether a value is a nested FHIR resource instance. */
@@ -3407,7 +3439,9 @@ export function compileFmlXver({
    * Rewrite `meta.profile` values while keeping `_profile` primitive metadata
    * at the same indexes. Rewritten duplicates are removed only when their
    * companion metadata is also identical; distinct metadata must remain
-   * attached to distinct primitive entries.
+   * attached to distinct primitive entries. Dropping a base profile of another
+   * FHIR version also drops that entry's primitive metadata, which is warned
+   * about rather than lost silently.
    *
    * @param {Object} meta Resource metadata containing a profile array.
    * @param {string|null} declaredTargetProfile Mapping-declared target profile.
@@ -3432,7 +3466,14 @@ export function compileFmlXver({
         updatedUrl = declaredTargetProfile || toTargetVersionProfile(url);
         rewritten = true;
       } else if (typeof url === 'string' && FHIR_BASE_PROFILE_RE.test(url)) {
-        // Drop standard FHIR profiles belonging to a different version.
+        // Drop standard FHIR profiles belonging to a different version. The
+        // entry's primitive metadata goes with it, so report that loss.
+        if (isObject(companion) && Object.keys(companion).length > 0) {
+          onWarning?.(
+            `meta.profile[${index}] "${url}" is a base profile of another FHIR version and was ` +
+            'dropped, together with its primitive metadata in meta._profile',
+          );
+        }
         continue;
       }
 

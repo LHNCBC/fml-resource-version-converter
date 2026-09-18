@@ -859,5 +859,34 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       assert.equal(res.status, STATUS.OK);
       assert.equal(res.messages.length, 0);
     });
+
+    it('reports Meta.source loss and removes the extension it leaves invalid', function () {
+      const kept = {
+        url: 'http://example.org/fhir/StructureDefinition/kept',
+        valueString: 'kept',
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        extension: [{ url: 'http://example.org/fhir/StructureDefinition/meta-valued' }, kept],
+      };
+      const res = run(target, {
+        resourceType: 'Questionnaire',
+        meta: { source: 'http://example.org/source' },
+        extension: [
+          {
+            url: 'http://example.org/fhir/StructureDefinition/meta-valued',
+            valueMeta: { source: 'http://example.org/nested-source' },
+          },
+          kept,
+        ],
+      });
+      const text = res.messages.map(message => message.text).join('\n');
+
+      assert.equal(res.status, STATUS.WARNING);
+      assert.deepEqual(target.extension, [kept]);
+      assert.match(text, /meta\.source/);
+      assert.match(text, /extension\[0\]\.valueMeta\.source/);
+      assert.match(text, /Removed extension\[0\].*ext-1/s);
+    });
   });
 });

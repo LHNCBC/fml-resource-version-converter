@@ -484,5 +484,28 @@ describe('postprocessors/R3_R4 Library', function () {
       assert.match(text, /parameter\[1\].*"CatalogEntry".*no R3 type equivalent/);
       assert.match(text, /parameter\[2\].*"ServiceRequest".*maps ambiguously/);
     });
+
+    it('reports Meta.source loss and removes the extension it leaves invalid', function () {
+      const source = makeLibrary();
+      source.meta = { source: 'http://example.org/source' };
+      source.extension = [
+        {
+          url: 'http://example.org/fhir/StructureDefinition/meta-valued',
+          valueMeta: { source: 'http://example.org/nested-source' },
+        },
+        {
+          url: 'http://example.org/fhir/StructureDefinition/kept',
+          valueString: 'kept',
+        },
+      ];
+
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+      const text = result.postprocessors[0].messages.map(message => message.text).join('\n');
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.deepEqual(result.resource.extension, [source.extension[1]]);
+      assert.match(text, /meta\.source/);
+      assert.match(text, /Removed extension\[0\].*ext-1/s);
+    });
   });
 });

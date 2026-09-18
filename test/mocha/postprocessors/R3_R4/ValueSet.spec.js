@@ -405,5 +405,39 @@ describe('postprocessors/R3_R4 ValueSet', function () {
       ]);
       assert.equal(result2.status, STATUS.OK);
     });
+
+    it('reports Meta.source loss and removes the extension it leaves invalid', function () {
+      const kept = {
+        url: 'http://example.org/fhir/StructureDefinition/kept',
+        valueString: 'kept',
+      };
+      const target = {
+        resourceType: 'ValueSet',
+        status: 'active',
+        compose: { include: [{ system: 'http://example.org/cs' }] },
+        extension: [{ url: 'http://example.org/fhir/StructureDefinition/meta-valued' }, kept],
+      };
+      const result2 = conv_R4_to_R3.execute(target, {
+        sourceResource: {
+          resourceType: 'ValueSet',
+          status: 'active',
+          meta: { source: 'http://example.org/source' },
+          extension: [
+            {
+              url: 'http://example.org/fhir/StructureDefinition/meta-valued',
+              valueMeta: { source: 'http://example.org/nested-source' },
+            },
+            kept,
+          ],
+        },
+      });
+      const text = result2.messages.map(message => message.text).join('\n');
+
+      assert.equal(result2.status, STATUS.WARNING);
+      assert.deepEqual(target.extension, [kept]);
+      assert.match(text, /meta\.source/);
+      assert.match(text, /extension\[0\]\.valueMeta\.source/);
+      assert.match(text, /Removed extension\[0\].*ext-1/s);
+    });
   });
 });

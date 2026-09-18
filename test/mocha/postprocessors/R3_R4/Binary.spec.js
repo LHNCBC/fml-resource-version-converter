@@ -61,7 +61,7 @@ describe('postprocessors/R3_R4 Binary', function () {
     assert.equal('data' in result.resource, false);
   });
 
-  it('rates R4 Reference.type loss as best-effort without inventing a warning', function () {
+  it('reports R4 Reference.type and primitive metadata loss', function () {
     const source = {
       resourceType: 'Binary',
       contentType: 'application/octet-stream',
@@ -75,10 +75,35 @@ describe('postprocessors/R3_R4 Binary', function () {
     const result = singleHopConverter.convert(source, 'R4', 'R3');
 
     assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
-    assert.equal(result.status, STATUS.OK);
-    assert.deepEqual(result.postprocessors[0].messages, []);
+    assert.equal(result.status, STATUS.WARNING);
+    assert.equal(result.postprocessors[0].messages.length, 1);
+    assert.match(result.postprocessors[0].messages[0].text, /securityContext\.type/);
+    assert.match(result.postprocessors[0].messages[0].text, /primitive metadata/);
     assert.deepEqual(result.resource.securityContext.identifier, source.securityContext.identifier);
     assert.equal('type' in result.resource.securityContext, false);
+    assert.equal('_type' in result.resource.securityContext, false);
+  });
+
+  it('reports companion-only R4 Reference.type metadata loss', function () {
+    const source = {
+      resourceType: 'Binary',
+      contentType: 'application/octet-stream',
+      securityContext: {
+        _type: {
+          extension: [{
+            url: 'http://example.org/fhir/StructureDefinition/reference-type-note',
+            valueString: 'Patient',
+          }],
+        },
+        identifier: { system: 'http://example.org/mrn', value: '12345' },
+      },
+      data: 'AAEC',
+    };
+    const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+    assert.equal(result.status, STATUS.WARNING);
+    assert.equal(result.postprocessors[0].messages.length, 1);
+    assert.match(result.postprocessors[0].messages[0].text, /securityContext\.type/);
     assert.equal('_type' in result.resource.securityContext, false);
   });
 
@@ -112,7 +137,9 @@ describe('postprocessors/R3_R4 Binary', function () {
     };
     const result = singleHopConverter.convert(source, 'R4', 'R3');
 
-    assert.equal(result.status, STATUS.OK);
+    assert.equal(result.status, STATUS.WARNING);
+    assert.equal(result.postprocessors[0].messages.length, 1);
+    assert.match(result.postprocessors[0].messages[0].text, /meta\.source/);
     assert.equal(result.resource.meta.id, 'meta-id');
     assert.deepEqual(result.resource.meta.extension, [metaExtension]);
     assert.equal(result.resource.meta.versionId, 'version-1');

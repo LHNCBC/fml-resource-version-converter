@@ -26,6 +26,7 @@ import {
   hasPrimitiveValueOrExtension,
   stripCanonicalVersion,
 } from '../util/elements.js';
+import { repairR4ToR3MetaAndExtensions } from './metaExtensions.js';
 import { removeUnrepresentableUsageContexts } from './usageContext.js';
 
 const R4_LIB_0_NAME = /^[A-Z][A-Za-z0-9_]{0,254}$/;
@@ -691,6 +692,7 @@ function convertR4ToR3(target, ctx) {
   normalizeRelatedArtifactResources(target, source, 'R4->R3', messages);
   normalizeR3DataRequirements(target, source, messages);
   normalizeRequiredTypes(target, source, 'R4', 'R3', messages);
+  repairR4ToR3MetaAndExtensions(target, source, messages);
 
   return { resource: target, status: statusFromMessages(messages), messages };
 }
@@ -716,7 +718,8 @@ export const conv_R4_to_R3 = {
     'Rebuilds valid R3 contributors, repairs canonical-to-Reference fields and DataRequirement '
     + 'narrowing, normalizes required ParameterDefinition and DataRequirement FHIR types and '
     + 'the LibraryType code system canonical, removes Reference-valued UsageContext entries, '
-    + 'and reports R4-only content. Does not handle '
+    + 'reports R4 Meta.source loss, removes invalid ordinary Extensions, and reports other '
+    + 'R4-only content. Does not handle '
     + 'inter-version extensions.',
   execute: convertR4ToR3,
 };

@@ -29,7 +29,7 @@ export const registry = {
         'FML maps Binary.data to content but does not supply the required STU3 '
         + 'primitive when optional R4 data is absent; repaired by the '
         + 'Binary_R4_to_R3 postprocessor. R4 Reference.type on securityContext '
-        + 'has no STU3 equivalent and is not retained.',
+        + 'has no STU3 equivalent, is not retained, and is reported as loss.',
     },
     processors: [convBinary_R4_to_R3],
   },
@@ -49,7 +49,8 @@ export const registry = {
         'FML leaves R4-only canonical, supplement, and decimal CodeSystem '
         + 'differences unresolved; corrected or approximated with diagnostics '
         + 'by the CodeSystem_R4_to_R3 postprocessor. The identifier cardinality '
-        + 'narrowing R4 -> R3 requires is enforced and reported by the engine. '
+        + 'narrowing R4 -> R3 requires is enforced by the engine and reported by '
+        + 'that postprocessor. '
         + 'Reference-valued UsageContext entries are removed because STU3 cannot '
         + 'represent them.',
     },

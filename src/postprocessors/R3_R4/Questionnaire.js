@@ -25,6 +25,7 @@ import {
   renamePrimitive,
 } from '../util/elements.js';
 import { indexSourceItemsByLinkId } from '../util/questionnaire.js';
+import { repairR4ToR3MetaAndExtensions } from './metaExtensions.js';
 import { removeUnrepresentableUsageContexts } from './usageContext.js';
 
 /**
@@ -511,7 +512,8 @@ export const conv_R4_to_R3 = {
     + 'the STU3 Reference shape, and re-derives initial[x] from '
     + 'answerOption.initialSelected. Removes Reference-valued UsageContext entries. '
     + 'Warns when enableBehavior "all" cannot be '
-    + 'represented in STU3 and when derivedFrom content is dropped. Does not '
+    + 'represented in STU3, when derivedFrom or R4 Meta.source content is dropped, and '
+    + 'removes invalid ordinary Extensions. Does not '
     + 'handle inter-version extensions.',
 
   /**
@@ -529,6 +531,7 @@ export const conv_R4_to_R3 = {
     }
     const sourceByLinkId = indexSourceItemsByLinkId(ctx?.sourceResource?.item, new Map());
     convertItems(target.item, sourceByLinkId, messages);
+    repairR4ToR3MetaAndExtensions(target, ctx?.sourceResource, messages);
     return { resource: target, status: statusFromMessages(messages), messages };
   },
 };

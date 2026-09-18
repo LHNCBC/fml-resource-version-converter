@@ -17,7 +17,8 @@ describe('tools/runtime-data-sources', function () {
     );
 
     assert.equal(dataset.sources.length, 1);
-    assert.equal(dataset.sources[0].modifiedFromUpstream, false);
+    assert.equal(dataset.sources[0].modifiedFromUpstream, true);
+    assert.match(dataset.sources[0].modifications, /Meta-valued Extension rules/);
     assert.equal(dataset.sources[0].inputRoot, path.join(dataset.root, 'input'));
     assert.equal(Object.hasOwn(dataset.sources[0], 'sha256'), false);
   });

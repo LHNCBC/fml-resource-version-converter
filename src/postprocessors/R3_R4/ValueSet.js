@@ -52,6 +52,7 @@ import {
   stripCanonicalVersion,
 } from '../util/elements.js';
 import { randomUuid } from '../util/uuid.js';
+import { repairR4ToR3MetaAndExtensions } from './metaExtensions.js';
 import { removeUnrepresentableUsageContexts } from './usageContext.js';
 
 // STU3 defines `code` as "a string which has at least one character and no
@@ -328,7 +329,8 @@ export const conv_R4_to_R3 = {
     + 'compose valueSet references, generates the expansion identifier STU3 '
     + 'requires, generates an empty expansion when the source satisfies neither '
     + 'half of vsd-5, and reports expansion parameter dateTime values that STU3 '
-    + 'cannot represent. Removes Reference-valued UsageContext entries. Does not '
+    + 'cannot represent. Removes Reference-valued UsageContext entries, reports R4 '
+    + 'Meta.source loss, and removes invalid ordinary Extensions. Does not '
     + 'handle inter-version extensions.',
 
   /**
@@ -350,6 +352,7 @@ export const conv_R4_to_R3 = {
     ensureComposeOrExpansion(target, messages);
     ensureExpansionIdentifier(target, messages);
     reportDateTimeParameters(ctx?.sourceResource, messages);
+    repairR4ToR3MetaAndExtensions(target, ctx?.sourceResource, messages);
 
     return { resource: target, status: statusFromMessages(messages), messages };
   },

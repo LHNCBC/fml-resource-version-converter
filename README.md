@@ -246,6 +246,25 @@ the following in mind:
   does not make a general statement on where things stand with regard to
   inter-version extensions.
 
+## Conversion notes
+
+Two behaviors are worth knowing before comparing input and output:
+
+- **`meta.profile` is version-adjusted.** A standard FHIR base profile of the
+  source version is rewritten to the target version, a base profile of any other
+  version is dropped, and, when no concrete profile value remains, the mapping's
+  declared target profile is added, for example
+  `http://hl7.org/fhir/3.0/StructureDefinition/Questionnaire`. Profiles of your
+  own are left untouched. Note that a converted resource therefore carries a
+  `meta.profile` even when the input had no `meta` at all, and that these
+  version-tagged canonicals come from HL7's cross-version mappings rather than
+  from the published specification of the target version.
+- **The bundled mappings carry recorded local changes.** The checked-in snapshot
+  of HL7's `fhir-cross-version` project is not always identical to its upstream
+  commit. Any difference is recorded in `data/fhir-cross-version/sources.yaml`
+  and is carried into the runtime data provenance, so the mappings this package
+  runs are always traceable.
+
 ## Understanding the result
 
 `chainedConverter.convert()` returns a result object with one report entry per

@@ -16,8 +16,10 @@ import {
 } from '../../converter/diagnostics.js';
 import {
   addDataAbsentReasonExtension,
+  hasAnyContent,
   hasPrimitiveValueOrExtension,
 } from '../util/elements.js';
+import { repairR4ToR3MetaAndExtensions } from './metaExtensions.js';
 
 /**
  * R4 -> R3 Binary postprocessor descriptor.
@@ -28,7 +30,8 @@ export const conv_R4_to_R3 = {
   description:
     'Marks required Binary.content absent with the standard data-absent-reason extension '
     + 'when the optional R4 data element is absent, rather than inventing payload data. '
-    + 'R4 Reference.type on securityContext has no STU3 equivalent and is not retained. '
+    + 'Reports R4 Meta.source and Reference.type on securityContext because STU3 cannot '
+    + 'retain them, and removes ordinary Extensions left invalid by unrepresentable content. '
     + 'Does not handle inter-version extensions.',
 
   /**
@@ -38,6 +41,14 @@ export const conv_R4_to_R3 = {
    */
   execute(target, ctx) {
     const messages = [];
+    const sourceSecurityContext = ctx.sourceResource?.securityContext;
+
+    if (hasAnyContent(sourceSecurityContext, ['type', '_type'])) {
+      messages.push(warningMessage(
+        'Binary.securityContext.type and any primitive metadata were dropped because '
+        + 'Reference.type has no STU3 equivalent',
+      ));
+    }
 
     if (!hasPrimitiveValueOrExtension(target, 'content')) {
       addDataAbsentReasonExtension(target, 'content');
@@ -47,6 +58,8 @@ export const conv_R4_to_R3 = {
         + 'extension ("unknown") rather than inventing binary data',
       ));
     }
+
+    repairR4ToR3MetaAndExtensions(target, ctx?.sourceResource, messages);
 
     return { resource: target, status: statusFromMessages(messages), messages };
   },

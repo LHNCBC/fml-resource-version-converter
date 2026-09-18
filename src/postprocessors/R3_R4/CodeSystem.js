@@ -9,8 +9,9 @@
  * supplements, the R4-only `supplement` content code, or decimal concept
  * properties. The postprocessor repairs the target shape and preserves parsed
  * decimal values as strings where STU3 cannot preserve their numeric property
- * type. Identifier cardinality narrowing is enforced and reported by the FML
- * engine; the postprocessor keeps a defensive narrowing for direct calls.
+ * type. The FML engine enforces the identifier cardinality narrowing while
+ * writing; the postprocessor reports that loss and narrows a target that still
+ * carries an array.
  *
  * Neither direction implements inter-version extensions.
  *
@@ -25,6 +26,7 @@ import {
   hasAnyContent,
   stripCanonicalVersion,
 } from '../util/elements.js';
+import { repairR4ToR3MetaAndExtensions } from './metaExtensions.js';
 import { removeUnrepresentableUsageContexts } from './usageContext.js';
 
 // R4 invariant csd-0 (severity: warning). STU3 imposes no equivalent rule.
@@ -33,35 +35,37 @@ const CSD_0_NAME = /^[A-Z][A-Za-z0-9_]{0,254}$/;
 /**
  * Reduce R4's repeating identifier to STU3's single Identifier.
  *
- * This is a defensive repair, not the primary report. The FML engine already
- * honors the STU3 `0..1` cardinality while writing, and reports the dropped
- * identifiers itself, so in the normal pipeline this function finds a single
- * value and stays silent rather than duplicating that warning. It still
- * narrows and reports when it is handed a target that really does carry an
- * array, which is what happens when the postprocessor is invoked directly on a
- * hand-built resource.
+ * The FML engine already honors the STU3 `0..1` cardinality while writing, so
+ * in the normal pipeline this function is handed a single value and only has
+ * to report the loss. It still narrows an array itself, which is what happens
+ * when the postprocessor is invoked directly on a hand-built resource.
  *
- * The message therefore describes only what this function did. Counting the
- * loss from the source instead would claim an identifier was retained even
- * when the target has none.
+ * The loss is counted from the R4 source, because the narrowing may have
+ * happened before this function ran. It is reported only when the target
+ * actually retains an identifier: with no identifier in the target there is
+ * nothing that could honestly be described as retained.
  *
  * @param {Object} target FML-converted STU3 CodeSystem, mutated in place.
+ * @param {Object} source Read-only R4 source CodeSystem.
  * @param {Array<Object>} messages Diagnostic messages to append.
  */
-function narrowIdentifier(target, messages) {
-  if (!Array.isArray(target?.identifier)) return;
-
-  const identifiers = target.identifier;
-  if (identifiers.length === 0) {
-    delete target.identifier;
-    return;
+function narrowIdentifier(target, source, messages) {
+  const targetIdentifiers = Array.isArray(target?.identifier) ? target.identifier : null;
+  if (targetIdentifiers) {
+    if (targetIdentifiers.length === 0) delete target.identifier;
+    else target.identifier = targetIdentifiers[0];
   }
 
-  target.identifier = identifiers[0];
-  if (identifiers.length === 1) return;
+  if (target?.identifier == null) return;
+
+  const sourceCount = Array.isArray(source?.identifier)
+    ? source.identifier.length
+    : source?.identifier == null ? 0 : 1;
+  const presentCount = Math.max(sourceCount, targetIdentifiers?.length ?? 0);
+  if (presentCount <= 1) return;
 
   messages.push(warningMessage(
-    `CodeSystem.identifier has ${identifiers.length} entries in R4 but STU3 allows only one; `
+    `CodeSystem.identifier has ${presentCount} entries in R4 but STU3 allows only one; `
     + 'the first identifier was retained and the additional identifiers were dropped',
   ));
 }
@@ -261,8 +265,10 @@ export const conv_R4_to_R3 = {
     'Removes canonical version pins, reports dropped supplements, approximates supplement '
     + 'content as fragment, and preserves decimal property values as strings with warnings. '
     + 'Removes Reference-valued UsageContext entries that STU3 cannot represent. '
-    + 'Also narrows identifier cardinality defensively; the FML engine normally enforces and '
-    + 'reports that narrowing already. Does not handle inter-version extensions.',
+    + 'Reports R4 Meta.source loss and removes invalid ordinary Extensions. '
+    + 'Reports the identifier cardinality loss STU3 requires, and narrows the identifier '
+    + 'itself when the FML engine has not already done so. '
+    + 'Does not handle inter-version extensions.',
 
   /**
    * @param {Object} target FML-converted STU3 CodeSystem, mutated in place.
@@ -274,12 +280,13 @@ export const conv_R4_to_R3 = {
     const source = ctx?.sourceResource || {};
 
     removeUnrepresentableUsageContexts(target, source, messages);
-    narrowIdentifier(target, messages);
+    narrowIdentifier(target, source, messages);
     normalizeValueSet(target, messages);
     reportSupplements(source, messages);
     normalizeContent(target, messages);
     convertDecimalDeclarations(target, messages);
     convertDecimalConceptProperties(source.concept, target?.concept, messages);
+    repairR4ToR3MetaAndExtensions(target, source, messages);
 
     return { resource: target, status: statusFromMessages(messages), messages };
   },

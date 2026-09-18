@@ -351,6 +351,164 @@ group MapString(source src : stringSource, target tgt : stringTarget) <<type+>> 
   });
 });
 
+// ---------- guarded arrays with independent targets -------------------------
+
+describe('fml_base_conv: guarded arrays with independent targets', function () {
+  for (const guard of ['where', 'check']) {
+    it(`copies every target for an unaliased array with ${guard}`, function () {
+      const warnings = [];
+      const engine = compileFmlXver({
+        fmlText: `
+group Test(source src, target tgt) {
+  src.items ${guard} ($this.exists()) -> tgt.first, tgt.second, tgt.flags = false;
+}
+`,
+        onWarning: message => warnings.push(message),
+      });
+      const { resource: out } = engine.convert({
+        input: { resourceType: 'Test', items: [1, 2, 3] },
+      });
+
+      assert.deepEqual(out.first, [1, 2, 3]);
+      assert.deepEqual(out.second, [1, 2, 3]);
+      assert.deepEqual(out.flags, [false, false, false]);
+      assert.deepEqual(warnings, []);
+    });
+  }
+
+  it('filters every target and leaves all targets absent when no items match', function () {
+    const engine = compileFmlXver({
+      fmlText: `
+group Test(source src, target tgt) {
+  src.items where ($this > 1) -> tgt.first, tgt.second;
+}
+`,
+    });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', items: [0, 2, 3] },
+    });
+    assert.deepEqual(out.first, [2, 3]);
+    assert.deepEqual(out.second, [2, 3]);
+
+    for (const items of [[], [0, 1]]) {
+      const { resource: empty } = engine.convert({
+        input: { resourceType: 'Test', items },
+      });
+      assert.equal('first' in empty, false);
+      assert.equal('second' in empty, false);
+    }
+  });
+
+  it('evaluates check and log once per item, not once per target', function () {
+    const warnings = [];
+    const info = [];
+    const engine = compileFmlXver({
+      fmlText: `
+group Test(source src, target tgt) {
+  src.items as s where (s.include) check (s.ok) log (s.value)
+    -> tgt.first = (s.value), tgt.second = (s.value);
+}
+`,
+      onWarning: message => warnings.push(message),
+      onInfo: message => info.push(message),
+    });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        items: [
+          { include: false, ok: false, value: 'excluded' },
+          { include: true, ok: true, value: 'passed' },
+          { include: true, ok: false, value: 'failed' },
+        ],
+      },
+    });
+
+    assert.deepEqual(out.first, ['passed', 'failed']);
+    assert.deepEqual(out.second, ['passed', 'failed']);
+    assert.deepEqual(warnings, ['check failed in iteration (s)']);
+    assert.deepEqual(info, ['log: passed', 'log: failed']);
+  });
+
+  it('aligns companions and enforces cardinality separately for each target', function () {
+    const warnings = [];
+    const engine = compileFmlXver({
+      fmlText: `
+group Test(source src, target tgt) {
+  src.items where ($this != 'excluded') -> tgt.first, tgt.second;
+}
+`,
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.items': 'string' },
+        arrayPaths: ['Test.items'],
+      },
+      tgtDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.first': 'string', 'Test.second': 'string' },
+        arrayPaths: ['Test.first'],
+      },
+      onWarning: message => warnings.push(message),
+    });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'Test',
+        items: ['excluded', 'kept', 'also-kept'],
+        _items: [{ id: 'excluded' }, { id: 'kept' }, { id: 'also-kept' }],
+      },
+    });
+
+    assert.deepEqual(out.first, ['kept', 'also-kept']);
+    assert.deepEqual(out._first, [{ id: 'kept' }, { id: 'also-kept' }]);
+    assert.equal(out.second, 'kept');
+    assert.deepEqual(out._second, { id: 'kept' });
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Test\.second accepts at most one value/);
+  });
+
+  it('selects default groups and polymorphic suffixes independently for each target', function () {
+    const warnings = [];
+    const engine = compileFmlXver({
+      fmlText: `
+group Test(source src, target tgt) {
+  src.items where ($this.exists()) -> tgt.codes, tgt.choice;
+}
+`,
+      importedFmlTexts: [`
+uses "http://test/source/StructureDefinition/string" alias StringSource as source
+uses "http://test/target/StructureDefinition/string" alias StringTarget as target
+uses "http://test/target/StructureDefinition/code" alias CodeTarget as target
+
+group ToCode(source src : StringSource, target tgt : CodeTarget) <<types>> {
+  src.value -> tgt.value = 'code-result';
+}
+group ToString(source src : StringSource, target tgt : StringTarget) <<type+>> {
+  src.value -> tgt.value = 'string-result';
+}
+`],
+      srcDefs: {
+        polyPaths: {},
+        elementTypes: { 'Test.items': 'string' },
+        arrayPaths: ['Test.items'],
+      },
+      tgtDefs: {
+        polyPaths: { 'Test.choice': ['string', 'CodeableConcept'] },
+        elementTypes: { 'Test.codes': 'code' },
+        arrayPaths: ['Test.codes', 'Test.choice'],
+      },
+      onWarning: message => warnings.push(message),
+    });
+    const { resource: out } = engine.convert({
+      input: { resourceType: 'Test', items: ['one', 'two'] },
+    });
+
+    assert.deepEqual(out.codes, ['code-result', 'code-result']);
+    assert.deepEqual(out.choiceString, ['string-result', 'string-result']);
+    assert.equal('choice' in out, false);
+    assert.equal('codesString' in out, false);
+    assert.deepEqual(warnings, []);
+  });
+});
+
 // ---------- repeating type coercion -----------------------------------------
 
 describe('fml_base_conv: repeating type coercion', function () {
@@ -1079,6 +1237,100 @@ describe('fml_base_conv: Questionnaire R4->R5 conversion', function () {
   });
 });
 
+// ---------- R3/R4 Extension.valueMeta --------------------------------------
+
+describe('fml_base_conv: R3/R4 Extension.valueMeta', function () {
+  const valueMeta = {
+    tag: [{ system: 'http://example.org/tags', code: 'extension-metadata' }],
+  };
+
+  const ordinaryExtension = {
+    url: 'http://example.org/fhir/StructureDefinition/meta-valued',
+    valueMeta,
+  };
+
+  const ordinaryStringExtensions = [
+    {
+      url: 'http://example.org/fhir/StructureDefinition/first',
+      valueString: 'first',
+    },
+    {
+      url: 'http://example.org/fhir/StructureDefinition/second',
+      valueString: 'second',
+    },
+  ];
+
+  it('preserves an STU3 Meta-valued ordinary extension in R4', function () {
+    const engine = createEngine('CodeSystem', 'R3', 'R4');
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'CodeSystem',
+        status: 'active',
+        content: 'complete',
+        extension: [ordinaryExtension],
+      },
+    });
+
+    assert.deepEqual(out.extension, [ordinaryExtension]);
+  });
+
+  it('preserves an R4 Meta-valued ordinary extension in STU3', function () {
+    const engine = createEngine('CodeSystem', 'R4', 'R3');
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'CodeSystem',
+        status: 'active',
+        content: 'complete',
+        extension: [ordinaryExtension],
+      },
+    });
+
+    assert.deepEqual(out.extension, [ordinaryExtension]);
+  });
+
+  it('iterates R4 ordinary extensions while applying the inherited URL guard', function () {
+    const warnings = [];
+    const engine = createEngine('CodeSystem', 'R4', 'R3', {
+      onWarning: warning => warnings.push(warning),
+    });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'CodeSystem',
+        status: 'active',
+        content: 'complete',
+        extension: [
+          ...ordinaryStringExtensions,
+          {
+            url: 'http://hl7.org/fhir/3.0/StructureDefinition/filtered',
+            valueString: 'excluded',
+          },
+        ],
+      },
+    });
+
+    assert.deepEqual(out.extension, ordinaryStringExtensions);
+    assert.deepEqual(warnings, []);
+  });
+
+  it('preserves multiple STU3 ordinary extensions in R4', function () {
+    const warnings = [];
+    const engine = createEngine('CodeSystem', 'R3', 'R4', {
+      onWarning: warning => warnings.push(warning),
+    });
+    const { resource: out } = engine.convert({
+      input: {
+        resourceType: 'CodeSystem',
+        status: 'active',
+        content: 'complete',
+        extension: ordinaryStringExtensions,
+      },
+    });
+
+    assert.deepEqual(out.extension, ordinaryStringExtensions);
+    assert.deepEqual(warnings, []);
+  });
+});
+
 // ---------- meta.profile update --------------------------------------------
 
 describe('fml_base_conv: meta.profile handling', function () {
@@ -1190,6 +1442,38 @@ describe('fml_base_conv: meta.profile handling', function () {
       'http://example.org/fhir/StructureDefinition/CustomQuestionnaire',
     ]);
     assert.deepEqual(out.meta._profile, [sourceMetadata, customMetadata]);
+  });
+
+  it('reports primitive metadata dropped with an other-version base profile', function () {
+    const droppedMetadata = {
+      extension: [{ url: 'http://example.org/profile-note', valueString: 'dropped' }],
+    };
+    const makeInput = companion => ({
+      resourceType: 'Questionnaire',
+      status: 'draft',
+      meta: {
+        profile: ['http://hl7.org/fhir/3.0/StructureDefinition/Questionnaire'],
+        ...(companion ? { _profile: [companion] } : {}),
+      },
+    });
+    const warnings = [];
+    const engine = createEngine('Questionnaire', 'R4', 'R5', {
+      onWarning: warning => warnings.push(warning),
+    });
+    const profileWarnings = () => warnings.filter(warning => /meta\.profile\[0\]/.test(warning));
+
+    const { resource: out } = engine.convert({ input: makeInput(droppedMetadata) });
+
+    assert.equal(profileWarnings().length, 1);
+    assert.match(profileWarnings()[0], /primitive metadata/);
+    assert.deepEqual(out.meta.profile, [
+      'http://hl7.org/fhir/5.0/StructureDefinition/Questionnaire',
+    ]);
+    assert.equal('_profile' in out.meta, false);
+
+    // A drop that loses nothing stays silent.
+    engine.convert({ input: makeInput(null) });
+    assert.equal(profileWarnings().length, 1);
   });
 
   it('preserves distinct companions when rewritten profiles have the same URL', function () {
