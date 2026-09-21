@@ -7,6 +7,17 @@
 import { strict as assert } from 'node:assert';
 import { MESSAGE_TYPE } from '../../../../src/converter/diagnostics.js';
 import { repairR4ToR3MetaAndExtensions } from '../../../../src/postprocessors/R3_R4/metaExtensions.js';
+import { DATA_ABSENT_REASON_URL } from '../../../../src/postprocessors/util/elements.js';
+
+const unsupported = { url: DATA_ABSENT_REASON_URL, valueCode: 'unsupported' };
+
+/** Build an ordinary extension whose Meta value cannot survive in STU3. */
+function sourceOnlyExtension() {
+  return {
+    url: 'http://example.org/meta',
+    valueMeta: { source: 'http://example.org/source' },
+  };
+}
 
 /**
  * Run the repair and return the collected messages.
@@ -87,6 +98,75 @@ describe('postprocessors/R3_R4 metaExtensions', function () {
 
     it('tolerates a missing source resource', function () {
       assert.deepEqual(repair({ resourceType: 'ValueSet' }, undefined), []);
+    });
+
+    it('strips reconstructed source and _source without duplicating the loss diagnostic', function () {
+      const source = {
+        resourceType: 'Library',
+        author: [{
+          name: 'Author',
+          extension: [{
+            ...sourceOnlyExtension(),
+            valueMeta: {
+              id: 'meta-id',
+              source: 'http://example.org/source',
+              _source: { extension: [{ url: 'http://example.org/note', valueString: 'note' }] },
+              profile: ['http://example.org/profile'],
+              security: [{ code: 'restricted' }],
+              tag: [{ code: 'kept' }],
+            },
+          }],
+        }],
+      };
+      const before = structuredClone(source);
+      const target = {
+        resourceType: 'Library',
+        contributor: [{ type: 'author', ...structuredClone(source.author[0]) }],
+      };
+      const messages = repair(target, source);
+
+      assert.deepEqual(target.contributor[0].extension[0].valueMeta, {
+        id: 'meta-id',
+        profile: ['http://example.org/profile'],
+        security: [{ code: 'restricted' }],
+        tag: [{ code: 'kept' }],
+      });
+      assert.equal(messages.length, 1);
+      assert.match(text(messages), /author\[0\]\.extension\[0\]\.valueMeta\.source/);
+      assert.deepEqual(source, before);
+    });
+
+    it('strips a companion-only Meta source before cascading nested extension removal', function () {
+      const source = {
+        resourceType: 'Library',
+        extension: [{
+          url: 'http://example.org/outer',
+          extension: [{
+            url: 'http://example.org/inner',
+            valueMeta: {
+              id: 'meta-id',
+              _source: { extension: [{ url: 'http://example.org/note', valueString: 'note' }] },
+            },
+          }],
+        }],
+      };
+      const target = structuredClone(source);
+      const messages = repair(target, source);
+
+      assert.equal('extension' in target, false);
+      assert.equal(messages.length, 3);
+      assert.equal(messages.filter(message => /were dropped/.test(message.text)).length, 1);
+      assert.match(text(messages), /Removed extension\[0\]\.extension\[0\]/);
+      assert.match(text(messages), /Removed extension\[0\] because/);
+    });
+
+    it('reports target Meta loss when no original source was supplied', function () {
+      const target = { resourceType: 'Library', extension: [sourceOnlyExtension()] };
+      const messages = repair(target);
+
+      assert.equal('extension' in target, false);
+      assert.match(text(messages), /valueMeta\.source/);
+      assert.match(text(messages), /ext-1/);
     });
   });
 
@@ -200,8 +280,138 @@ describe('postprocessors/R3_R4 metaExtensions', function () {
       target.self = target;
       const messages = repair(target, { resourceType: 'CodeSystem' });
 
-      assert.equal('extension' in shared, false);
-      assert.equal(messages.length, 1);
+      assert.deepEqual(shared.extension, [unsupported]);
+      assert.equal(messages.length, 2);
+    });
+  });
+
+  describe('enclosing element validity', function () {
+    for (const id of [undefined, 'identifier-id']) {
+      it(`marks an emptied Identifier absent${id ? ' while preserving its id' : ''}`, function () {
+        const identifier = { extension: [sourceOnlyExtension()] };
+        if (id) identifier.id = id;
+        const source = { resourceType: 'CodeSystem', identifier };
+        const target = structuredClone(source);
+        const messages = repair(target, source);
+
+        assert.deepEqual(target.identifier, {
+          ...(id ? { id } : {}),
+          extension: [unsupported],
+        });
+        assert.match(text(messages), /identifier became empty.*ele-1/);
+        assert.deepEqual(repair(target), []);
+      });
+    }
+
+    it('preserves an extension-only required primitive occurrence', function () {
+      const source = {
+        resourceType: 'Binary',
+        _content: { id: 'content-id', extension: [sourceOnlyExtension()] },
+      };
+      const target = structuredClone(source);
+      const messages = repair(target, source);
+
+      assert.deepEqual(target._content, { id: 'content-id', extension: [unsupported] });
+      assert.match(text(messages), /_content became empty.*ele-1/);
+    });
+
+    it('removes empty scalar companions but keeps ids when the value survives', function () {
+      const target = {
+        resourceType: 'CodeSystem',
+        status: 'active',
+        _status: { extension: [sourceOnlyExtension()] },
+        experimental: false,
+        _experimental: { extension: [sourceOnlyExtension()] },
+        count: 0,
+        _count: { id: 'count-id', extension: [sourceOnlyExtension()] },
+      };
+      const messages = repair(target, structuredClone(target));
+
+      assert.equal('_status' in target, false);
+      assert.equal('_experimental' in target, false);
+      assert.deepEqual(target._count, { id: 'count-id' });
+      assert.equal(target.status, 'active');
+      assert.equal(target.experimental, false);
+      assert.equal(target.count, 0);
+      assert.doesNotMatch(text(messages), /became empty/);
+    });
+
+    it('preserves repeating primitive indexes and marks only valueless occurrences absent', function () {
+      const kept = { extension: [{ url: 'http://example.org/note', valueString: 'kept' }] };
+      const source = {
+        resourceType: 'CodeSystem',
+        meta: {
+          profile: ['http://example.org/one', null, 'http://example.org/three', 'http://example.org/four'],
+          _profile: [
+            { extension: [sourceOnlyExtension()] },
+            { id: 'absent-id', extension: [sourceOnlyExtension()] },
+            { id: 'retained-id', extension: [sourceOnlyExtension()] },
+            kept,
+          ],
+        },
+      };
+      const target = structuredClone(source);
+      repair(target, source);
+
+      assert.deepEqual(target.meta.profile, source.meta.profile);
+      assert.deepEqual(target.meta._profile, [
+        null,
+        { id: 'absent-id', extension: [unsupported] },
+        { id: 'retained-id' },
+        kept,
+      ]);
+    });
+
+    it('omits an all-null companion array after removal without changing the values', function () {
+      const target = {
+        resourceType: 'CodeSystem',
+        meta: {
+          profile: ['http://example.org/one', 'http://example.org/two'],
+          _profile: [{ extension: [sourceOnlyExtension()] }, null],
+        },
+      };
+      repair(target, structuredClone(target));
+
+      assert.equal('_profile' in target.meta, false);
+      assert.deepEqual(target.meta.profile, ['http://example.org/one', 'http://example.org/two']);
+    });
+
+    it('removes an Extension with emptied primitive metadata instead of inventing its value', function () {
+      const target = {
+        resourceType: 'CodeSystem',
+        extension: [{
+          url: 'http://example.org/outer',
+          _valueString: { id: 'value-id', extension: [sourceOnlyExtension()] },
+        }],
+      };
+      const messages = repair(target, structuredClone(target));
+
+      assert.equal('extension' in target, false);
+      assert.doesNotMatch(text(messages), /became empty/);
+    });
+
+    it('does not blanket-repair unrelated pre-existing empty elements', function () {
+      const target = { resourceType: 'CodeSystem', identifier: {}, _status: { id: 'id-only' } };
+      const before = structuredClone(target);
+
+      assert.deepEqual(repair(target), []);
+      assert.deepEqual(target, before);
+    });
+
+    it('leaves contained resource metadata untouched and does not report it as lost', function () {
+      const source = {
+        resourceType: 'Library',
+        contained: [{
+          resourceType: 'CodeSystem',
+          id: 'contained',
+          meta: { source: 'http://example.org/contained' },
+          extension: [sourceOnlyExtension()],
+        }],
+      };
+      const target = structuredClone(source);
+
+      assert.deepEqual(repair(target, source), []);
+      assert.deepEqual(target, source);
     });
   });
 });

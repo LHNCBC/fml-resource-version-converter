@@ -245,6 +245,12 @@ the following in mind:
   across versions and across resource types. At this point, this package
   does not make a general statement on where things stand with regard to
   inter-version extensions.
+- **Extensions on primitive companions are not yet converted.** No warning is
+  emitted, so the result may be invalid in the target version.
+  To be fixed in a future release.
+- **Some R4 -> R3 `Library` extensions keep source-version content.** This is due
+  to the postprocessor's incomplete repair of FML mapping issues; the remaining
+  content is kept without a warning. To be fixed in a future release.
 
 ## Conversion notes
 

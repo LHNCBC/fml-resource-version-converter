@@ -7,6 +7,7 @@ import path from 'node:path';
 import { COVERAGE } from '../../../../src/converter/coverage.js';
 import { MESSAGE_TYPE, STATUS } from '../../../../src/converter/diagnostics.js';
 import { singleHopConverter } from '../../../../src/converter/singleHopConverter.js';
+import { DATA_ABSENT_REASON_URL } from '../../../../src/postprocessors/util/elements.js';
 import {
   conv_R3_to_R4,
   conv_R4_to_R3,
@@ -132,6 +133,51 @@ describe('postprocessors/R3_R4 CodeSystem', function () {
       assert.deepEqual(result.resource.meta.profile, [
         'http://hl7.org/fhir/3.0/StructureDefinition/CodeSystem',
       ]);
+    });
+
+    it('marks an Identifier emptied by extension removal absent instead of returning an empty object', function () {
+      const source = {
+        resourceType: 'CodeSystem', status: 'active', content: 'complete',
+        identifier: [{
+          id: 'identifier-id',
+          extension: [{
+            url: 'http://example.org/meta',
+            valueMeta: { source: 'http://example.org/source' },
+          }],
+        }],
+      };
+      const before = structuredClone(source);
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.deepEqual(result.resource.identifier, {
+        id: 'identifier-id',
+        extension: [{ url: DATA_ABSENT_REASON_URL, valueCode: 'unsupported' }],
+      });
+      assert.ok(result.postprocessors[0].messages.some(message =>
+        /identifier became empty.*ele-1/.test(message.text)));
+      assert.deepEqual(source, before);
+    });
+
+    it('keeps a required status present when its only extension becomes unrepresentable', function () {
+      const source = {
+        resourceType: 'CodeSystem', content: 'complete',
+        _status: {
+          extension: [{
+            url: 'http://example.org/meta',
+            valueMeta: { source: 'http://example.org/source' },
+          }],
+        },
+      };
+      const before = structuredClone(source);
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.equal('status' in result.resource, false);
+      assert.deepEqual(result.resource._status, {
+        extension: [{ url: DATA_ABSENT_REASON_URL, valueCode: 'unsupported' }],
+      });
+      assert.deepEqual(source, before);
     });
 
     it('handles cardinality, canonical, and supplement losses together', function () {

@@ -3,7 +3,7 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-09-21
 
 ### Added
 
@@ -57,6 +57,13 @@ This project follows [Semantic Versioning](http://semver.org/).
   companions, default-group selection, polymorphic name, and cardinality
   enforcement, while the source `where`, `check`, and `log` clauses are still
   evaluated once per source item.
+- R4 -> R3 conversions no longer leave an R4 `Meta.source` on a reconstructed
+  `Extension.valueMeta`, where a warning already reported it as dropped.
+- R4 -> R3 conversions now remove an Extension left with neither a `value[x]`
+  nor a nested extension, which would violate STU3 invariant `ext-1`. An element
+  emptied by that removal is marked `data-absent-reason: unsupported`.
+- R4 -> R3 `Library` conversions now discard extensions whose `value[x]` type
+  STU3 does not define, with a warning, instead of emitting it unchanged.
 
 ## [0.3.0] - 2026-09-08
 
