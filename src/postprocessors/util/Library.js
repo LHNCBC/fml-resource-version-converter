@@ -12,7 +12,19 @@ import {
   warningMessage,
 } from '../../converter/diagnostics.js';
 
-const REQUIRED_TYPE_COLLECTIONS = ['parameter', 'dataRequirement'];
+/**
+ * Library collections whose entries carry a required FHIR type code.
+ *
+ * Only elements that share a single required binding may be listed here:
+ * `ParameterDefinition.type` and `DataRequirement.type` both bind to
+ * `all-types` in R3/R4/R4B and to `fhir-types` in R5, so one reviewed
+ * per-hop policy is valid for both. An element bound to a different value set
+ * (for example `RelatedArtifact.type`) must not be added; it needs its own
+ * policy and handler.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+const REQUIRED_TYPE_COLLECTIONS = Object.freeze(['parameter', 'dataRequirement']);
 
 /**
  * Normalize required FHIR type codes in Library datatype collections.

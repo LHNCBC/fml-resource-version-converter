@@ -130,6 +130,78 @@ describe('postprocessors/R4_R5 CodeSystem', function () {
     });
   });
 
+  describe('csd-4 repair judges presence by ele-1, not by companion keys', function () {
+    /**
+     * Run the R4 -> R5 postprocessor directly on a supplement target.
+     *
+     * The repair decision is made on the FML output, so it is exercised here
+     * without the engine, which may itself drop a value-less companion.
+     *
+     * @param {Object} companion Value of `_supplements`, or undefined for none.
+     * @returns {Object} Postprocessor result.
+     */
+    function repair(companion) {
+      const target = { resourceType: 'CodeSystem', status: 'active', content: 'supplement' };
+      if (companion !== undefined) target._supplements = companion;
+      return conv_R4_to_R5.execute(target, { sourceResource: {}, fromVer: 'R4', toVer: 'R5' });
+    }
+
+    const DAR = 'http://hl7.org/fhir/StructureDefinition/data-absent-reason';
+
+    it('repairs an id-only companion, which alone does not satisfy ele-1', function () {
+      const result = repair({ id: 'supplements-id' });
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.match(result.messages[0].text, /csd-4/);
+      assert.equal(
+        result.resource._supplements.extension.some(entry => entry.url === DAR),
+        true,
+        'expected the data-absent-reason extension to be added',
+      );
+    });
+
+    it('keeps the element id while repairing it', function () {
+      const result = repair({ id: 'supplements-id' });
+
+      assert.equal(result.resource._supplements.id, 'supplements-id');
+    });
+
+    it('repairs an empty companion', function () {
+      const result = repair({});
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.equal(result.resource._supplements.extension[0].url, DAR);
+    });
+
+    it('leaves an extension-only companion alone, since it satisfies ele-1', function () {
+      const extension = [{ url: 'http://example.org/ext', valueCode: 'x' }];
+      const result = repair({ extension });
+
+      assert.equal(result.status, STATUS.OK);
+      assert.equal(result.messages.length, 0);
+      assert.deepEqual(result.resource._supplements.extension, extension);
+    });
+
+    it('leaves a real canonical value alone', function () {
+      const target = {
+        resourceType: 'CodeSystem',
+        status: 'active',
+        content: 'supplement',
+        supplements: 'http://example.org/fhir/CodeSystem/base',
+        _supplements: { id: 'supplements-id' },
+      };
+      const result = conv_R4_to_R5.execute(target, {
+        sourceResource: {},
+        fromVer: 'R4',
+        toVer: 'R5',
+      });
+
+      assert.equal(result.status, STATUS.OK);
+      assert.equal(result.resource.supplements, 'http://example.org/fhir/CodeSystem/base');
+      assert.deepEqual(result.resource._supplements, { id: 'supplements-id' });
+    });
+  });
+
   describe('R5 -> R4 through singleHopConverter.convert', function () {
     let result;
 

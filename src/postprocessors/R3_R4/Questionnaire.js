@@ -25,6 +25,8 @@ import {
   renamePrimitive,
 } from '../util/elements.js';
 import { indexSourceItemsByLinkId } from '../util/questionnaire.js';
+import { repairR4ToR3MetaAndExtensions } from './metaExtensions.js';
+import { removeUnrepresentableUsageContexts } from './usageContext.js';
 
 /**
  * Test whether an R4 (source) enableWhen entry carries an answer type that has
@@ -508,8 +510,10 @@ export const conv_R4_to_R3 = {
     'Corrects Questionnaire R4->R3 item fields from the R4 source: rebuilds '
     + 'enableWhen (dropping operators with no STU3 equivalent), fixes options to '
     + 'the STU3 Reference shape, and re-derives initial[x] from '
-    + 'answerOption.initialSelected. Warns when enableBehavior "all" cannot be '
-    + 'represented in STU3 and when derivedFrom content is dropped. Does not '
+    + 'answerOption.initialSelected. Removes Reference-valued UsageContext entries. '
+    + 'Warns when enableBehavior "all" cannot be '
+    + 'represented in STU3, when derivedFrom or R4 Meta.source content is dropped, and '
+    + 'removes invalid ordinary Extensions. Does not '
     + 'handle inter-version extensions.',
 
   /**
@@ -519,6 +523,7 @@ export const conv_R4_to_R3 = {
    */
   execute(target, ctx) {
     const messages = [];
+    removeUnrepresentableUsageContexts(target, ctx?.sourceResource, messages);
     if (hasDerivedFromContent(ctx?.sourceResource)) {
       messages.push(warningMessage(
         'Questionnaire.derivedFrom has no STU3 equivalent; source content dropped',
@@ -526,6 +531,7 @@ export const conv_R4_to_R3 = {
     }
     const sourceByLinkId = indexSourceItemsByLinkId(ctx?.sourceResource?.item, new Map());
     convertItems(target.item, sourceByLinkId, messages);
+    repairR4ToR3MetaAndExtensions(target, ctx?.sourceResource, messages);
     return { resource: target, status: statusFromMessages(messages), messages };
   },
 };

@@ -49,6 +49,28 @@
             "code": "status",
             "valueCode": "active"
           }
+        ],
+        "contains": [
+          {
+            "system": "http://example.org/fhir/CodeSystem/example",
+            "code": "beta",
+            "designation": [
+              {
+                "language": "en",
+                "use": {
+                  "system": "http://example.org/fhir/CodeSystem/designation-use",
+                  "code": "display"
+                },
+                "value": "Beta",
+                "additionalUse": [
+                  {
+                    "system": "http://example.org/fhir/CodeSystem/designation-use",
+                    "code": "consumer"
+                  }
+                ]
+              }
+            ]
+          }
         ]
       }
     ]

@@ -5,6 +5,7 @@ import { strict as assert } from 'node:assert';
 import { COVERAGE } from '../../../../src/converter/coverage.js';
 import { MESSAGE_TYPE, STATUS } from '../../../../src/converter/diagnostics.js';
 import { singleHopConverter } from '../../../../src/converter/singleHopConverter.js';
+import { DATA_ABSENT_REASON_URL } from '../../../../src/postprocessors/util/elements.js';
 
 /**
  * Build a minimal Library valid in both versions.
@@ -236,6 +237,26 @@ describe('postprocessors/R3_R4 Library', function () {
   });
 
   describe('R4 -> R3 through singleHopConverter.convert', function () {
+    it('removes Reference-valued UsageContext while preserving supported siblings', function () {
+      const source = makeLibrary();
+      source.useContext = [{
+        code: { system: 'http://example.org/context', code: 'age' },
+        valueCodeableConcept: { text: 'Adults' },
+      }, {
+        code: { system: 'http://example.org/context', code: 'focus' },
+        valueReference: { reference: 'PlanDefinition/example' },
+      }];
+
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.equal(result.resource.useContext.length, 1);
+      assert.equal(result.resource.useContext[0].valueCodeableConcept.text, 'Adults');
+      assert.ok(result.postprocessors[0].messages.some(message =>
+        message.type === MESSAGE_TYPE.WARNING
+        && /Library\.useContext\[1\]\.valueReference/.test(message.text)));
+    });
+
     it('rebuilds valid contributors and marks an absent required name', function () {
       const source = makeLibrary();
       source.author = [{
@@ -268,6 +289,284 @@ describe('postprocessors/R3_R4 Library', function () {
         valueCode: 'unknown',
       }]);
       assert.match(result.postprocessors[0].messages[0].text, /Contributor\.name is required/);
+    });
+
+    for (const [choice, payload] of Object.entries({
+      valueCanonical: 'http://example.org/ValueSet/codes|1.0',
+      valueUrl: 'http://example.org/url',
+      valueUuid: 'urn:uuid:550e8400-e29b-41d4-a716-446655440000',
+      valueExpression: { language: 'text/fhirpath', expression: 'true' },
+      _valueCanonical: { extension: [{ url: DATA_ABSENT_REASON_URL, valueCode: 'unknown' }] },
+    })) {
+      it(`discards reconstructed ${choice} with a warning and preserves supported siblings`, function () {
+        const supported = [
+          { url: 'http://example.org/text', valueString: 'kept' },
+          { url: 'http://example.org/uri', valueUri: 'http://example.org/kept' },
+          { url: 'http://example.org/flag', valueBoolean: false },
+          { url: 'http://example.org/count', valueInteger: 0 },
+          { url: 'http://example.org/meta', valueMeta: { tag: [{ code: 'kept' }] } },
+        ];
+        const source = makeLibrary();
+        source.author = [{
+          name: 'Author',
+          extension: [{ url: 'http://example.org/unsupported', [choice]: payload }, ...supported],
+        }];
+        const before = structuredClone(source);
+        const result = singleHopConverter.convert(source, 'R4', 'R3');
+        const warnings = result.postprocessors[0].messages.filter(message =>
+          message.text.includes('no replacement datatype was assumed'));
+
+        assert.equal(result.status, STATUS.WARNING);
+        assert.deepEqual(result.resource.contributor[0].extension, supported);
+        assert.equal(warnings.length, 1);
+        assert.ok(warnings[0].text.includes('Library.contributor[0].extension[0]'));
+        assert.ok(warnings[0].text.includes(choice));
+        assert.deepEqual(source, before);
+      });
+    }
+
+    it('cascades unsupported nested choices while keeping a required name occurrence', function () {
+      const source = makeLibrary();
+      source.author = [{
+        _name: {
+          id: 'name-id',
+          extension: [{
+            url: 'http://example.org/outer',
+            extension: [{ url: 'http://example.org/inner', valueCanonical: 'http://example.org/codes' }],
+          }],
+        },
+      }];
+      const before = structuredClone(source);
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+      const text = result.postprocessors[0].messages.map(message => message.text).join('\n');
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.deepEqual(result.resource.contributor[0]._name, {
+        id: 'name-id',
+        extension: [{ url: DATA_ABSENT_REASON_URL, valueCode: 'unsupported' }],
+      });
+      assert.ok(text.includes('Library.contributor[0]._name.extension[0].extension[0] was discarded'));
+      assert.match(text, /became empty.*ele-1/);
+      assert.deepEqual(source, before);
+    });
+
+    it('filters rebuilt References and code filters and preserves their emptied parents', function () {
+      const extension = [{ url: 'http://example.org/canonical', valueCanonical: 'http://example.org/codes' }];
+      const source = makeLibrary();
+      source.parameter = [{
+        name: 'input', use: 'in', min: 0, max: '1', type: 'Observation',
+        profile: 'http://example.org/profile',
+        _profile: { extension: structuredClone(extension) },
+      }];
+      source.relatedArtifact = [{
+        type: 'documentation',
+        _resource: { extension: structuredClone(extension) },
+      }];
+      source.dataRequirement = [{
+        type: 'Observation',
+        codeFilter: [{
+          path: 'code', valueSet: 'http://example.org/ValueSet/codes',
+          _valueSet: { extension: structuredClone(extension) },
+          code: [{ extension: structuredClone(extension) }],
+        }],
+      }];
+      const before = structuredClone(source);
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+      const absent = { extension: [{ url: DATA_ABSENT_REASON_URL, valueCode: 'unsupported' }] };
+      const text = result.postprocessors[0].messages.map(message => message.text).join('\n');
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.deepEqual(result.resource.parameter[0].profile, { reference: 'http://example.org/profile' });
+      assert.deepEqual(result.resource.relatedArtifact[0].resource, absent);
+      const filter = result.resource.dataRequirement[0].codeFilter[0];
+      assert.equal(filter.valueSetString, 'http://example.org/ValueSet/codes');
+      assert.equal('_valueSetString' in filter, false);
+      assert.deepEqual(filter.valueCoding, [absent]);
+      for (const path of [
+        'Library.parameter[0].profile', 'Library.relatedArtifact[0].resource',
+        'Library.dataRequirement[0].codeFilter[0]._valueSetString',
+        'Library.dataRequirement[0].codeFilter[0].valueCoding[0]',
+      ]) {
+        assert.ok(text.includes(`${path}.extension[0] was discarded`));
+      }
+      assert.deepEqual(source, before);
+    });
+
+    it('keeps repeating primitive companions aligned inside retained extension payloads', function () {
+      const unsupported = { url: 'http://example.org/canonical', valueCanonical: 'http://example.org/codes' };
+      const source = makeLibrary();
+      source.author = [{
+        name: 'Author',
+        extension: [{
+          url: 'http://example.org/timing',
+          valueTiming: {
+            event: ['2026-01-01', null, '2026-01-03'],
+            _event: [
+              { extension: [structuredClone(unsupported)] },
+              { extension: [structuredClone(unsupported)] },
+              { id: 'kept-id' },
+            ],
+          },
+        }],
+      }];
+      const before = structuredClone(source);
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+      const timing = result.resource.contributor[0].extension[0].valueTiming;
+
+      assert.deepEqual(timing.event, source.author[0].extension[0].valueTiming.event);
+      assert.deepEqual(timing._event, [
+        null,
+        { extension: [{ url: DATA_ABSENT_REASON_URL, valueCode: 'unsupported' }] },
+        { id: 'kept-id' },
+      ]);
+      assert.deepEqual(source, before);
+    });
+
+    it('does not extend the conservative filter to non-reconstructed or contained fields', function () {
+      const extension = [{ url: 'http://example.org/canonical', valueCanonical: 'http://example.org/codes' }];
+      const source = makeLibrary();
+      // General primitive-companion conversion is deliberately deferred.
+      source._status = { extension: structuredClone(extension) };
+      source.author = [{ name: 'Author', extension: structuredClone(extension) }];
+      source.contained = [{
+        resourceType: 'CodeSystem', id: 'codes', status: 'active', content: 'complete',
+        extension: structuredClone(extension),
+      }];
+      source.relatedArtifact = [{ type: 'depends-on', resource: '#codes' }];
+      const before = structuredClone(source);
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+      const rejected = result.postprocessors[0].messages.filter(message =>
+        message.text.includes('no replacement datatype was assumed'));
+
+      assert.equal('extension' in result.resource.contributor[0], false);
+      assert.deepEqual(result.resource._status, source._status);
+      // The contained resource is converted by its own child hop, so the filter
+      // must report the parent's reconstructed field only.
+      assert.equal(rejected.length, 1);
+      assert.ok(rejected[0].text.includes('Library.contributor[0].extension[0]'));
+      assert.equal(result.contained.length, 1);
+      assert.equal(result.contained[0].resource.resourceType, 'CodeSystem');
+      assert.deepEqual(source, before);
+    });
+
+    it('cleans reconstructed Meta and preserves an extension-only required contributor name', function () {
+      const metaExtension = {
+        url: 'http://example.org/meta',
+        valueMeta: { source: 'http://example.org/source' },
+      };
+      const source = makeLibrary();
+      source.author = [{
+        extension: [structuredClone(metaExtension)],
+        _name: { id: 'name-id', extension: [structuredClone(metaExtension)] },
+      }];
+      const before = structuredClone(source);
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+      const messages = result.postprocessors[0].messages;
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.deepEqual(result.resource.contributor, [{
+        type: 'author',
+        _name: {
+          id: 'name-id',
+          extension: [{ url: DATA_ABSENT_REASON_URL, valueCode: 'unsupported' }],
+        },
+      }]);
+      assert.equal(messages.filter(message => /valueMeta\.source/.test(message.text)).length, 2);
+      assert.ok(messages.some(message => /contributor\[0\]\._name became empty/.test(message.text)));
+      assert.deepEqual(source, before);
+    });
+
+    it('retains reconstructed Meta tags while removing source and its companion', function () {
+      const source = makeLibrary();
+      source.author = [{
+        name: 'Author',
+        extension: [{
+          url: 'http://example.org/meta',
+          valueMeta: {
+            id: 'meta-id',
+            source: 'http://example.org/source',
+            _source: { extension: [{ url: 'http://example.org/note', valueString: 'note' }] },
+            tag: [{ code: 'kept' }],
+          },
+        }],
+      }];
+      const before = structuredClone(source);
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.deepEqual(result.resource.contributor[0].extension, [{
+        url: 'http://example.org/meta',
+        valueMeta: { id: 'meta-id', tag: [{ code: 'kept' }] },
+      }]);
+      assert.equal(result.postprocessors[0].messages.length, 1);
+      assert.match(result.postprocessors[0].messages[0].text, /author\[0\].*valueMeta\.source/);
+      assert.deepEqual(source, before);
+    });
+
+    it('cleans companion-only Meta sources in reconstructed canonical and code-filter metadata', function () {
+      const metaExtension = {
+        url: 'http://example.org/meta',
+        valueMeta: {
+          _source: { extension: [{ url: 'http://example.org/note', valueString: 'note' }] },
+        },
+      };
+      const source = makeLibrary();
+      source.parameter = [{
+        name: 'input', use: 'in', min: 0, max: '1', type: 'Observation',
+        profile: 'http://example.org/profile',
+        _profile: { extension: [structuredClone(metaExtension)] },
+      }];
+      source.relatedArtifact = [{
+        type: 'documentation',
+        _resource: { id: 'reference-id', extension: [structuredClone(metaExtension)] },
+      }];
+      source.dataRequirement = [{
+        type: 'Observation',
+        codeFilter: [{
+          path: 'code',
+          valueSet: 'http://example.org/ValueSet/codes',
+          _valueSet: { extension: [structuredClone(metaExtension)] },
+        }],
+      }];
+      const before = structuredClone(source);
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.deepEqual(result.resource.parameter[0].profile, { reference: 'http://example.org/profile' });
+      assert.deepEqual(result.resource.relatedArtifact[0].resource, {
+        id: 'reference-id',
+        extension: [{ url: DATA_ABSENT_REASON_URL, valueCode: 'unsupported' }],
+      });
+      const filter = result.resource.dataRequirement[0].codeFilter[0];
+      assert.equal(filter.valueSetString, 'http://example.org/ValueSet/codes');
+      assert.equal('_valueSetString' in filter, false);
+      assert.equal(result.postprocessors[0].messages.filter(message =>
+        /valueMeta\.source/.test(message.text)).length, 3);
+      assert.deepEqual(source, before);
+    });
+
+    it('leaves contained Meta loss to the contained resource own hop', function () {
+      const source = makeLibrary();
+      source.contained = [{
+        resourceType: 'CodeSystem', id: 'codes', status: 'active', content: 'complete',
+        extension: [{
+          url: 'http://example.org/meta',
+          valueMeta: { source: 'http://example.org/source' },
+        }],
+      }];
+      source.relatedArtifact = [{ type: 'depends-on', resource: '#codes' }];
+      const before = structuredClone(source);
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+      const childMessages = result.contained[0].postprocessors
+        .flatMap(processor => processor.messages);
+
+      // The parent postprocessor reports nothing for the child; the child hop
+      // converts it and reports its own Meta.source loss.
+      assert.deepEqual(result.postprocessors[0].messages, []);
+      assert.equal(result.contained.length, 1);
+      assert.equal(result.contained[0].status, STATUS.WARNING);
+      assert.equal(childMessages.filter(message =>
+        /valueMeta\.source/.test(message.text)).length, 1);
+      assert.deepEqual(source, before);
     });
 
     it('restores the R3 LibraryType code-system canonical', function () {
@@ -463,6 +762,29 @@ describe('postprocessors/R3_R4 Library', function () {
       assert.match(text, /parameter\[0\]\.type was renamed from "BodyStructure" to "BodySite"/);
       assert.match(text, /parameter\[1\].*"CatalogEntry".*no R3 type equivalent/);
       assert.match(text, /parameter\[2\].*"ServiceRequest".*maps ambiguously/);
+    });
+
+    it('reports Meta.source loss and removes the extension it leaves invalid', function () {
+      const source = makeLibrary();
+      source.meta = { source: 'http://example.org/source' };
+      source.extension = [
+        {
+          url: 'http://example.org/fhir/StructureDefinition/meta-valued',
+          valueMeta: { source: 'http://example.org/nested-source' },
+        },
+        {
+          url: 'http://example.org/fhir/StructureDefinition/kept',
+          valueString: 'kept',
+        },
+      ];
+
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+      const text = result.postprocessors[0].messages.map(message => message.text).join('\n');
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.deepEqual(result.resource.extension, [source.extension[1]]);
+      assert.match(text, /meta\.source/);
+      assert.match(text, /Removed extension\[0\].*ext-1/s);
     });
   });
 });

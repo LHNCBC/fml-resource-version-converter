@@ -1,15 +1,51 @@
 /**
  * @fileoverview Detection rules used by tools/fhir-spec-parser.js.
  *
- * Extracted from the CLI script so the rules can be unit-tested in
- * isolation, away from zip-reading and file-writing side effects. Keep
- * this module pure: no I/O, no globals, no top-level work.
+ * Kept separate from ZIP parsing so the rules can be unit-tested in
+ * isolation. Keep this module pure: no I/O, no globals, no top-level work.
  *
  * @module tools/fhir-tables-lib
  */
 
-/** Matches "profiles-resources.json" or "profiles-types.json" anywhere in a zip entry name. */
-export const BUNDLE_ENTRY_RE = /(^|[\\/])profiles-(resources|types)\.json$/i;
+/** Dotted FHIR element path with no `[x]` suffix and no leading marker. */
+const ELEMENT_PATH_RE = /^[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)*$/;
+
+/** Local (same-StructureDefinition) content reference, e.g. `#Questionnaire.item`. */
+const LOCAL_CONTENT_REFERENCE_RE = /^#[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)*$/;
+
+/**
+ * Strip a trailing `[x]` so a path can be used as a table key.
+ *
+ * @param {*} path Candidate element path.
+ * @returns {string|null} Normalized key, or null when `path` is not a
+ *   non-empty string.
+ */
+function normalizePathKey(path) {
+  if (typeof path !== 'string' || path.length === 0) return null;
+
+  return path.endsWith('[x]') ? path.slice(0, -3) : path;
+}
+
+/**
+ * Index `element.name` -> `element.path` for one StructureDefinition.
+ *
+ * DSTU2 resolves `nameReference` against these names. Names are unique within
+ * a StructureDefinition in the bundled DSTU2 specification, but first-wins is
+ * applied anyway so the result never depends on iteration order.
+ *
+ * @param {Array} elements snapshot.element or differential.element entries.
+ * @returns {Map<string, string>} Name index (empty for specs without names).
+ */
+function indexElementNames(elements) {
+  const nameToPath = new Map();
+  for (const el of elements) {
+    if (!el || typeof el.name !== 'string' || el.name.length === 0) continue;
+    if (typeof el.path !== 'string' || el.path.length === 0) continue;
+    if (!nameToPath.has(el.name)) nameToPath.set(el.name, el.path);
+  }
+
+  return nameToPath;
+}
 
 /**
  * Inspect one StructureDefinition element and report what derived-data
@@ -33,9 +69,17 @@ export const BUNDLE_ENTRY_RE = /(^|[\\/])profiles-(resources|types)\.json$/i;
  *     extension instead of a code).
  *   - contentReference: normalized local element path referenced by the
  *     element, with the leading "#" removed. Null when absent or invalid.
+ *     DSTU2 predates `contentReference` and instead points at another
+ *     element's `name` via `nameReference`; when `nameToPath` resolves that
+ *     name, the resulting path populates this same field so every consumer
+ *     sees one normalized representation regardless of spec version.
  *
  * @param {Object} el  A StructureDefinition.snapshot.element (or
  *                     .differential.element) entry.
+ * @param {Map<string, string>|null} [nameToPath]  DSTU2 `element.name` ->
+ *                     `element.path` index for the SAME StructureDefinition.
+ *                     Required to resolve `nameReference`; ignored for specs
+ *                     that use `contentReference`.
  * @returns {{
  *   pathKey:    (string|null),
  *   array:      boolean,
@@ -45,7 +89,7 @@ export const BUNDLE_ENTRY_RE = /(^|[\\/])profiles-(resources|types)\.json$/i;
  *   contentReference: (string|null)
  * }}
  */
-export function classifyElement(el) {
+export function classifyElement(el, nameToPath = null) {
   const result = {
     pathKey: null,
     array: false,
@@ -56,10 +100,17 @@ export function classifyElement(el) {
   };
   if (!el || typeof el.path !== 'string' || el.path.length === 0) return result;
 
-  result.pathKey = el.path.endsWith('[x]') ? el.path.slice(0, -3) : el.path;
+  result.pathKey = normalizePathKey(el.path);
   if (typeof el.contentReference === 'string'
-      && /^#[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)*$/.test(el.contentReference)) {
+      && LOCAL_CONTENT_REFERENCE_RE.test(el.contentReference)) {
     result.contentReference = el.contentReference.slice(1);
+  } else if (typeof el.nameReference === 'string' && nameToPath) {
+    // DSTU2 spelling. The referenced element is named, not pathed, so the
+    // caller's per-StructureDefinition name index does the resolution.
+    const referenced = normalizePathKey(nameToPath.get(el.nameReference));
+    if (referenced && ELEMENT_PATH_RE.test(referenced)) {
+      result.contentReference = referenced;
+    }
   }
 
   if (el.max && el.max !== '0' && el.max !== '1') {
@@ -105,6 +156,11 @@ export function classifyElement(el) {
  * profile re-declares an element), the first value wins. This keeps the
  * base-resource type when extensions or profiles add narrower variants.
  *
+ * `elements` must be the element list of a SINGLE StructureDefinition: DSTU2
+ * `nameReference` values are resolved against the names declared alongside
+ * them, and pooling several definitions would let one definition's names
+ * capture another's references.
+ *
  * @param {Array}  elements         snapshot.element or differential.element entries.
  * @param {Map<string, Set<string>>} polyMap          path -> Set<typeCode>; mutated.
  * @param {Set<string>}              arraySet         path; mutated.
@@ -122,6 +178,9 @@ export function classifyElement(el) {
  * @param {Function} [onContentReferenceIssue] Optional callback receiving
  *                                        `(path, reference, existing, sdId)`
  *                                        for invalid references or conflicts.
+ *                                        `reference` is the raw
+ *                                        `contentReference`/`nameReference`
+ *                                        value when it could not be resolved.
  * @returns {number}  Number of elements scanned.
  */
 export function processElements(
@@ -134,10 +193,14 @@ export function processElements(
   contentReferencesMap,
   onContentReferenceIssue,
 ) {
+  // Built once per call because DSTU2 `nameReference` is resolved against the
+  // names declared by the SAME StructureDefinition. Callers pass one
+  // definition's elements at a time, so this scope is exactly right.
+  const nameToPath = indexElementNames(elements);
   let count = 0;
   for (const el of elements) {
     count++;
-    const c = classifyElement(el);
+    const c = classifyElement(el, nameToPath);
     if (!c.pathKey) continue;
 
     if (c.array) arraySet.add(c.pathKey);
@@ -155,8 +218,9 @@ export function processElements(
       elementTypesMap.set(c.pathKey, c.scalarType);
     }
 
-    if (el.contentReference != null && !c.contentReference) {
-      onContentReferenceIssue?.(el.path, el.contentReference, null, sdId);
+    const rawReference = el.contentReference ?? el.nameReference;
+    if (rawReference != null && !c.contentReference) {
+      onContentReferenceIssue?.(el.path, rawReference, null, sdId);
     } else if (c.contentReference && contentReferencesMap) {
       const existing = contentReferencesMap.get(c.pathKey);
       if (existing == null) {

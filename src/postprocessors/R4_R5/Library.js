@@ -330,11 +330,24 @@ function findR5OnlyContent(source) {
 /**
  * Normalize required ParameterDefinition/DataRequirement type codes.
  *
+ * The hop is taken from the runtime context, so an unreviewed version pair
+ * cannot be ruled out here. Every hop these descriptors are registered on has a
+ * reviewed policy, so a missing one means the processor was attached to a hop it
+ * was not written for - only possible through a caller-supplied preproc/postproc
+ * entry. Continuing would leave required type codes exactly as the FML produced
+ * them and silently emit a resource that may violate the target binding, so this
+ * fails like the framework's other processor-wiring errors instead.
+ *
+ * The check is unconditional: whether this particular resource happens to carry
+ * a typed entry is irrelevant to the pipeline being misconfigured, and failing
+ * only for some payloads would hide the mistake behind the test data.
+ *
  * @param {Object} target FML-converted Library, mutated in place.
  * @param {Object} source Source Library (read-only).
  * @param {string} sourceVersion Source FHIR version.
  * @param {string} targetVersion Target FHIR version.
  * @param {Array<Object>} messages Diagnostic messages to append.
+ * @throws {Error} If no reviewed type policy covers this hop.
  */
 function normalizeRequiredTypes(
   target,
@@ -343,8 +356,16 @@ function normalizeRequiredTypes(
   targetVersion,
   messages,
 ) {
-  const policy = REQUIRED_TYPE_POLICIES[`${sourceVersion}->${targetVersion}`];
-  if (!policy) return;
+  const hop = `${sourceVersion}->${targetVersion}`;
+  const policy = REQUIRED_TYPE_POLICIES[hop];
+  if (!policy) {
+    throw new Error(
+      `Library postprocessor: no reviewed FHIR type policy for the ${hop} hop. This `
+      + 'processor normalizes the required ParameterDefinition.type and DataRequirement.type '
+      + `codes and supports only ${Object.keys(REQUIRED_TYPE_POLICIES).join(', ')}. Check the `
+      + 'hop this postprocessor was attached to.',
+    );
+  }
 
   const actions = normalizeLibraryRequiredTypes(target, source, policy);
   messages.push(...describeLibraryTypeActions(actions, sourceVersion, targetVersion));

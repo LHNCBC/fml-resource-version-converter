@@ -7,6 +7,7 @@ import path from 'node:path';
 import { COVERAGE } from '../../../../src/converter/coverage.js';
 import { MESSAGE_TYPE, STATUS } from '../../../../src/converter/diagnostics.js';
 import { singleHopConverter } from '../../../../src/converter/singleHopConverter.js';
+import { DATA_ABSENT_REASON_URL } from '../../../../src/postprocessors/util/elements.js';
 import {
   conv_R3_to_R4,
   conv_R4_to_R3,
@@ -134,6 +135,51 @@ describe('postprocessors/R3_R4 CodeSystem', function () {
       ]);
     });
 
+    it('marks an Identifier emptied by extension removal absent instead of returning an empty object', function () {
+      const source = {
+        resourceType: 'CodeSystem', status: 'active', content: 'complete',
+        identifier: [{
+          id: 'identifier-id',
+          extension: [{
+            url: 'http://example.org/meta',
+            valueMeta: { source: 'http://example.org/source' },
+          }],
+        }],
+      };
+      const before = structuredClone(source);
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.deepEqual(result.resource.identifier, {
+        id: 'identifier-id',
+        extension: [{ url: DATA_ABSENT_REASON_URL, valueCode: 'unsupported' }],
+      });
+      assert.ok(result.postprocessors[0].messages.some(message =>
+        /identifier became empty.*ele-1/.test(message.text)));
+      assert.deepEqual(source, before);
+    });
+
+    it('keeps a required status present when its only extension becomes unrepresentable', function () {
+      const source = {
+        resourceType: 'CodeSystem', content: 'complete',
+        _status: {
+          extension: [{
+            url: 'http://example.org/meta',
+            valueMeta: { source: 'http://example.org/source' },
+          }],
+        },
+      };
+      const before = structuredClone(source);
+      const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.equal('status' in result.resource, false);
+      assert.deepEqual(result.resource._status, {
+        extension: [{ url: DATA_ABSENT_REASON_URL, valueCode: 'unsupported' }],
+      });
+      assert.deepEqual(source, before);
+    });
+
     it('handles cardinality, canonical, and supplement losses together', function () {
       const contentCompanion = { id: 'content-id' };
       const valueSetCompanion = { id: 'value-set-id' };
@@ -213,6 +259,37 @@ describe('postprocessors/R3_R4 CodeSystem', function () {
       assert.equal(result.status, STATUS.WARNING);
       assert.equal('valueString' in target.concept[0].property[0], false);
       assert.deepEqual(target.concept[0].property[0]._valueString, companion);
+    });
+
+    it('R4 -> R3 copies the decimal companion without aliasing the source', function () {
+      const source = {
+        resourceType: 'CodeSystem',
+        concept: [{
+          code: 'a',
+          property: [{
+            code: 'weight',
+            valueDecimal: 1.5,
+            _valueDecimal: { id: 'dec-id', extension: [{ url: 'http://e.org/x', valueCode: 'v' }] },
+          }],
+        }],
+      };
+      const target = {
+        resourceType: 'CodeSystem',
+        concept: [{ code: 'a', property: [{ code: 'weight' }] }],
+      };
+      const result = conv_R4_to_R3.execute(target, { sourceResource: source });
+      const copied = result.resource.concept[0].property[0]._valueString;
+      const original = source.concept[0].property[0]._valueDecimal;
+
+      // Content is carried across in full ...
+      assert.equal(copied.id, 'dec-id');
+      assert.deepEqual(copied.extension, original.extension);
+
+      // ... but as an independent object, so the read-only source snapshot
+      // cannot be corrupted by anything that edits the converted resource.
+      assert.notEqual(copied, original);
+      copied.extension[0].valueCode = 'mutated';
+      assert.equal(original.extension[0].valueCode, 'v');
     });
 
     it('R4 -> R3 is a no-op when none of the risky shapes is present', function () {

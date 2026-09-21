@@ -105,11 +105,20 @@ describe('postprocessors/R4B_R5 ValueSet', function () {
       assert.ok(warning);
       assert.match(warning.text, /ValueSet.versionAlgorithm\[x\]/);
       assert.match(warning.text, /ValueSet.compose.property/);
+      assert.match(
+        warning.text,
+        /ValueSet\.expansion\.contains\.designation\.additionalUse/,
+      );
       assert.match(warning.text, /ValueSet.expansion.contains.property/);
       assert.match(warning.text, /ValueSet.scope/);
       assert.match(warning.text, /R5-only ValueSet content was dropped because R4B has no equivalent/);
       assert.equal('scope' in result.resource, false);
       assert.equal('property' in result.resource.expansion.contains[0], false);
+      assert.equal(
+        'additionalUse'
+          in result.resource.expansion.contains[0].contains[0].designation[0],
+        false,
+      );
     });
 
     it('approximates an R5-only filter operator with the closest valid R4B operator', function () {
@@ -126,6 +135,10 @@ describe('postprocessors/R4B_R5 ValueSet', function () {
       assert.equal(result.resource.version, r5LossValueSet.version);
       assert.equal(result.resource.status, r5LossValueSet.status);
       assert.equal(result.resource.expansion.identifier, r5LossValueSet.expansion.identifier);
+      assert.equal(
+        result.resource.expansion.contains[0].contains[0].designation[0].value,
+        'Beta',
+      );
     });
   });
 

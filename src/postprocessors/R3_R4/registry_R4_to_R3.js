@@ -20,17 +20,19 @@ export const registry = {
   // Reviewed against the FHIR spec and bundled mapping. R4 data is optional,
   // but the corresponding STU3 content primitive is required. When the source
   // has no payload, the FML leaves invalid STU3 output; the postprocessor marks
-  // content absent with data-absent-reason rather than inventing data. This is
-  // a truthful, valid representation, so final coverage is COMPLETE.
+  // content absent with data-absent-reason rather than inventing data. R4
+  // Reference.type on securityContext has no STU3 equivalent, so final
+  // coverage is BEST_EFFORT even though the converted Reference remains valid.
   Binary: {
     fml: {
       coverage: COVERAGE.KNOWN_GAPS,
       description:
         'FML maps Binary.data to content but does not supply the required STU3 '
         + 'primitive when optional R4 data is absent; repaired by the '
-        + 'Binary_R4_to_R3 postprocessor.',
+        + 'Binary_R4_to_R3 postprocessor. R4 Reference.type on securityContext '
+        + 'has no STU3 equivalent, is not retained, and is reported as loss.',
     },
-    processors: [assertDeclaredCoverage(convBinary_R4_to_R3, COVERAGE.COMPLETE)],
+    processors: [assertDeclaredCoverage(convBinary_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
 
   // Reviewed against the FHIR spec and bundled mapping. The FML does not
@@ -45,9 +47,13 @@ export const registry = {
     fml: {
       coverage: COVERAGE.KNOWN_GAPS,
       description:
-        'FML leaves R4-only cardinality, canonical, supplement, and decimal '
-        + 'CodeSystem differences unresolved; corrected or approximated with '
-        + 'diagnostics by the CodeSystem_R4_to_R3 postprocessor.',
+        'FML leaves R4-only canonical, supplement, and decimal CodeSystem '
+        + 'differences unresolved; corrected or approximated with diagnostics '
+        + 'by the CodeSystem_R4_to_R3 postprocessor. The identifier cardinality '
+        + 'narrowing R4 -> R3 requires is enforced by the engine and reported by '
+        + 'that postprocessor. '
+        + 'Reference-valued UsageContext entries are removed because STU3 cannot '
+        + 'represent them.',
     },
     processors: [assertDeclaredCoverage(convCodeSystem_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
@@ -66,7 +72,8 @@ export const registry = {
         'FML leaves R4/R3 Contributor, canonical-to-Reference, required type-code, '
         + 'LibraryType code-system canonical, and DataRequirement narrowing unresolved and '
         + 'drops R4-only content silently; repaired or reported by the '
-        + 'Library_R4_to_R3 postprocessor.',
+        + 'Library_R4_to_R3 postprocessor. Reference-valued UsageContext entries are removed '
+        + 'because STU3 cannot represent them.',
     },
     processors: [assertDeclaredCoverage(convLibrary_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
@@ -89,7 +96,8 @@ export const registry = {
         + 'keeps the last (not first) of multiple initial values; corrected by '
         + 'the Questionnaire_R4_to_R3 postprocessor. R4-only derivedFrom loss is '
         + 'reported, while enableBehavior is diagnosed where its removal can '
-        + 'change conditional-display behavior.',
+        + 'change conditional-display behavior. Reference-valued UsageContext '
+        + 'entries are removed because STU3 cannot represent them.',
     },
     processors: [assertDeclaredCoverage(conv_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
@@ -113,7 +121,9 @@ export const registry = {
         + 'versioned reference; it does not supply the expansion identifier '
         + 'STU3 requires, leaves a metadata-only ValueSet in breach of vsd-5, '
         + 'and drops expansion parameter dateTime values without a diagnostic; '
-        + 'corrected and reported by the ValueSet_R4_to_R3 postprocessor.',
+        + 'corrected and reported by the ValueSet_R4_to_R3 postprocessor. '
+        + 'Reference-valued UsageContext entries are removed because STU3 cannot '
+        + 'represent them.',
     },
     processors: [assertDeclaredCoverage(convValueSet_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },

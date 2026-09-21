@@ -259,6 +259,26 @@ describe('postprocessors/util/elements copyPrimitive', function () {
     assert.equal('_initialCoding' in dst, false);
   });
 
+  it('deep-copies the _companion so the target does not alias the source', function () {
+    const src = { valueString: 'Mint', _valueString: { id: 'x', extension: [{ url: 'u' }] } };
+    const dst = {};
+    copyPrimitive(src, 'valueString', dst, 'initialString');
+
+    assert.notEqual(dst._initialString, src._valueString);
+    dst._initialString.extension[0].url = 'mutated';
+    assert.equal(src._valueString.extension[0].url, 'u');
+  });
+
+  it('deep-copies a complex value so the target does not alias the source', function () {
+    const src = { valueCoding: { code: 'c', display: 'Green' } };
+    const dst = {};
+    copyPrimitive(src, 'valueCoding', dst, 'initialCoding');
+
+    assert.notEqual(dst.initialCoding, src.valueCoding);
+    dst.initialCoding.display = 'mutated';
+    assert.equal(src.valueCoding.display, 'Green');
+  });
+
   it('leaves the source untouched and does nothing when the key is absent', function () {
     const src = { valueString: 'Mint' };
     const dst = {};

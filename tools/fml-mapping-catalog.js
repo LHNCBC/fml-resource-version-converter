@@ -1,21 +1,22 @@
 /**
  * @fileoverview FML resource-mapping discovery and route selection.
  *
- * FML filenames are not authoritative: a resource can be renamed between FHIR
+ * Maintainer-only raw FML discovery. FML filenames are not authoritative: a
+ * resource can be renamed between FHIR
  * versions, and one source resource can have more than one target mapping.
  * This module builds immutable mapping descriptors from each StructureMap's
  * source/target declarations and resource-level entry group.
  *
- * Catalogs are lazy and factory-scoped. A factory therefore scans each version
- * direction at most once, while a newly-created factory sees a fresh view of a
- * custom mapping root.
+ * Catalogs are lazy and factory-scoped for scanner tests and maintainer tools.
+ * Runtime conversion uses mapping descriptors from generated artifacts.
  *
- * @module fml_base_conv/fml_mapping_catalog
+ * @module tools/fml-mapping-catalog
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseFml } from './fml_parser.js';
+import { parseFml } from '../src/fml_base_conv/fml_parser.js';
+import { createMappingCatalog } from '../src/fml_base_conv/mapping_catalog_core.js';
 
 const KNOWN_VERSIONS = new Set(['R2', 'R3', 'R4', 'R4B', 'R5']);
 const RESOURCE_BASE_GROUPS = new Set([
@@ -178,104 +179,7 @@ export function scanResourceMappings(fromVer, toVer, xverRoot) {
  * @returns {{hasMapping: Function, resolveMapping: Function}} Catalog API.
  */
 export function createFmlMappingCatalog(xverRoot) {
-  /** @type {Map<string, Map<string, Array<Object>>>} */
-  const directionCache = new Map();
-
-  /**
-   * Load and index one version direction, memoizing the result.
-   *
-   * @param {string} fromVer Canonical source version.
-   * @param {string} toVer Canonical target version.
-   * @returns {Map<string, Array<Object>>} Source type to candidate descriptors.
-   */
-  function loadDirection(fromVer, toVer) {
-    const cacheKey = `${fromVer}->${toVer}`;
-    if (directionCache.has(cacheKey)) return directionCache.get(cacheKey);
-
-    // Publish only a fully inspected direction. If the scan throws, nothing is
-    // cached, so callers must retry and see the same integrity error rather
-    // than receiving a partial map left behind by the failed attempt.
-    const bySource = scanResourceMappings(fromVer, toVer, xverRoot);
-    directionCache.set(cacheKey, bySource);
-    return bySource;
-  }
-
-  /**
-   * Whether any mapping is declared for a source resource on a version hop.
-   *
-   * Ambiguity does not make a source unsupported; resolveMapping performs the
-   * target selection and reports ambiguity when execution is requested.
-   *
-   * @param {string} sourceResourceType Source FHIR resource type.
-   * @param {string} fromVer Canonical source version.
-   * @param {string} toVer Canonical target version.
-   * @returns {boolean} True when at least one candidate exists.
-   */
-  function hasMapping(sourceResourceType, fromVer, toVer) {
-    const candidates = loadDirection(fromVer, toVer).get(sourceResourceType);
-    return !!candidates?.length;
-  }
-
-  /**
-   * Select exactly one mapping for a source resource and optional target.
-   *
-   * @param {string} sourceResourceType Source FHIR resource type.
-   * @param {string} fromVer Canonical source version.
-   * @param {string} toVer Canonical target version.
-   * @param {Object} [opts]
-   * @param {string} [opts.targetResourceType] The intended target type.
-   *        Required only when the source maps to more than one target on the hop
-   *        (e.g. ServiceRequest R4->R3 -> ProcedureRequest or ReferralRequest);
-   *        checked against the declared target whenever supplied.
-   * @returns {Object} Immutable selected mapping descriptor.
-   * @throws {Error} If no candidate exists or selection remains ambiguous.
-   */
-  function resolveMapping(
-    sourceResourceType,
-    fromVer,
-    toVer,
-    { targetResourceType } = {},
-  ) {
-    const allCandidates =
-      loadDirection(fromVer, toVer).get(sourceResourceType) || [];
-    if (allCandidates.length === 0) {
-      throw new Error(
-        `FML mapping not found for ${sourceResourceType} ${fromVer}->${toVer}`,
-      );
-    }
-
-    const availableTargets =
-      [...new Set(allCandidates.map(candidate => candidate.targetResourceType))].sort();
-
-    if (targetResourceType == null && availableTargets.length > 1) {
-      throw new Error(
-        `Ambiguous FML mapping for ${sourceResourceType} ${fromVer}->${toVer}; ` +
-        'opts.targetResourceType is required. Available targets: ' +
-        availableTargets.join(', '),
-      );
-    }
-
-    const selectedTarget = targetResourceType ?? availableTargets[0];
-    const candidates = allCandidates.filter(
-      candidate => candidate.targetResourceType === selectedTarget,
-    );
-    if (candidates.length === 0) {
-      throw new Error(
-        `No FML mapping for ${sourceResourceType} ${fromVer}->${toVer} targeting ` +
-        `${selectedTarget}. Available targets: ${availableTargets.join(', ')}`,
-      );
-    }
-
-    if (candidates.length > 1) {
-      const mapNames = candidates.map(candidate => candidate.structureMapName);
-      throw new Error(
-        `Multiple FML StructureMaps for ${sourceResourceType} ${fromVer}->${toVer} ` +
-        `targeting ${selectedTarget}: ${mapNames.join(', ')}`,
-      );
-    }
-
-    return candidates[0];
-  }
-
-  return { hasMapping, resolveMapping };
+  return createMappingCatalog(
+    (fromVer, toVer) => scanResourceMappings(fromVer, toVer, xverRoot),
+  );
 }

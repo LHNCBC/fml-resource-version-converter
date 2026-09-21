@@ -26,6 +26,8 @@ import {
   hasPrimitiveValueOrExtension,
   stripCanonicalVersion,
 } from '../util/elements.js';
+import { repairR4ToR3MetaAndExtensions } from './metaExtensions.js';
+import { removeUnrepresentableUsageContexts } from './usageContext.js';
 
 const R4_LIB_0_NAME = /^[A-Z][A-Za-z0-9_]{0,254}$/;
 const RENDERED_VALUE_URL = 'http://hl7.org/fhir/StructureDefinition/rendered-value';
@@ -34,6 +36,16 @@ const LIBRARY_TYPE_SYSTEMS = {
   R3: 'http://hl7.org/fhir/library-type',
   R4: 'http://terminology.hl7.org/CodeSystem/library-type',
 };
+
+// JSON suffixes from STU3 StructureDefinition Extension.value[x].
+const STU3_EXTENSION_VALUE_TYPES = new Set([
+  'Base64Binary', 'Boolean', 'Code', 'Date', 'DateTime', 'Decimal', 'Id',
+  'Instant', 'Integer', 'Markdown', 'Oid', 'PositiveInt', 'String', 'Time',
+  'UnsignedInt', 'Uri', 'Address', 'Age', 'Annotation', 'Attachment',
+  'CodeableConcept', 'Coding', 'ContactPoint', 'Count', 'Distance', 'Duration',
+  'HumanName', 'Identifier', 'Money', 'Period', 'Quantity', 'Range', 'Ratio',
+  'Reference', 'SampledData', 'Signature', 'Timing', 'Meta',
+]);
 
 const REQUIRED_TYPE_POLICIES = {
   'R3->R4': {
@@ -672,6 +684,73 @@ function convertR3ToR4(target, ctx) {
 }
 
 /**
+ * Reject unsupported Extension choices in source-reconstructed Library fields.
+ *
+ * Release-scoped conservative fallback: do not guess a replacement such as
+ * valueCanonical -> valueUri. This can discard convertible content and checks
+ * only the outer value[x] choice, not version differences inside shared types
+ * such as Reference. Eventually reuse correctly converted metadata instead of
+ * cloning source-version extensions. This policy must not affect other fields,
+ * contained resources, or the reverse direction.
+ *
+ * @param {Object} target Reconstructed STU3 Library, mutated in place.
+ * @param {Array<Object>} messages Diagnostic messages to append.
+ */
+function rejectUnsupportedReconstructedExtensions(target, messages) {
+  const visited = new WeakSet();
+
+  /** Visit metadata below one reconstructed field without crossing resources. */
+  function visit(value, path) {
+    if (!value || typeof value !== 'object' || typeof value.resourceType === 'string') return;
+    if (visited.has(value)) return;
+    visited.add(value);
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, `${path}[${index}]`));
+      return;
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      const nextPath = `${path}.${key}`;
+      if ((key === 'extension' || key === 'modifierExtension') && Array.isArray(child)) {
+        child.forEach((extension, index) => {
+          const extensionPath = `${nextPath}[${index}]`;
+          const choices = Object.keys(extension || {}).filter(name => /^_?value[A-Z]/.test(name));
+          const unsupported = choices.filter(name =>
+            !STU3_EXTENSION_VALUE_TYPES.has(name.replace(/^_?value/, '')));
+          if (unsupported.length > 0) {
+            // Leave the emptied shell until the shared repair below runs. It
+            // removes the owning Extension and preserves required parents and
+            // primitive-array alignment when their last extension disappears.
+            for (const choice of choices) delete extension[choice];
+            messages.push(warningMessage(
+              `${extensionPath} was discarded because STU3 Extension.value[x] does not allow `
+              + `${unsupported.join(', ')}; no replacement datatype was assumed`,
+            ));
+          } else {
+            visit(extension, extensionPath);
+          }
+        });
+      } else {
+        visit(child, nextPath);
+      }
+    }
+  }
+
+  visit(target.contributor, 'Library.contributor');
+  (target.parameter || []).forEach((parameter, index) =>
+    visit(parameter.profile, `Library.parameter[${index}].profile`));
+  (target.relatedArtifact || []).forEach((artifact, index) =>
+    visit(artifact.resource, `Library.relatedArtifact[${index}].resource`));
+  (target.dataRequirement || []).forEach((requirement, index) => {
+    (requirement.codeFilter || []).forEach((filter, filterIndex) => {
+      const path = `Library.dataRequirement[${index}].codeFilter[${filterIndex}]`;
+      visit(filter._valueSetString, `${path}._valueSetString`);
+      visit(filter.valueCoding, `${path}.valueCoding`);
+    });
+  });
+}
+
+/**
  * Convert R4 Library post-FML output into valid STU3 shape.
  *
  * @param {Object} target FML-converted STU3 Library, mutated in place.
@@ -682,6 +761,7 @@ function convertR4ToR3(target, ctx) {
   const messages = [];
   const source = ctx?.sourceResource || {};
 
+  removeUnrepresentableUsageContexts(target, source, messages);
   reportR4OnlyContent(source, messages);
   rebuildR3Contributors(target, source, messages);
   normalizeLibraryTypeSystem(target, 'R4', 'R3', messages);
@@ -689,6 +769,8 @@ function convertR4ToR3(target, ctx) {
   normalizeRelatedArtifactResources(target, source, 'R4->R3', messages);
   normalizeR3DataRequirements(target, source, messages);
   normalizeRequiredTypes(target, source, 'R4', 'R3', messages);
+  rejectUnsupportedReconstructedExtensions(target, messages);
+  repairR4ToR3MetaAndExtensions(target, source, messages);
 
   return { resource: target, status: statusFromMessages(messages), messages };
 }
@@ -713,7 +795,9 @@ export const conv_R4_to_R3 = {
   description:
     'Rebuilds valid R3 contributors, repairs canonical-to-Reference fields and DataRequirement '
     + 'narrowing, normalizes required ParameterDefinition and DataRequirement FHIR types and '
-    + 'the LibraryType code system canonical, and reports R4-only content. Does not handle '
+    + 'the LibraryType code system canonical, removes Reference-valued UsageContext entries, '
+    + 'reports R4 Meta.source loss, removes invalid ordinary Extensions, and reports other '
+    + 'R4-only content. Does not handle '
     + 'inter-version extensions.',
   execute: convertR4ToR3,
 };

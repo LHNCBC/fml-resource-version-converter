@@ -42,7 +42,6 @@
  *
  * @module postprocessors/R3_R4/ValueSet
  */
-import { randomUUID } from 'node:crypto';
 import { COVERAGE } from '../../converter/coverage.js';
 import {
   statusFromMessages,
@@ -52,6 +51,9 @@ import {
   hasAnyContent,
   stripCanonicalVersion,
 } from '../util/elements.js';
+import { randomUuid } from '../util/uuid.js';
+import { repairR4ToR3MetaAndExtensions } from './metaExtensions.js';
+import { removeUnrepresentableUsageContexts } from './usageContext.js';
 
 // STU3 defines `code` as "a string which has at least one character and no
 // leading or trailing whitespace and where there is no whitespace other than
@@ -184,7 +186,7 @@ function ensureExpansionIdentifier(target, messages) {
   if (!expansion || typeof expansion !== 'object' || Array.isArray(expansion)) return;
   if (hasAnyContent(expansion, ['identifier', '_identifier'])) return;
 
-  const generated = `urn:uuid:${randomUUID()}`;
+  const generated = `urn:uuid:${randomUuid()}`;
   expansion.identifier = generated;
   messages.push(warningMessage(
     'ValueSet.expansion.identifier is optional in R4 but required in STU3; '
@@ -231,7 +233,7 @@ function reportDateTimeParameters(source, messages) {
 function ensureComposeOrExpansion(target, messages) {
   if (hasAnyContent(target, ['compose', 'expansion'])) return;
 
-  const identifier = `urn:uuid:${randomUUID()}`;
+  const identifier = `urn:uuid:${randomUuid()}`;
   target.expansion = { identifier, timestamp: new Date().toISOString() };
   messages.push(warningMessage(
     'STU3 requires a ValueSet to carry a compose or an expansion (vsd-5) but '
@@ -327,7 +329,9 @@ export const conv_R4_to_R3 = {
     + 'compose valueSet references, generates the expansion identifier STU3 '
     + 'requires, generates an empty expansion when the source satisfies neither '
     + 'half of vsd-5, and reports expansion parameter dateTime values that STU3 '
-    + 'cannot represent. Does not handle inter-version extensions.',
+    + 'cannot represent. Removes Reference-valued UsageContext entries, reports R4 '
+    + 'Meta.source loss, and removes invalid ordinary Extensions. Does not '
+    + 'handle inter-version extensions.',
 
   /**
    * @param {Object} target FML-converted STU3 ValueSet, mutated in place.
@@ -337,6 +341,7 @@ export const conv_R4_to_R3 = {
   execute(target, ctx) {
     const messages = [];
 
+    removeUnrepresentableUsageContexts(target, ctx?.sourceResource, messages);
     for (const [branch, index, entry] of composeEntries(target)) {
       normalizeFilterValues(entry, branch, index, messages);
       stripValueSetVersions(entry, branch, index, messages);
@@ -347,6 +352,7 @@ export const conv_R4_to_R3 = {
     ensureComposeOrExpansion(target, messages);
     ensureExpansionIdentifier(target, messages);
     reportDateTimeParameters(ctx?.sourceResource, messages);
+    repairR4ToR3MetaAndExtensions(target, ctx?.sourceResource, messages);
 
     return { resource: target, status: statusFromMessages(messages), messages };
   },

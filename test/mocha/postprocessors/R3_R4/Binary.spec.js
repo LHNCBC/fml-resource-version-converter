@@ -49,16 +49,113 @@ describe('postprocessors/R3_R4 Binary', function () {
     };
     const result = singleHopConverter.convert(source, 'R4', 'R3');
 
-    assert.equal(result.coverage, COVERAGE.COMPLETE);
+    assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
     assert.equal(result.fml_base_conv.coverage, COVERAGE.KNOWN_GAPS);
     assert.equal(result.postprocessors[0].name, 'Binary_R4_to_R3');
-    assert.equal(result.postprocessors[0].coverage, COVERAGE.COMPLETE);
+    assert.equal(result.postprocessors[0].coverage, COVERAGE.BEST_EFFORT);
     assert.equal(result.status, STATUS.OK);
     assert.deepEqual(result.postprocessors[0].messages, []);
     assert.equal(result.resource.content, source.data);
     assert.deepEqual(result.resource._content, payloadCompanion);
     assert.deepEqual(result.resource.securityContext, source.securityContext);
     assert.equal('data' in result.resource, false);
+  });
+
+  it('reports R4 Reference.type and primitive metadata loss', function () {
+    const source = {
+      resourceType: 'Binary',
+      contentType: 'application/octet-stream',
+      securityContext: {
+        type: 'Patient',
+        _type: { id: 'reference-type-metadata' },
+        identifier: { system: 'http://example.org/mrn', value: '12345' },
+      },
+      data: 'AAEC',
+    };
+    const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+    assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
+    assert.equal(result.status, STATUS.WARNING);
+    assert.equal(result.postprocessors[0].messages.length, 1);
+    assert.match(result.postprocessors[0].messages[0].text, /securityContext\.type/);
+    assert.match(result.postprocessors[0].messages[0].text, /primitive metadata/);
+    assert.deepEqual(result.resource.securityContext.identifier, source.securityContext.identifier);
+    assert.equal('type' in result.resource.securityContext, false);
+    assert.equal('_type' in result.resource.securityContext, false);
+  });
+
+  it('reports companion-only R4 Reference.type metadata loss', function () {
+    const source = {
+      resourceType: 'Binary',
+      contentType: 'application/octet-stream',
+      securityContext: {
+        _type: {
+          extension: [{
+            url: 'http://example.org/fhir/StructureDefinition/reference-type-note',
+            valueString: 'Patient',
+          }],
+        },
+        identifier: { system: 'http://example.org/mrn', value: '12345' },
+      },
+      data: 'AAEC',
+    };
+    const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+    assert.equal(result.status, STATUS.WARNING);
+    assert.equal(result.postprocessors[0].messages.length, 1);
+    assert.match(result.postprocessors[0].messages[0].text, /securityContext\.type/);
+    assert.equal('_type' in result.resource.securityContext, false);
+  });
+
+  it('executes the R4 to R3 Meta mapping before postprocessing', function () {
+    const metaExtension = {
+      url: 'http://example.org/fhir/StructureDefinition/meta-note',
+      valueString: 'preserved',
+    };
+    const source = {
+      resourceType: 'Binary',
+      contentType: 'application/octet-stream',
+      data: 'AAEC',
+      meta: {
+        id: 'meta-id',
+        extension: [metaExtension],
+        versionId: 'version-1',
+        _versionId: { id: 'version-id-metadata' },
+        source: 'http://example.org/source',
+        _source: { id: 'source-metadata' },
+        profile: [
+          'http://hl7.org/fhir/4.0/StructureDefinition/Binary',
+          'http://example.org/fhir/StructureDefinition/CustomBinary',
+        ],
+        _profile: [
+          { id: 'base-profile-metadata' },
+          { id: 'custom-profile-metadata' },
+        ],
+        security: [{ system: 'http://example.org/security', code: 'restricted' }],
+        tag: [{ system: 'http://example.org/tag', code: 'release-test' }],
+      },
+    };
+    const result = singleHopConverter.convert(source, 'R4', 'R3');
+
+    assert.equal(result.status, STATUS.WARNING);
+    assert.equal(result.postprocessors[0].messages.length, 1);
+    assert.match(result.postprocessors[0].messages[0].text, /meta\.source/);
+    assert.equal(result.resource.meta.id, 'meta-id');
+    assert.deepEqual(result.resource.meta.extension, [metaExtension]);
+    assert.equal(result.resource.meta.versionId, 'version-1');
+    assert.deepEqual(result.resource.meta._versionId, { id: 'version-id-metadata' });
+    assert.equal('source' in result.resource.meta, false);
+    assert.equal('_source' in result.resource.meta, false);
+    assert.deepEqual(result.resource.meta.profile, [
+      'http://hl7.org/fhir/3.0/StructureDefinition/Binary',
+      'http://example.org/fhir/StructureDefinition/CustomBinary',
+    ]);
+    assert.deepEqual(result.resource.meta._profile, [
+      { id: 'base-profile-metadata' },
+      { id: 'custom-profile-metadata' },
+    ]);
+    assert.deepEqual(result.resource.meta.security, source.meta.security);
+    assert.deepEqual(result.resource.meta.tag, source.meta.tag);
   });
 
   it('marks required STU3 content absent when optional R4 data is missing', function () {
@@ -68,7 +165,7 @@ describe('postprocessors/R3_R4 Binary', function () {
     };
     const result = singleHopConverter.convert(source, 'R4', 'R3');
 
-    assert.equal(result.coverage, COVERAGE.COMPLETE);
+    assert.equal(result.coverage, COVERAGE.BEST_EFFORT);
     assert.equal(result.status, STATUS.WARNING);
     assert.equal('content' in result.resource, false);
     assert.deepEqual(result.resource._content, {

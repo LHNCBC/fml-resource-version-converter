@@ -30,6 +30,7 @@ import {
 import {
   addDataAbsentReasonExtension,
   hasAnyContent,
+  hasPrimitiveValueOrExtension,
   removePrimitiveArrayEntries,
 } from '../util/elements.js';
 
@@ -210,6 +211,10 @@ export const conv_R5_to_R4 = {
  *   data-absent-reason extension: FHIR allows an extension to stand in place
  *   of a primitive value, so `supplements` then exists for csd-4 while
  *   asserting nothing about a canonical the source never carried.
+ *   Presence is tested with hasPrimitiveValueOrExtension rather than
+ *   hasAnyContent: only a value or an extension satisfies ele-1, so an
+ *   id-only `_supplements` companion is still an absent element and must be
+ *   repaired. The repair merges into that companion, keeping its id.
  *
  * Rejected alternatives, recorded so they are not revisited:
  * - Rewriting content to "not-present" or "fragment" would satisfy csd-4 but
@@ -245,7 +250,7 @@ export const conv_R4_to_R5 = {
     const sourceVersion = ctx?.fromVer || 'R4';
     const targetVersion = ctx?.toVer || 'R5';
 
-    if (target?.content === 'supplement' && !hasAnyContent(target, ['supplements', '_supplements'])) {
+    if (target?.content === 'supplement' && !hasPrimitiveValueOrExtension(target, 'supplements')) {
       addDataAbsentReasonExtension(target, 'supplements');
       messages.push(warningMessage(
         'CodeSystem.content is "supplement" but CodeSystem.supplements is absent. '

@@ -49,7 +49,7 @@ import {
   assertPostprocessPolicy,
 } from './postprocessPolicy.js';
 import { COVERAGE } from './coverage.js';
-import { planHops } from '../fml_base_conv/create_converter.js';
+import { planHops } from '../fml_base_conv/version_graph.js';
 
 /** A caller lookup that never matches (no processors supplied for a side). */
 const NONE = () => undefined;

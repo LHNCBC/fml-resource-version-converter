@@ -208,6 +208,66 @@ describe('converter/singleHopConverter', function () {
     });
   });
 
+  // -------- DSTU2 recursive backbone shape ---------------------------------
+  describe('single hop: Questionnaire R3 -> R2 recursive shape', function () {
+    // DSTU2 nests questionnaires as Questionnaire.group with a single root
+    // group (0..1) and repeating group/question below it. Both halves of that
+    // shape depend on schema metadata reached through DSTU2's nameReference
+    // spelling of a content reference, so this exercises the table build and
+    // the engine's cardinality handling together.
+    const deepR3 = {
+      resourceType: 'Questionnaire',
+      status: 'published',
+      item: [{
+        linkId: 'g1',
+        text: 'level 1',
+        type: 'group',
+        item: [{
+          linkId: 'g2',
+          text: 'level 2',
+          type: 'group',
+          item: [
+            { linkId: 'q3a', text: 'q3a at level 3', type: 'string' },
+            { linkId: 'q3b', text: 'q3b at level 3', type: 'string' },
+          ],
+        }],
+      }],
+    };
+
+    it('emits a single root group object, not an array', function () {
+      const { resource } = convert(deepR3, 'R3', 'R2');
+
+      assert.equal(Array.isArray(resource.group), false);
+      assert.equal(resource.group.linkId, 'g1');
+    });
+
+    it('keeps repeating groups and questions below the recursion point', function () {
+      const { resource } = convert(deepR3, 'R3', 'R2');
+      const level2 = resource.group.group;
+
+      assert.equal(Array.isArray(level2), true);
+      assert.equal(level2[0].linkId, 'g2');
+      assert.equal(Array.isArray(level2[0].question), true);
+      assert.deepEqual(level2[0].question.map(q => q.linkId), ['q3a', 'q3b']);
+    });
+
+    it('reports the loss when DSTU2 cannot hold every root group', function () {
+      const twoRoots = {
+        ...deepR3,
+        item: [
+          { linkId: 'g1', text: 'first', type: 'group' },
+          { linkId: 'g2', text: 'second', type: 'group' },
+        ],
+      };
+      const result = convert(twoRoots, 'R3', 'R2');
+      const text = result.fml_base_conv.messages.map(message => message.text).join('\n');
+
+      assert.equal(result.resource.group.linkId, 'g1');
+      assert.equal(result.status, STATUS.WARNING);
+      assert.match(text, /Questionnaire\.group accepts at most one value/);
+    });
+  });
+
   // -------- environmental noise must not affect conversion status ----------
   describe('clean conversion reports ok (no environmental warning noise)', function () {
     it('a minimal valid Questionnaire R4->R5 has status ok and no warnings', function () {

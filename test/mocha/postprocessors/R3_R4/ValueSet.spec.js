@@ -172,6 +172,29 @@ describe('postprocessors/R3_R4 ValueSet', function () {
       assert.deepEqual(parameter.extension, source.expansion.parameter[0].extension);
     });
 
+    it('removes Reference-valued UsageContext while preserving supported siblings', function () {
+      const source = {
+        resourceType: 'ValueSet',
+        status: 'active',
+        compose: { include: [{ system: 'http://example.org/codes' }] },
+        useContext: [{
+          code: { system: 'http://example.org/context', code: 'age' },
+          valueCodeableConcept: { text: 'Adults' },
+        }, {
+          code: { system: 'http://example.org/context', code: 'focus' },
+          valueReference: { reference: 'PlanDefinition/example' },
+        }],
+      };
+      const converted = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.equal(converted.status, STATUS.WARNING);
+      assert.equal(converted.resource.useContext.length, 1);
+      assert.equal(converted.resource.useContext[0].valueCodeableConcept.text, 'Adults');
+      assert.ok(converted.postprocessors[0].messages.some(message =>
+        message.type === MESSAGE_TYPE.WARNING
+        && /ValueSet\.useContext\[1\]\.valueReference/.test(message.text)));
+    });
+
     it('emits only warning-level messages', function () {
       const messages = result.postprocessors[0].messages;
       assert.ok(messages.length > 0);
@@ -381,6 +404,40 @@ describe('postprocessors/R3_R4 ValueSet', function () {
         'http://example.org/vs#part',
       ]);
       assert.equal(result2.status, STATUS.OK);
+    });
+
+    it('reports Meta.source loss and removes the extension it leaves invalid', function () {
+      const kept = {
+        url: 'http://example.org/fhir/StructureDefinition/kept',
+        valueString: 'kept',
+      };
+      const target = {
+        resourceType: 'ValueSet',
+        status: 'active',
+        compose: { include: [{ system: 'http://example.org/cs' }] },
+        extension: [{ url: 'http://example.org/fhir/StructureDefinition/meta-valued' }, kept],
+      };
+      const result2 = conv_R4_to_R3.execute(target, {
+        sourceResource: {
+          resourceType: 'ValueSet',
+          status: 'active',
+          meta: { source: 'http://example.org/source' },
+          extension: [
+            {
+              url: 'http://example.org/fhir/StructureDefinition/meta-valued',
+              valueMeta: { source: 'http://example.org/nested-source' },
+            },
+            kept,
+          ],
+        },
+      });
+      const text = result2.messages.map(message => message.text).join('\n');
+
+      assert.equal(result2.status, STATUS.WARNING);
+      assert.deepEqual(target.extension, [kept]);
+      assert.match(text, /meta\.source/);
+      assert.match(text, /extension\[0\]\.valueMeta\.source/);
+      assert.match(text, /Removed extension\[0\].*ext-1/s);
     });
   });
 });
