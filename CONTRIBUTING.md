@@ -68,6 +68,19 @@ FML mappings. When an FML mapping is found to be incomplete or erroneous, either
   official fhir-cross-version project - see
   [DATA-MAINTENANCE.md](DATA-MAINTENANCE.md) for further details.
 
+### Scope and limitations of runtime engine warnings
+
+- The engine warns when it detects a recoverable execution problem, an
+  unsupported feature, a known ConceptMap relationship risk, or a concrete
+  mechanical loss such as cardinality truncation.
+- It does not determine whether the detected conditions compromise the
+  integrity of the conversion.
+- Warning detection is not exhaustive. The engine does not guarantee that
+  every warning sign will be detected or reported.
+- The engine does not determine the FML coverage level. Coverage is assigned
+  through comprehensive human review, which may consider conversion results
+  and runtime warnings as evidence.
+
 ## Coverage levels
 
 Coverage describes the level of completeness of conversions. It is separate
@@ -84,21 +97,39 @@ described above. Please do not manually edit `COVERAGE.md`.
 
 When you assign a coverage level:
 
-- Judge completeness against the resource's own top-level elements for valid
-  input. Inter-version extensions (IVE) and `contained[]` conversion are out of
-  scope and do not lower a coverage claim.
-- "Lossy but unavoidable" (source content with no target representation) is
+- Judge completeness against the resource's "own" elements for valid
+  input without considering `contained[]` resources and inter-version
+  extensions (IVE).
+- "Lossy but unavoidable" (e.g., source content with no target representation) is
   conventionally **best_effort**, not **complete**.
-- A postprocessor must never lower the running coverage level.
+- A registered postprocessor must never lower the running coverage level.
+
+### Target validity and best-effort conversion
+
+- For valid source input, a reviewed conversion should produce a resource valid
+  in the target version.
+- When source semantics cannot be represented exactly, the converter should
+  return the best valid approximation rather than fail solely because of that
+  incompatibility.
+- Whenever an input incurs data loss, semantic narrowing, or approximation, the
+  conversion must emit a warning describing the change.
+- A conversion with unavoidable incompatibilities is classified as
+  **best_effort**, even though individual inputs that do not encounter them may
+  complete without warnings.
+- At the instance level:
+  - **best_effort + no warning** means no warning was reported for the input;
+    documented coverage limitations still apply.
+  - **best_effort + warning** means one or more conversion components reported a
+    condition requiring attention; inspect the diagnostics.
 
 
 ## Onboarding a resource type
 
-The FML engine can already convert every resource type for the versions
-supported by executing the FML mapping files. Therefore, onboarding is not
-about adding support for new resource types or versions, it's about
-reviewing a resource's FML conversion, assigning an honest coverage level, and,
-where the FML falls short, adding a postprocessor to improve the output.
+The FML engine can already perform every conversion that is covered by the HL7
+FML mapping files. Therefore, onboarding is not about adding support for new
+resource types or versions, it's about reviewing the FML conversion for the
+specific resource type and versions, assigning an appropriate coverage level,
+and, where the FML falls short, adding a postprocessor to improve the output.
 
 ### Step 1 - Review the FML conversion and identifying gaps
 
@@ -108,12 +139,20 @@ where the FML falls short, adding a postprocessor to improve the output.
    previous version. For example, if you are looking at converting Questionnaire
    from R3 to R4, the [R4 spec page](https://hl7.org/fhir/R4/questionnaire.html)
    has a "R3 Diff" tab that shows the changes from R3.
-2. Review the FML mapping to identify the gaps. If you are comfortable with FML,
-   you can review the mapping file directly and see whether/where it falls short.
-   Otherwise, you can create one or more representative source resources
-   to cover the fields you expect to be risky, run the conversion,
-   and inspect the output. Such tests are recommended even if you've reviewed
-   the FML mappings, and the sample resources are handy for writing mocha tests.
+
+2. Review the FML mapping to identify the gaps. There are two complementary ways
+   to achieve this and it's recommended to do both:
+   - Review the FML mapping file for the specific conversion (resource type and
+     to/from version pair). The mapping files can be found under
+     `data/fhir-cross-version/input/`, and they come from the
+     [fhir-cross-version project](https://github.com/HL7/fhir-cross-version).
+     The FML syntax itself is documented in the FHIR specification's
+     [FHIR Mapping Language](https://hl7.org/fhir/R5/mapping-language.html) page.
+   - You can also create one or more representative source resources under
+     `test/data/` to cover the fields you expect to be risky, run the conversion,
+     and inspect the output; those sample resources are handy for writing mocha
+     tests later.
+
    A quick harness:
 
    ```js
@@ -126,27 +165,91 @@ where the FML falls short, adding a postprocessor to improve the output.
 Typical gap categories to look for:
 
 - Elements valid in the source with no target equivalent (dropped -> lossy).
-- Elements renamed or restructured across versions.
-- Cardinality changes, e.g. target 0..1 vs source 0..*, or vice versa.
+- Elements renamed or restructured across versions (FML leaves the old shape).
+- Collection cardinality changes, e.g. target 0..1 vs source 0..*, or vice versa.
 - Choice type `[x]` mismatches and value-set/enum changes.
+- Required or extensible binding changes, including code-system canonical URL
+  migrations. Compare the source and target value-set composition and system
+  URLs, not only binding strength or code membership: generic CodeableConcept
+  copying can retain an obsolete source-version system even when the target has
+  an exact successor code system.
 - Invalid output: the FML emitted a field the target schema does not allow.
+- Elements required in the target that the source does not always supply, e.g.
+  target 1..1 where the source is 0..1. The FML cannot invent a value, so a
+  postprocessor must supply one, such as a generated `urn:uuid:` identifier.
+  Use `randomUuid()` from `src/postprocessors/util/uuid.js` for this: everything
+  under `src/` must stay browser-safe, so postprocessors must not import
+  `node:crypto` or any other Node built-in.
+- Primitive type narrowing, where the target type is lexically stricter, e.g.
+  `string` -> `code` or `canonical` -> `uri`. The value is often copied over
+  unchanged, so it must be reshaped to the target's rules - for example
+  stripping a `|version` suffix from a `canonical` - or, when no valid form
+  exists, the containing element may need to be dropped; either way, emit a
+  warning.
+- Target invariants, not just element definitions, e.g. a rule requiring one of
+  two elements to be present. A resource can satisfy the target schema element
+  by element and still violate a constraint, and the postprocessor must repair
+  it rather than produce invalid output. See "When the target adds a constraint
+  the source never enforced" below for the case where the source never captured
+  the information the new constraint demands.
 
 ### Step 2 - Decide what to do based on the review
 
 - If the FML output is already valid and complete, no postprocessor is needed:
   add a registry entry with the fml coverage set to complete. See the Questionnaire
-  entry in registry_R4_to_R5.js for an example.
+  entry in registry_R4B_to_R5.js for an example.
 - If the FML output isn't perfect:
   - if there is nothing one can do to improve it - for example, a source data
     element has no representation in the target, then add a registry entry with
     the fml coverage set to best_effort, and no postprocessors are needed.
-    See the Questionnaire entry in registry_R4_to_R5.js for an example on how
-    to add an entry.
   - If there is still room to improve, the FML coverage (in the registry entry)
     should be set to "known_gaps". If you plan to write a postprocessor to
     improve the conversion output, please follow the guidance in the next section
     and update the registry entry accordingly. See the Questionnaire entry in
     registry_R4_to_R3.js for an example.
+
+### When the target adds a constraint the source never enforced
+
+Occasionally the target version is stricter than the source in a way that has
+nothing to do with elements: same fields, same cardinalities, same bindings, but
+a new invariant. Source instances that were perfectly valid then convert into
+target instances that fail validation, and no amount of better mapping fixes it,
+because the information the new rule demands was never recorded in the source.
+
+The worked example is CodeSystem R4 -> R5. R4 allows `content = "supplement"`
+with no `CodeSystem.supplements`, and R5 invariant `csd-4` requires the two
+together. Which code system is being supplemented is simply absent from such an
+R4 resource.
+
+There may not be a general solution to this problem, but here are a few possible
+approaches:
+- Rewrite/repair the target resource if there is a meaningful way to do so.
+- Remove the offending element(s) if applicable, and use data-absent-reason
+  extension to satisfy missing required fields.
+
+### Inter-version extension
+
+In some cases the FML mappings carry source content that the target version has
+no element for into an inter-version extension on the target resource. This is
+not done consistently across versions or across resource types, so do not assume
+it is available for the conversion you are reviewing - check the mapping file.
+At this point, inter-version extension management is optional. If you choose to
+implement support for it, please document what you did in the postprocessor and
+its registry entry so the behavior is clear from the coverage report.
+
+### Shared R4 and R4B logic for conversions to and from R5
+
+- R4 and R4B are often similar enough to share most or all conversion logic.
+  Confirm equivalence for the elements and semantics being handled; do not
+  assume the complete specifications are identical.
+- Place the shared implementation under `R4_R5`. Add one file-level note that
+  R4B reuses some or all of the logic, and reference the corresponding
+  `R4B_R5` file for the exact scope.
+- Within the R4 implementation, functions, variables, JSDoc, and comments may
+  refer simply to R4. Mention R4B locally only when handling a difference
+  between the versions.
+- User-facing diagnostics must use `ctx.fromVer` and `ctx.toVer` so they report
+  the versions of the actual conversion hop.
 
 
 ## Adding or updating a postprocessor
@@ -169,7 +272,7 @@ the naming convention consistent with the registry naming, e.g.
 different version pairs under `util/`, and put resource-specific reusable
 logic in `util/<resource>.js`.
 
-The directory structure looks like this:
+The directory structure looks like this (not a complete file list):
 
 ```text
 src/postprocessors/

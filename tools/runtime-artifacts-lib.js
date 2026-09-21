@@ -163,6 +163,7 @@ export function createFhirTablePayload(source) {
     polyPaths: source.polyPaths,
     arrayPaths: source.arrayPaths,
     elementTypes: source.elementTypes,
+    contentReferences: source.contentReferences,
     resourceTypes: source.resourceTypes,
   };
   validateFhirTablePayload(payload, `fhir-tables/${source.fhirVersion}`);

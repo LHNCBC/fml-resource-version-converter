@@ -83,6 +83,9 @@ function tablePayload(fhirVersion = 'R4') {
     elementTypes: {
       'Patient.gender': 'code',
     },
+    contentReferences: {
+      'Questionnaire.item.item': 'Questionnaire.item',
+    },
     resourceTypes: ['Observation', 'Patient'],
   };
 }

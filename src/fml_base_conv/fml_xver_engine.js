@@ -19,9 +19,11 @@
  *     -> { resource: output JSON resource, spinOffResources? }
  *
  * Design tenets:
- *   - Tight: every operation that could produce an incorrect output emits
- *     a warning via `onWarning`. Information-level surprises (correct but
- *     possibly unexpected) go through `onInfo`.
+ *   - Diagnostics: detected recoverable execution problems, unsupported
+ *     features, known ConceptMap relationship risks, and concrete mechanical
+ *     losses emit a warning via `onWarning`. Warning detection is
+ *     non-exhaustive and does not determine mapping coverage. Information-level
+ *     surprises (correct but possibly unexpected) go through `onInfo`.
  *   - One execution path: `execRule` dispatches to `execScalarRule` or
  *     `execArrayRule`; both share `applyTarget` / `computeTargetValue` /
  *     `writeTarget`. No quick-path duplication.
@@ -635,10 +637,10 @@ class Scope {
  * Compile FML text (+ optional ConceptMaps) into an executable converter.
  *
  * Diagnostic policy:
- *   - `onWarning` fires whenever the engine takes an action that is not
- *     guaranteed to be semantically correct: lossy translation, missing
- *     map, unimplemented transform, missing source for a polymorphic
- *     read, group-arity mismatch, etc.
+ *   - `onWarning` fires for detected recoverable execution problems,
+ *     unsupported features, known ConceptMap relationship risks, and concrete
+ *     mechanical losses. Warning detection is non-exhaustive and does not
+ *     determine mapping coverage.
  *   - `onInfo` fires for correct-but-noteworthy events: `unmapped.mode=
  *     provided` fall-through, polymorphic field missing from source.
  *
@@ -818,12 +820,14 @@ export function compileFmlXver({
   const hasTgtPolyInfo = tgtDefs?.polyPaths != null;
 
   /**
-   * Set of absolute dotted paths whose target field is an array
+   * Map of absolute dotted paths whose target field is an array
    * (`max > 1`) in the target FHIR version. Consumed by writeToSlot()
    * (called from every write site) to decide whether to push (or
    * initialize an array) rather than overwrite a slot.
    */
-  const tgtArrayPaths = new Set(tgtDefs?.arrayPaths || []);
+  const tgtArrayPathIndex = new Map(
+    (tgtDefs?.arrayPaths || []).map(path => [path, true]),
+  );
 
   /**
    * Set of FHIR resource type names (kind === 'resource') across the source
@@ -849,31 +853,67 @@ export function compileFmlXver({
   const srcElementTypes = new Map(Object.entries(srcDefs?.elementTypes || {}));
   const tgtElementTypes = new Map(Object.entries(tgtDefs?.elementTypes || {}));
 
+  /** Referencing element path -> referenced element path for each version. */
+  const srcContentReferences = new Map(Object.entries(srcDefs?.contentReferences || {}));
+  const tgtContentReferences = new Map(Object.entries(tgtDefs?.contentReferences || {}));
+
   /**
-   * Look up schema metadata for an absolute FHIR path, re-rooting at complex
-   * datatype boundaries when the resource snapshot does not expand datatype
-   * internals. For example, `Patient.name.family` resolves by first finding
-   * `Patient.name -> HumanName`, then looking up `HumanName.family`.
+   * Look up schema metadata for an absolute FHIR path, resolving recursive
+   * content references and re-rooting at complex datatype boundaries. For
+   * example, `Questionnaire.item.item.initial.value` resolves through
+   * `Questionnaire.item.item -> Questionnaire.item`, while
+   * `Patient.name.family` resolves through `Patient.name -> HumanName`.
    *
    * @param {Map<string, *>} index Schema metadata keyed by FHIR path.
    * @param {Map<string, string>} elementTypes Element-type table for the same version.
+   * @param {Map<string, string>} contentReferences Content-reference table
+   *                                                 for the same version.
    * @param {string|null} absolutePath Resource- or datatype-rooted FHIR path.
    * @param {Set<string>} [visited] Re-rooted paths already inspected.
    * @returns {*|undefined} The indexed value, or undefined when unresolved.
    */
-  function lookupSchemaEntry(index, elementTypes, absolutePath, visited = new Set()) {
+  function lookupSchemaEntry(
+    index,
+    elementTypes,
+    contentReferences,
+    absolutePath,
+    visited = new Set(),
+  ) {
     if (!absolutePath || visited.has(absolutePath)) return undefined;
     visited.add(absolutePath);
 
     if (index.has(absolutePath)) return index.get(absolutePath);
 
     const segs = absolutePath.split('.');
+    // Only descendants inherit referenced metadata. The referencing element
+    // keeps its own cardinality and other constraints.
+    for (let i = segs.length - 1; i >= 1; i--) {
+      const referencedPath = contentReferences.get(segs.slice(0, i).join('.'));
+      if (!referencedPath) continue;
+
+      const rerootedPath = `${referencedPath}.${segs.slice(i).join('.')}`;
+      const value = lookupSchemaEntry(
+        index,
+        elementTypes,
+        contentReferences,
+        rerootedPath,
+        visited,
+      );
+      if (value !== undefined) return value;
+    }
+
     for (let i = segs.length - 1; i >= 1; i--) {
       const parentType = elementTypes.get(segs.slice(0, i).join('.'));
       if (!parentType || parentType[0] !== parentType[0].toUpperCase()) continue;
 
       const rerootedPath = `${parentType}.${segs.slice(i).join('.')}`;
-      const value = lookupSchemaEntry(index, elementTypes, rerootedPath, visited);
+      const value = lookupSchemaEntry(
+        index,
+        elementTypes,
+        contentReferences,
+        rerootedPath,
+        visited,
+      );
       if (value !== undefined) return value;
     }
 
@@ -882,12 +922,22 @@ export function compileFmlXver({
 
   /** Return the source element type at an absolute, possibly nested path. */
   function sourceElementType(absolutePath) {
-    return lookupSchemaEntry(srcElementTypes, srcElementTypes, absolutePath) || null;
+    return lookupSchemaEntry(
+      srcElementTypes,
+      srcElementTypes,
+      srcContentReferences,
+      absolutePath,
+    ) || null;
   }
 
   /** Return the target element type at an absolute, possibly nested path. */
   function targetElementType(absolutePath) {
-    return lookupSchemaEntry(tgtElementTypes, tgtElementTypes, absolutePath) || null;
+    return lookupSchemaEntry(
+      tgtElementTypes,
+      tgtElementTypes,
+      tgtContentReferences,
+      absolutePath,
+    ) || null;
   }
 
   const srcPolyTypeLists = new Map(Object.entries(srcDefs?.polyPaths || {}));
@@ -910,12 +960,22 @@ export function compileFmlXver({
 
   /** Return source polymorphic choices at an absolute, possibly nested path. */
   function sourcePolyTypes(absolutePath) {
-    return lookupSchemaEntry(srcPolyTypeLists, srcElementTypes, absolutePath) || null;
+    return lookupSchemaEntry(
+      srcPolyTypeLists,
+      srcElementTypes,
+      srcContentReferences,
+      absolutePath,
+    ) || null;
   }
 
   /** Return target polymorphic choices at an absolute, possibly nested path. */
   function targetPolyTypes(absolutePath) {
-    return lookupSchemaEntry(tgtPolyTypeLists, tgtElementTypes, absolutePath) || null;
+    return lookupSchemaEntry(
+      tgtPolyTypeLists,
+      tgtElementTypes,
+      tgtContentReferences,
+      absolutePath,
+    ) || null;
   }
 
   /**
@@ -950,7 +1010,12 @@ export function compileFmlXver({
     if (!absolutePath) return null;
     const directType = targetElementType(absolutePath);
     if (FHIR_PRIMITIVES.has(directType)) return directType;
-    const typed = lookupSchemaEntry(tgtTypedPolyPaths, tgtElementTypes, absolutePath);
+    const typed = lookupSchemaEntry(
+      tgtTypedPolyPaths,
+      tgtElementTypes,
+      tgtContentReferences,
+      absolutePath,
+    );
     return typed && FHIR_PRIMITIVES.has(typed.type) ? typed.type : null;
   }
 
@@ -1015,7 +1080,12 @@ export function compileFmlXver({
    * @returns {string|null} Schema path.
    */
   function targetSchemaPath(absolutePath) {
-    return lookupSchemaEntry(tgtTypedPolyPaths, tgtElementTypes, absolutePath)?.path || absolutePath;
+    return lookupSchemaEntry(
+      tgtTypedPolyPaths,
+      tgtElementTypes,
+      tgtContentReferences,
+      absolutePath,
+    )?.path || absolutePath;
   }
 
   /**
@@ -1160,17 +1230,53 @@ export function compileFmlXver({
   function isTgtArrayPath(absPath) {
     if (!absPath) return false;
     const schemaPath = targetSchemaPath(absPath);
-    if (tgtArrayPaths.has(schemaPath)) return true;
-    const segs = schemaPath.split('.');
-    for (let i = segs.length - 1; i >= 1; i--) {
-      const t = tgtElementTypes.get(segs.slice(0, i).join('.'));
-      // Only complex types (upper-camel) have sub-paths worth re-rooting;
-      // primitives never do.
-      if (t && t[0] === t[0].toUpperCase()) {
-        if (isTgtArrayPath(t + '.' + segs.slice(i).join('.'))) return true;
-      }
-    }
-    return false;
+    return lookupSchemaEntry(
+      tgtArrayPathIndex,
+      tgtElementTypes,
+      tgtContentReferences,
+      schemaPath,
+    ) === true;
+  }
+
+  /**
+   * Decide whether the target version positively declares an absolute path as
+   * single-valued (`max <= 1`).
+   *
+   * This is deliberately stricter than `!isTgtArrayPath(absPath)`: an unknown
+   * path is not the same as a known scalar. The target tables only describe
+   * paths they actually contain, and the engine also runs with no defs at all
+   * (raw compile, defs-less unit tests), where every path is unknown. Treating
+   * "unknown" as "scalar" would let this collapse arrays the engine has no
+   * evidence about.
+   *
+   * A path counts as known when ANY target sub-table describes it, because the
+   * tables partition element paths rather than duplicating them:
+   *
+   *   - `elementTypes` holds single-typed elements, including backbone
+   *     containers (e.g. `Questionnaire.group -> BackboneElement`);
+   *   - `polyPaths` holds choice elements and, importantly, any element whose
+   *     StructureDefinition lists several `type` entries even when they share
+   *     one code (e.g. DSTU2 `Schedule.actor`, a `0..1 Reference` with one
+   *     entry per allowed profile). Such elements never reach `elementTypes`;
+   *   - `contentReferences` holds elements that borrow their children from
+   *     another element and therefore carry no type of their own (e.g. DSTU2
+   *     `TestScript.setup.metadata`).
+   *
+   * `arrayPaths` is not consulted: a hit there means the path is an array,
+   * which `isTgtArrayPath()` has already excluded.
+   *
+   * Each lookup resolves through content references and datatype boundaries.
+   *
+   * @param {string} absPath Absolute resource-rooted dotted path.
+   * @returns {boolean}
+   */
+  function isKnownTgtScalarPath(absPath) {
+    if (!absPath || isTgtArrayPath(absPath)) return false;
+    const schemaPath = targetSchemaPath(absPath);
+
+    return [tgtElementTypes, tgtPolyTypeLists, tgtContentReferences].some(index => (
+      lookupSchemaEntry(index, tgtElementTypes, tgtContentReferences, schemaPath) !== undefined
+    ));
   }
 
   /**
@@ -1207,6 +1313,11 @@ export function compileFmlXver({
    *     not invoke a primitive conversion group.
    *   - Repeating primitive values and companions are appended together with
    *     null padding so their indices remain aligned.
+   *   - If `value` is an array but the target path is known to be
+   *     single-valued, only the first occurrence is kept and the loss is
+   *     reported. Array-valued source rules (`execArrayRule`) always produce
+   *     an array of results, so this is the one place that can enforce the
+   *     target's `max = 1` and stop an illegal JSON array reaching the output.
    *
    * Used at all engine write sites: the general writeTarget() path and
    * the child-container creation sites (then-clause and inline-multi-
@@ -1221,6 +1332,25 @@ export function compileFmlXver({
    * @returns {void}
    */
   function writeToSlot(parent, key, value, absolutePath, companion = undefined) {
+    if (Array.isArray(value) && isKnownTgtScalarPath(absolutePath)) {
+      if (value.length === 0) return;
+      if (value.length > 1) {
+        onWarning?.(
+          `writeToSlot: ${absolutePath} accepts at most one value in the target `
+          + `version; kept the first of ${value.length} and dropped the other `
+          + `${value.length - 1}`,
+        );
+      }
+      writeToSlot(
+        parent,
+        key,
+        value[0],
+        absolutePath,
+        Array.isArray(companion) ? companion[0] : companion,
+      );
+      return;
+    }
+
     const primitiveType = targetPrimitiveType(absolutePath);
     if (primitiveType) {
       /**
@@ -1953,10 +2083,11 @@ export function compileFmlXver({
    * parameters.
    *
    * Order of operations:
-   *   1. If `groupName` resolves to a built-in base type, run that copier
-   *      and return.
-   *   2. If the group `extends` another type, run that base/group's copier
-   *      first (so derived rules can override inherited fields).
+   *   1. Resolve a declared FML group before falling back to a built-in base
+   *      copier of the same name.
+   *   2. If the group `extends` another type, execute that parent through the
+   *      same resolution path first (so derived rules can override inherited
+   *      fields).
    *   3. Create a fresh scope chained to `parentScope`, bind each parameter,
    *      then execute every rule in declaration order.
    *
@@ -1999,17 +2130,12 @@ export function compileFmlXver({
       return v;
     });
 
-    // Run extends-base copier first (for inheritance chains).
+    // Execute the inherited group first. Imported FML groups must take
+    // precedence over the built-in compatibility copiers, just as they do for
+    // direct group calls above. The built-ins remain a fallback for callers
+    // that compile a partial mapping without its base-type FML imports.
     if (g.extendsType) {
-      const srcObj = boundValues[0];
-      const tgtObj = boundValues[1];
-      if (BASE_COPIERS[g.extendsType]) {
-        if (isObject(srcObj) && isObject(tgtObj)) {
-          BASE_COPIERS[g.extendsType](srcObj, tgtObj);
-        } else {
-          onWarning?.(`Group "${groupName}" extends ${g.extendsType} but src/tgt are not both objects; skipping base copy`);
-        }
-      } else if (groups.has(g.extendsType)) {
+      if (groups.has(g.extendsType) || BASE_COPIERS[g.extendsType]) {
         execGroup(g.extendsType, boundValues, parentScope);
       } else {
         onWarning?.(`Group "${groupName}" extends unknown type "${g.extendsType}"`);
@@ -2162,9 +2288,13 @@ export function compileFmlXver({
       }
     }
 
-    // Iterate only when there's something to iterate over (alias, then-clause).
+    // Source where/check clauses are evaluated against each source occurrence.
+    // Evaluating either against the whole array gives FHIRPath a collection
+    // where the expression expects an item (for example, `url.startsWith()`).
     const isArray        = Array.isArray(primaryValue);
-    const needsIteration = isArray && (primary.spec.alias || rule.thenGroup || rule.thenRules);
+    const needsIteration = isArray && (
+      primary.spec.alias || primary.spec.where || primary.spec.check || rule.thenGroup || rule.thenRules
+    );
 
     if (needsIteration) {
       execArrayRule(rule, primary, primaryValue, primaryCompanion, bindings, scope);
@@ -2223,7 +2353,7 @@ export function compileFmlXver({
     const targetLeaf = segs[segs.length - 1];
     const targetAbsPath = composeChildPath(tctx, tgtSpec.path);
     const tgtIsPoly = targetAbsPath
-      ? tgtPolyTypeLists.has(targetAbsPath)
+      ? targetPolyTypes(targetAbsPath) != null
       : false;
     // Append the source's polymorphic suffix only when the TARGET leaf is
     // itself polymorphic in the target version. A matching leaf name alone is
@@ -2698,12 +2828,25 @@ export function compileFmlXver({
 
     const results = [];
     const resultCompanions = [];
-    let defaultPolySuffix = null;
     const inlineTargetAlias = !thenGroup && !thenRules &&
       targets.length > 1 && tgtSpec.alias &&
       targets.slice(1).some(target => target.context === tgtSpec.alias)
       ? tgtSpec.alias
       : null;
+    // Plain targets of one rule are independent slots: each collects its own
+    // values, primitive companions, and polymorphic type choice. A then-clause
+    // or an inline target alias instead fills one child per item, so only the
+    // primary target collects there; the other targets run inside the loop.
+    const collectedTargets = (thenGroup || thenRules || inlineTargetAlias
+      ? [tgtSpec]
+      : targets
+    ).map((target, index) => ({
+      target,
+      results: index === 0 ? results : [],
+      companions: index === 0 ? resultCompanions : [],
+      polySuffix: null,
+    }));
+
     for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
       const item = items[itemIndex];
       const itemCompanion = Array.isArray(itemCompanions)
@@ -2846,60 +2989,75 @@ export function compileFmlXver({
           resultCompanions.push(null);
         }
       } else {
-        // No then-clause: each iteration produces one value. Apply the
-        // applicable default group just as applyTarget() does for a scalar
-        // rule; an alias should affect scope, not dispatch semantics.
-        const defaultResult = tryDefaultGroup(tgtSpec, iterationPrimary, iterScope);
-        const value = defaultResult !== undefined
-          ? defaultResult.value
-          : computeTargetValue(
-            tgtSpec,
-            iterationPrimary,
-            iterationBindings,
-            iterScope,
-            item,
-          );
-        if (defaultResult?.polySuffix) defaultPolySuffix = defaultResult.polySuffix;
-        const provenance = defaultResult === undefined
-          ? targetSourceBinding(
-            tgtSpec,
-            iterationPrimary,
-            iterationBindings,
-          )
-          : null;
-        const resultCompanion = provenance?.companion;
-        if (value !== undefined || resultCompanion != null) {
-          results.push(value);
-          resultCompanions.push(resultCompanion ?? null);
+        // No then-clause: each iteration produces one value per target. Apply
+        // the applicable default group just as applyTarget() does for a scalar
+        // rule; an alias should affect scope, not dispatch semantics. The
+        // source guards, check, and log above already ran once for this item.
+        for (const collected of collectedTargets) {
+          const target = collected.target;
+          const defaultResult = tryDefaultGroup(target, iterationPrimary, iterScope);
+          const value = defaultResult !== undefined
+            ? defaultResult.value
+            : computeTargetValue(
+              target,
+              iterationPrimary,
+              iterationBindings,
+              iterScope,
+              item,
+            );
+          if (defaultResult?.polySuffix) collected.polySuffix = defaultResult.polySuffix;
+          const provenance = defaultResult === undefined
+            ? targetSourceBinding(
+              target,
+              iterationPrimary,
+              iterationBindings,
+            )
+            : null;
+          const resultCompanion = provenance?.companion;
+          if (value !== undefined || resultCompanion != null) {
+            collected.results.push(value);
+            collected.companions.push(resultCompanion ?? null);
+          }
         }
       }
     }
 
-    if (results.length === 0) return;
-    let targetPath = resolveWritePath(tgtSpec, primary, bindings, tctx);
-    if (defaultPolySuffix && tgtSpec.path && targetPolyTypes(
-      composeChildPath(tctx, tgtSpec.path),
-    )) {
-      const segs = tgtSpec.path.split('.');
-      segs[segs.length - 1] += defaultPolySuffix;
-      targetPath = segs.join('.');
+    for (const collected of collectedTargets) {
+      const { target, results: values, companions, polySuffix } = collected;
+      if (values.length === 0) continue;
+
+      const targetContext = scope.get(target.context);
+      if (targetContext == null) {
+        onWarning?.(`Array rule: target context "${target.context}" not in scope`);
+        continue;
+      }
+
+      let targetPath = resolveWritePath(target, primary, bindings, targetContext);
+      if (polySuffix && target.path && targetPolyTypes(
+        composeChildPath(targetContext, target.path),
+      )) {
+        const segs = target.path.split('.');
+        segs[segs.length - 1] += polySuffix;
+        targetPath = segs.join('.');
+      }
+      if (!targetPath) {
+        onWarning?.(`Array rule: no target path; cannot write ${values.length} item(s)`);
+        continue;
+      }
+
+      const { parent, key } = ensurePath(targetContext, targetPath);
+      // Route through writeToSlot for consistency with the rest of the
+      // write paths: it preserves the array contents on a fresh slot,
+      // concatenates into an existing array when two rules feed the same
+      // target field, and enforces target cardinality per slot.
+      writeToSlot(
+        parent,
+        key,
+        values,
+        composeChildPath(targetContext, targetPath),
+        companions,
+      );
     }
-    if (!targetPath) {
-      onWarning?.(`Array rule: no target path; cannot write ${results.length} item(s)`);
-      return;
-    }
-    const { parent, key } = ensurePath(tctx, targetPath);
-    // Route through writeToSlot for consistency with the rest of the
-    // write paths: it preserves the array contents on a fresh slot and
-    // concatenates into an existing array when two rules feed the same
-    // target field.
-    writeToSlot(
-      parent,
-      key,
-      results,
-      composeChildPath(tctx, targetPath),
-      resultCompanions,
-    );
   }
 
   /** Return whether a value is a nested FHIR resource instance. */
@@ -3281,7 +3439,9 @@ export function compileFmlXver({
    * Rewrite `meta.profile` values while keeping `_profile` primitive metadata
    * at the same indexes. Rewritten duplicates are removed only when their
    * companion metadata is also identical; distinct metadata must remain
-   * attached to distinct primitive entries.
+   * attached to distinct primitive entries. Dropping a base profile of another
+   * FHIR version also drops that entry's primitive metadata, which is warned
+   * about rather than lost silently.
    *
    * @param {Object} meta Resource metadata containing a profile array.
    * @param {string|null} declaredTargetProfile Mapping-declared target profile.
@@ -3306,7 +3466,14 @@ export function compileFmlXver({
         updatedUrl = declaredTargetProfile || toTargetVersionProfile(url);
         rewritten = true;
       } else if (typeof url === 'string' && FHIR_BASE_PROFILE_RE.test(url)) {
-        // Drop standard FHIR profiles belonging to a different version.
+        // Drop standard FHIR profiles belonging to a different version. The
+        // entry's primitive metadata goes with it, so report that loss.
+        if (isObject(companion) && Object.keys(companion).length > 0) {
+          onWarning?.(
+            `meta.profile[${index}] "${url}" is a base profile of another FHIR version and was ` +
+            'dropped, together with its primitive metadata in meta._profile',
+          );
+        }
         continue;
       }
 
@@ -3328,6 +3495,41 @@ export function compileFmlXver({
 
     if (hasCompanions && updatedCompanions.some(value => value !== null)) {
       meta._profile = updatedCompanions;
+    } else {
+      delete meta._profile;
+    }
+  }
+
+  /**
+   * Add the target base profile when Meta has no concrete profile value.
+   * Extension-only primitive entries are retained after the inserted profile,
+   * with `_profile` padded so its indexes remain aligned with `profile`.
+   *
+   * @param {Object} meta Resource metadata to update.
+   * @param {string} targetProfile Target resource's base profile URL.
+   * @returns {void}
+   */
+  function ensureMetaProfile(meta, targetProfile) {
+    const profiles = Array.isArray(meta.profile) ? meta.profile : [];
+    if (profiles.some(profile => typeof profile === 'string' && profile.length > 0)) {
+      return;
+    }
+
+    const companions = Array.isArray(meta._profile) ? meta._profile : [];
+    const entryCount = Math.max(profiles.length, companions.length);
+    const extensionOnlyProfiles = [];
+    const extensionOnlyCompanions = [];
+
+    for (let index = 0; index < entryCount; index++) {
+      const companion = companions[index] ?? null;
+      if (companion === null) continue;
+      extensionOnlyProfiles.push(null);
+      extensionOnlyCompanions.push(companion);
+    }
+
+    meta.profile = [targetProfile, ...extensionOnlyProfiles];
+    if (extensionOnlyCompanions.length > 0) {
+      meta._profile = [null, ...extensionOnlyCompanions];
     } else {
       delete meta._profile;
     }
@@ -3371,22 +3573,12 @@ export function compileFmlXver({
       const declaredTargetProfile = mapping?.targetProfile || null;
       if (Array.isArray(out.meta?.profile)) {
         rewriteMetaProfiles(out.meta, declaredTargetProfile);
-        if (Object.keys(out.meta).length === 0) delete out.meta;
-      } else {
-        // No profile on source -- add the target version's base profile.
-        if (!out.meta) out.meta = {};
-        const targetProfile = declaredTargetProfile ||
-          `http://hl7.org/fhir/${tgtVerNum}/StructureDefinition/${targetResourceType}`;
-        const companions = Array.isArray(out.meta._profile) ? out.meta._profile : [];
-
-        out.meta.profile = [targetProfile];
-        if (companions.some(value => value !== null)) {
-          out.meta.profile.push(...companions.map(() => null));
-          out.meta._profile = [null, ...companions.map(value => value ?? null)];
-        } else {
-          delete out.meta._profile;
-        }
       }
+
+      if (!out.meta) out.meta = {};
+      const targetProfile = declaredTargetProfile ||
+        `http://hl7.org/fhir/${tgtVerNum}/StructureDefinition/${targetResourceType}`;
+      ensureMetaProfile(out.meta, targetProfile);
     }
 
     return {

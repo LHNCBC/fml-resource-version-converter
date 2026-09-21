@@ -12,9 +12,10 @@ sources:
 
     # Set this to true when this snapshot differs from the named upstream
     # commit. A true value requires nonempty modifications text.
-    modifiedFromUpstream: false
+    modifiedFromUpstream: true
     modifications: >-
-      No local modifications are recorded for this snapshot.
+      Added missing Meta-valued Extension rules to the R3-to-R4 and R4-to-R3
+      mappings so ordinary Extension.valueMeta content is preserved.
 
 # Source-maintenance policy:
 # - Keep a checked-in snapshot because upstream main is not stable enough to

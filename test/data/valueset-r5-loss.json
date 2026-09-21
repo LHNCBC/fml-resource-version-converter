@@ -1,0 +1,81 @@
+{
+  "resourceType": "ValueSet",
+  "id": "r5-valueset-loss",
+  "url": "http://example.org/fhir/ValueSet/r5-loss",
+  "version": "2.0.0",
+  "versionAlgorithmString": "semver",
+  "name": "R5LossValueSet",
+  "status": "active",
+  "copyrightLabel": "Example.org 2026",
+  "author": [
+    {
+      "name": "Example Author"
+    }
+  ],
+  "compose": {
+    "property": [
+      "status"
+    ],
+    "include": [
+      {
+        "system": "http://example.org/fhir/CodeSystem/example",
+        "copyright": "Code system copyright",
+        "filter": [
+          {
+            "property": "concept",
+            "op": "child-of",
+            "value": "root"
+          }
+        ]
+      }
+    ]
+  },
+  "expansion": {
+    "identifier": "urn:uuid:00000000-0000-0000-0000-000000000002",
+    "timestamp": "2026-02-03T04:05:06Z",
+    "next": "http://example.org/fhir/ValueSet/r5-loss?page=2",
+    "property": [
+      {
+        "code": "status",
+        "uri": "http://example.org/fhir/CodeSystem/property/status"
+      }
+    ],
+    "contains": [
+      {
+        "system": "http://example.org/fhir/CodeSystem/example",
+        "code": "alpha",
+        "property": [
+          {
+            "code": "status",
+            "valueCode": "active"
+          }
+        ],
+        "contains": [
+          {
+            "system": "http://example.org/fhir/CodeSystem/example",
+            "code": "beta",
+            "designation": [
+              {
+                "language": "en",
+                "use": {
+                  "system": "http://example.org/fhir/CodeSystem/designation-use",
+                  "code": "display"
+                },
+                "value": "Beta",
+                "additionalUse": [
+                  {
+                    "system": "http://example.org/fhir/CodeSystem/designation-use",
+                    "code": "consumer"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scope": {
+    "inclusionCriteria": "Immediate children of root."
+  }
+}

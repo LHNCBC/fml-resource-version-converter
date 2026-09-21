@@ -71,6 +71,58 @@ describe('fhir-tables-lib: classifyElement', () => {
     assert.equal(c.poly, null);
   });
 
+  it('normalizes a local content reference to its element path', () => {
+    const c = classifyElement({ path: 'Foo.part', contentReference: '#Foo.parameter' });
+    assert.equal(c.contentReference, 'Foo.parameter');
+  });
+
+  it('rejects non-local and malformed content references', () => {
+    assert.equal(classifyElement({
+      path: 'Foo.part',
+      contentReference: 'http://example.org/StructureDefinition/Foo#Foo.parameter',
+    }).contentReference, null);
+    assert.equal(classifyElement({
+      path: 'Foo.part',
+      contentReference: '#Foo..parameter',
+    }).contentReference, null);
+  });
+
+  it('resolves a DSTU2 nameReference through the supplied name index', () => {
+    const names = new Map([['parameter', 'Parameters.parameter']]);
+    const c = classifyElement(
+      { path: 'Parameters.parameter.part', nameReference: 'parameter' },
+      names,
+    );
+    assert.equal(c.contentReference, 'Parameters.parameter');
+  });
+
+  it('strips a [x] suffix from the resolved nameReference target path', () => {
+    const names = new Map([['choice', 'Foo.value[x]']]);
+    const c = classifyElement({ path: 'Foo.other', nameReference: 'choice' }, names);
+    assert.equal(c.contentReference, 'Foo.value');
+  });
+
+  it('leaves nameReference unresolved when no name index is supplied', () => {
+    const c = classifyElement({ path: 'Foo.part', nameReference: 'parameter' });
+    assert.equal(c.contentReference, null);
+  });
+
+  it('leaves nameReference unresolved when the name is not declared', () => {
+    const c = classifyElement(
+      { path: 'Foo.part', nameReference: 'missing' },
+      new Map([['other', 'Foo.other']]),
+    );
+    assert.equal(c.contentReference, null);
+  });
+
+  it('prefers contentReference over nameReference when both are present', () => {
+    const c = classifyElement(
+      { path: 'Foo.part', contentReference: '#Foo.parameter', nameReference: 'other' },
+      new Map([['other', 'Foo.other']]),
+    );
+    assert.equal(c.contentReference, 'Foo.parameter');
+  });
+
   it('counts type entries with missing code and excludes them from types', () => {
     const c = classifyElement({
       path: 'Foo.bar[x]',
@@ -197,5 +249,76 @@ describe('fhir-tables-lib: processElements', () => {
       'FooSD'
     );
     assert.deepEqual(calls, [['Foo.bar[x]', 'FooSD']]);
+  });
+
+  it('accumulates normalized content references', () => {
+    const references = new Map();
+    processElements(
+      [{ path: 'Parameters.parameter.part', contentReference: '#Parameters.parameter' }],
+      new Map(), new Set(), new Map(), null, 'Parameters', references,
+    );
+    assert.deepEqual(
+      [...references],
+      [['Parameters.parameter.part', 'Parameters.parameter']],
+    );
+  });
+
+  it('keeps the first content reference and reports invalid or conflicting values', () => {
+    const references = new Map([['Foo.part', 'Foo.parameter']]);
+    const issues = [];
+    processElements([
+      { path: 'Foo.part', contentReference: '#Foo.other' },
+      { path: 'Foo.bad', contentReference: 'Foo.parameter' },
+    ], new Map(), new Set(), new Map(), null, 'FooSD', references,
+    (...args) => issues.push(args));
+
+    assert.equal(references.get('Foo.part'), 'Foo.parameter');
+    assert.deepEqual(issues, [
+      ['Foo.part', 'Foo.other', 'Foo.parameter', 'FooSD'],
+      ['Foo.bad', 'Foo.parameter', null, 'FooSD'],
+    ]);
+  });
+
+  it('resolves DSTU2 nameReference against names in the same element list', () => {
+    const references = new Map();
+    processElements([
+      { path: 'ValueSet.expansion.contains', name: 'contains', max: '*' },
+      { path: 'ValueSet.expansion.contains.contains', nameReference: 'contains', max: '*' },
+    ], new Map(), new Set(), new Map(), null, 'ValueSet', references);
+
+    assert.deepEqual(
+      [...references],
+      [['ValueSet.expansion.contains.contains', 'ValueSet.expansion.contains']],
+    );
+  });
+
+  it('reports an unresolvable nameReference as a content-reference issue', () => {
+    const issues = [];
+    processElements(
+      [{ path: 'Foo.part', nameReference: 'absent' }],
+      new Map(), new Set(), new Map(), null, 'FooSD', new Map(),
+      (...args) => issues.push(args),
+    );
+
+    assert.deepEqual(issues, [['Foo.part', 'absent', null, 'FooSD']]);
+  });
+
+  it('does not let one definition\'s names resolve another definition\'s references', () => {
+    const references = new Map();
+    const issues = [];
+    // Two separate calls model two StructureDefinitions.
+    processElements(
+      [{ path: 'A.thing', name: 'thing' }],
+      new Map(), new Set(), new Map(), null, 'A', references,
+      (...args) => issues.push(args),
+    );
+    processElements(
+      [{ path: 'B.part', nameReference: 'thing' }],
+      new Map(), new Set(), new Map(), null, 'B', references,
+      (...args) => issues.push(args),
+    );
+
+    assert.equal(references.size, 0);
+    assert.deepEqual(issues, [['B.part', 'thing', null, 'B']]);
   });
 });

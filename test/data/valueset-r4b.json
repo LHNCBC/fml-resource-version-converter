@@ -1,0 +1,110 @@
+{
+  "resourceType": "ValueSet",
+  "id": "r4b-valueset",
+  "meta": {
+    "profile": [
+      "http://hl7.org/fhir/4.3/StructureDefinition/ValueSet"
+    ]
+  },
+  "url": "http://example.org/fhir/ValueSet/example-r4b",
+  "version": "1.0.0",
+  "name": "ExampleR4BValueSet",
+  "title": "Example R4B Value Set",
+  "status": "active",
+  "_status": {
+    "extension": [
+      {
+        "url": "http://example.org/fhir/StructureDefinition/status-note",
+        "valueString": "reviewed"
+      }
+    ]
+  },
+  "description": "A compact R4B ValueSet conversion fixture.",
+  "compose": {
+    "lockedDate": "2026-01-01",
+    "inactive": true,
+    "include": [
+      {
+        "id": "concepts",
+        "system": "http://example.org/fhir/CodeSystem/example",
+        "version": "1",
+        "concept": [
+          {
+            "code": "alpha",
+            "display": "Alpha",
+            "designation": [
+              {
+                "language": "en",
+                "use": {
+                  "system": "http://terminology.hl7.org/CodeSystem/designation-usage",
+                  "code": "display"
+                },
+                "value": "Alpha designation"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "system": "http://example.org/fhir/CodeSystem/example",
+        "filter": [
+          {
+            "property": "concept",
+            "op": "is-a",
+            "value": "root"
+          }
+        ],
+        "valueSet": [
+          "http://example.org/fhir/ValueSet/base"
+        ]
+      }
+    ],
+    "exclude": [
+      {
+        "system": "http://example.org/fhir/CodeSystem/example",
+        "concept": [
+          {
+            "code": "deprecated"
+          }
+        ]
+      }
+    ]
+  },
+  "expansion": {
+    "identifier": "urn:uuid:00000000-0000-0000-0000-000000000003",
+    "timestamp": "2026-01-02T03:04:05Z",
+    "total": 2,
+    "offset": 0,
+    "parameter": [
+      {
+        "name": "includeDesignations",
+        "valueBoolean": true
+      },
+      {
+        "name": "profile",
+        "valueUri": "http://example.org/fhir/Parameters/profile"
+      }
+    ],
+    "contains": [
+      {
+        "system": "http://example.org/fhir/CodeSystem/example",
+        "version": "1",
+        "code": "alpha",
+        "display": "Alpha",
+        "designation": [
+          {
+            "language": "en",
+            "value": "Alpha expansion designation"
+          }
+        ],
+        "contains": [
+          {
+            "system": "http://example.org/fhir/CodeSystem/example",
+            "code": "alpha-child",
+            "display": "Alpha Child"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -72,6 +72,7 @@ export function countArtifactItems(kind, data) {
     polyPaths: Object.keys(data.polyPaths).length,
     arrayPaths: data.arrayPaths.length,
     elementTypes: Object.keys(data.elementTypes).length,
+    contentReferences: Object.keys(data.contentReferences).length,
     resourceTypes: data.resourceTypes.length,
   };
 }

@@ -162,7 +162,7 @@ describe('converter/singleHopConverter', function () {
   });
 
   // -------- happy path -----------------------------------------------------
-  describe('single hop: Questionnaire R4 -> R5, no processors', function () {
+  describe('single hop: Questionnaire R4 -> R5', function () {
     let result;
 
     before(function () {
@@ -180,7 +180,8 @@ describe('converter/singleHopConverter', function () {
       assert.equal('hops' in result, false);
       assert.equal(typeof result.fml_base_conv, 'object');
       assert.equal('preprocessors' in result, false);
-      assert.equal('postprocessors' in result, false);
+      assert.equal(result.postprocessors.length, 1);
+      assert.equal(result.postprocessors[0].name, 'Questionnaire_R4_to_R5');
     });
 
     it('converts the resource', function () {
@@ -196,14 +197,74 @@ describe('converter/singleHopConverter', function () {
     it('describes the FML engine step in the result', function () {
       const fml = result.fml_base_conv;
       assert.equal(fml.name, '_FML_');
-      assert.equal(fml.coverage, COVERAGE.COMPLETE);
+      assert.equal(fml.coverage, COVERAGE.KNOWN_GAPS);
       assert.ok([STATUS.OK, STATUS.WARNING].includes(fml.status));
       assert.equal(Array.isArray(fml.messages), true);
       // Warning-invariant: if status is warning, at least one warning message.
       if (fml.status === STATUS.WARNING) {
         assert.ok(fml.messages.some(m => m.type === MESSAGE_TYPE.WARNING));
       }
-      assert.equal('postprocessors' in result, false);
+      assert.equal(result.postprocessors[0].coverage, COVERAGE.COMPLETE);
+    });
+  });
+
+  // -------- DSTU2 recursive backbone shape ---------------------------------
+  describe('single hop: Questionnaire R3 -> R2 recursive shape', function () {
+    // DSTU2 nests questionnaires as Questionnaire.group with a single root
+    // group (0..1) and repeating group/question below it. Both halves of that
+    // shape depend on schema metadata reached through DSTU2's nameReference
+    // spelling of a content reference, so this exercises the table build and
+    // the engine's cardinality handling together.
+    const deepR3 = {
+      resourceType: 'Questionnaire',
+      status: 'published',
+      item: [{
+        linkId: 'g1',
+        text: 'level 1',
+        type: 'group',
+        item: [{
+          linkId: 'g2',
+          text: 'level 2',
+          type: 'group',
+          item: [
+            { linkId: 'q3a', text: 'q3a at level 3', type: 'string' },
+            { linkId: 'q3b', text: 'q3b at level 3', type: 'string' },
+          ],
+        }],
+      }],
+    };
+
+    it('emits a single root group object, not an array', function () {
+      const { resource } = convert(deepR3, 'R3', 'R2');
+
+      assert.equal(Array.isArray(resource.group), false);
+      assert.equal(resource.group.linkId, 'g1');
+    });
+
+    it('keeps repeating groups and questions below the recursion point', function () {
+      const { resource } = convert(deepR3, 'R3', 'R2');
+      const level2 = resource.group.group;
+
+      assert.equal(Array.isArray(level2), true);
+      assert.equal(level2[0].linkId, 'g2');
+      assert.equal(Array.isArray(level2[0].question), true);
+      assert.deepEqual(level2[0].question.map(q => q.linkId), ['q3a', 'q3b']);
+    });
+
+    it('reports the loss when DSTU2 cannot hold every root group', function () {
+      const twoRoots = {
+        ...deepR3,
+        item: [
+          { linkId: 'g1', text: 'first', type: 'group' },
+          { linkId: 'g2', text: 'second', type: 'group' },
+        ],
+      };
+      const result = convert(twoRoots, 'R3', 'R2');
+      const text = result.fml_base_conv.messages.map(message => message.text).join('\n');
+
+      assert.equal(result.resource.group.linkId, 'g1');
+      assert.equal(result.status, STATUS.WARNING);
+      assert.match(text, /Questionnaire\.group accepts at most one value/);
     });
   });
 
@@ -367,10 +428,10 @@ describe('converter/singleHopConverter', function () {
       // The target passed in is the FML output.
       assert.equal(seenTarget.resourceType, 'Questionnaire');
 
-      assert.equal(result.postprocessors.length, 1);
-      assert.equal(result.postprocessors[0].name, 'stamper');
-      assert.equal(result.postprocessors[0].coverage, COVERAGE.COMPLETE);
-      assert.equal(result.postprocessors[0].status, STATUS.OK);
+      assert.equal(result.postprocessors.length, 2);
+      const report = result.postprocessors.find(processor => processor.name === 'stamper');
+      assert.equal(report.coverage, COVERAGE.COMPLETE);
+      assert.equal(report.status, STATUS.OK);
 
       // Hop coverage rolls up to complete (postproc's coverage).
       assert.equal(result.coverage, COVERAGE.COMPLETE);
@@ -386,7 +447,10 @@ describe('converter/singleHopConverter', function () {
         },
       };
       const result = convert(r4Questionnaire, 'R4', 'R5', { postproc: [post] });
-      assert.equal(result.postprocessors[0].coverage, COVERAGE.NEUTRAL);
+      assert.equal(
+        result.postprocessors.find(processor => processor.name === 'noCoverage').coverage,
+        COVERAGE.NEUTRAL,
+      );
     });
   });
 
@@ -428,7 +492,8 @@ describe('converter/singleHopConverter', function () {
         execute: t => ({ resource: { ...t, language: 'de' }, status: STATUS.OK }),
       };
       const result = convert(r4Questionnaire, 'R4', 'R5', { postproc: [post] });
-      assert.equal(result.postprocessors.length, 1);
+      assert.equal(result.postprocessors.length, 2);
+      assert.equal(result.postprocessors.some(processor => processor.name === 'tag'), true);
       assert.equal(result.resource.language, 'de');
     });
   });

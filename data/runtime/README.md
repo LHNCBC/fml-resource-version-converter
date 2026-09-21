@@ -31,6 +31,11 @@ official HL7 FHIR publications. They contain:
   JSON field must be an array.
 - `elementTypes`, used to select shared type-conversion groups when source and
   target element types differ.
+- `contentReferences`, used to find the definitions of elements a
+  StructureDefinition describes only once and then reuses, such as the nested
+  items of a `Questionnaire`. DSTU2 spells these `nameReference` and later
+  versions spell them `contentReference`; both are normalized into this one
+  table.
 - `resourceTypes`, used to distinguish resources from datatypes when applying
   `create()` rules.
 

@@ -1,0 +1,93 @@
+{
+  "resourceType": "CodeSystem",
+  "id": "r4b-codesystem",
+  "url": "http://example.org/fhir/CodeSystem/r4b-example",
+  "identifier": [
+    {
+      "system": "urn:ietf:rfc:3986",
+      "value": "urn:oid:2.16.840.1.113883.4.642.4.1001"
+    }
+  ],
+  "version": "1.4.3",
+  "name": "R4BExampleCodeSystem",
+  "title": "R4B Example Code System",
+  "status": "active",
+  "_status": {
+    "extension": [
+      {
+        "url": "http://example.org/fhir/StructureDefinition/status-note",
+        "valueString": "Companion metadata on a primitive."
+      }
+    ]
+  },
+  "experimental": false,
+  "date": "2026-01-15",
+  "publisher": "Example Publisher",
+  "description": "A representative R4B code system used for conversion tests.",
+  "jurisdiction": [
+    {
+      "coding": [
+        {
+          "system": "urn:iso:std:iso:3166",
+          "code": "US"
+        }
+      ]
+    }
+  ],
+  "caseSensitive": true,
+  "valueSet": "http://example.org/fhir/ValueSet/r4b-example",
+  "hierarchyMeaning": "is-a",
+  "content": "complete",
+  "count": 2,
+  "filter": [
+    {
+      "code": "concept",
+      "description": "Filter on concept subsumption.",
+      "operator": ["is-a", "descendent-of", "is-not-a", "generalizes"],
+      "value": "A code from this code system."
+    },
+    {
+      "code": "display",
+      "description": "Filter on the display string.",
+      "operator": ["=", "regex", "in", "not-in", "exists"],
+      "value": "A display value."
+    }
+  ],
+  "property": [
+    {
+      "code": "status",
+      "uri": "http://example.org/fhir/CodeSystem/r4b-example/property/status",
+      "description": "Concept lifecycle status.",
+      "type": "code"
+    }
+  ],
+  "concept": [
+    {
+      "code": "alpha",
+      "display": "Alpha",
+      "definition": "The first concept.",
+      "designation": [
+        {
+          "language": "nl",
+          "use": {
+            "system": "http://terminology.hl7.org/CodeSystem/designation-usage",
+            "code": "display"
+          },
+          "value": "Alfa"
+        }
+      ],
+      "property": [
+        {
+          "code": "status",
+          "valueCode": "active"
+        }
+      ],
+      "concept": [
+        {
+          "code": "alpha-1",
+          "display": "Alpha One"
+        }
+      ]
+    }
+  ]
+}

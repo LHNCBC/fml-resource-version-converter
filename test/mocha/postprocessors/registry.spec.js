@@ -35,8 +35,10 @@ describe('postprocessors/registry', function () {
 
     it('returns the reviewed coverage for a registered resource type', function () {
       const entry = registry.lookup('Questionnaire', 'R4', 'R5');
-      assert.equal(entry.fml.coverage, COVERAGE.COMPLETE);
-      assert.deepEqual(entry.processors, []);
+      assert.equal(entry.fml.coverage, COVERAGE.KNOWN_GAPS);
+      assert.equal(entry.processors.length, 1);
+      assert.equal(entry.processors[0].name, 'Questionnaire_R4_to_R5');
+      assert.equal(entry.processors[0].coverage, COVERAGE.COMPLETE);
     });
 
     it('returns a fresh copy each call (mutation-safe)', function () {

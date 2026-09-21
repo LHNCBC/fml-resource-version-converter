@@ -28,6 +28,7 @@ function tablePayload() {
     polyPaths: { 'Observation.value': ['Quantity', 'string'] },
     arrayPaths: ['Patient.name'],
     elementTypes: { 'Patient.gender': 'code' },
+    contentReferences: { 'Questionnaire.item.item': 'Questionnaire.item' },
     resourceTypes: ['Observation', 'Patient'],
   };
 }

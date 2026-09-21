@@ -45,7 +45,7 @@ describe('converter/runHop', function () {
     });
   });
 
-  describe('basic hop (Questionnaire R4 -> R5, no processors)', function () {
+  describe('basic hop (Questionnaire R4 -> R5)', function () {
     let out;
     before(function () { out = runHop(q(), 'R4', 'R5'); });
 
@@ -55,15 +55,17 @@ describe('converter/runHop', function () {
       assert.ok([STATUS.OK, STATUS.WARNING].includes(out.status));
     });
 
-    it('produces a fragment with the _FML_ report and no processor arrays', function () {
+    it('produces a fragment with the _FML_ and registry-postprocessor reports', function () {
       assert.deepEqual(Object.keys(out.fragment).filter(k => k !== 'fml_base_conv'),
-        ['fromVer', 'toVer']);
+        ['fromVer', 'toVer', 'postprocessors']);
       assert.equal(out.fragment.fromVer, 'R4');
       assert.equal(out.fragment.toVer, 'R5');
       assert.equal(out.fragment.fml_base_conv.name, '_FML_');
-      assert.equal(out.fragment.fml_base_conv.coverage, COVERAGE.COMPLETE);
+      assert.equal(out.fragment.fml_base_conv.coverage, COVERAGE.KNOWN_GAPS);
       assert.equal('preprocessors' in out.fragment, false);
-      assert.equal('postprocessors' in out.fragment, false);
+      assert.equal(out.fragment.postprocessors.length, 1);
+      assert.equal(out.fragment.postprocessors[0].name, 'Questionnaire_R4_to_R5');
+      assert.equal(out.fragment.postprocessors[0].coverage, COVERAGE.COMPLETE);
     });
   });
 
@@ -138,8 +140,11 @@ describe('converter/runHop', function () {
       // sourceResource is the FML input (post-preproc).
       assert.equal(seenCtx.sourceResource.language, 'fr');
       assert.equal(seenCtx.fromVer, 'R4');
-      assert.equal(out.fragment.postprocessors.length, 1);
-      assert.equal(out.fragment.postprocessors[0].coverage, COVERAGE.COMPLETE);
+      assert.equal(out.fragment.postprocessors.length, 2);
+      assert.equal(
+        out.fragment.postprocessors.find(processor => processor.name === 'stamp').coverage,
+        COVERAGE.COMPLETE,
+      );
       assert.equal(out.resource.language, 'de');
     });
 
@@ -148,7 +153,10 @@ describe('converter/runHop', function () {
       const out = runHop(q(), 'R4', 'R5', {
         postLookup: postLookupFor('Questionnaire', 'R4', 'R5', { processors: [post] }),
       });
-      assert.equal(out.fragment.postprocessors[0].coverage, COVERAGE.NEUTRAL);
+      assert.equal(
+        out.fragment.postprocessors.find(processor => processor.name === 'noCov').coverage,
+        COVERAGE.NEUTRAL,
+      );
     });
   });
 

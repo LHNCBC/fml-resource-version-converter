@@ -3,6 +3,68 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
+## [0.4.0] - 2026-09-21
+
+### Added
+
+- Completed the onboarding (review/postprocessors) for:
+  - Binary: R2 <-> R3, R3 <-> R4, R4 <-> R5, and R4B <-> R5.
+  - CodeSystem: R3 <-> R4, R4 <-> R5, and R4B <-> R5.
+  - Library: R3 <-> R4, R4 <-> R5, and R4B <-> R5.
+  - ValueSet: R3 <-> R4, R4 <-> R5, and R4B <-> R5.
+- Added a few reusable functions, e.g., `removePrimitiveArrayEntries()`.
+- Added the browser-safe helper `randomUuid()` in `postprocessors/util/uuid.js`,
+  so postprocessors can generate a `urn:uuid:` identifier without Node built-ins.
+- `CONTRIBUTING.md` guidance on handling a target version that adds a constraint
+  the source does not have.
+
+### Fixed
+
+- Imported FML base groups now take precedence over the engine's compatibility
+  copiers during group inheritance for faithful FML mapping execution. The
+  R3/R4 Extension mappings now preserve the shared `valueMeta` choice in
+  ordinary extensions.
+- Target base-profile insertion now handles extension-only `meta.profile`
+  occurrences while keeping the parallel `profile` and `_profile` arrays
+  correctly aligned.
+- A `meta.profile` entry naming a base profile of a FHIR version other than the
+  hop's source or target is dropped, as before, but any `id` or extensions that
+  entry carried in `meta._profile` were dropped with it silently. That content
+  loss is now reported as a warning.
+- R4 -> R3 Questionnaire conversions now remove Reference-valued UsageContext
+  entries that STU3 cannot represent, preserving valid output and warning
+  about the lost applicability context.
+- R4 -> R5 Questionnaire conversion now repairs the two-`enableWhen` que-12
+  invariant gap without guessing `enableBehavior` semantics.
+- Questionnaire downgrades now warn when R5-only `versionAlgorithm[x]`,
+  `copyrightLabel`, or nested `item.disabledDisplay` content is dropped on the
+  way to R4/R4B, and when R4 `derivedFrom` content is dropped on the way to R3.
+- FML engine schema metadata now resolves through StructureDefinition
+  `contentReference` paths, preserving typed polymorphic names, primitive
+  companions, scalar types, and cardinality below recursive backbone elements
+  such as nested `Questionnaire.item` nodes. DSTU2 predates
+  `contentReference` and expresses the same relationship as `nameReference`;
+  both spellings are now derived into the same runtime table, so DSTU2
+  resolves recursive elements such as nested `Questionnaire.group` nodes too.
+- The FML engine now honors a single-valued (`max = 1`) target element when a
+  repeating source element maps onto it. Previously the converted resource
+  could carry a JSON array in a field the target version defines as a single
+  value, for example `Questionnaire.group` when converting R3 -> R2. The first
+  value is kept and any dropped values are reported.
+- An FML rule whose repeating source feeds several independent targets, such as
+  `src.items where (...) -> tgt.first, tgt.second`, now fills every target
+  instead of only the first. Each target gets its own values, primitive
+  companions, default-group selection, polymorphic name, and cardinality
+  enforcement, while the source `where`, `check`, and `log` clauses are still
+  evaluated once per source item.
+- R4 -> R3 conversions no longer leave an R4 `Meta.source` on a reconstructed
+  `Extension.valueMeta`, where a warning already reported it as dropped.
+- R4 -> R3 conversions now remove an Extension left with neither a `value[x]`
+  nor a nested extension, which would violate STU3 invariant `ext-1`. An element
+  emptied by that removal is marked `data-absent-reason: unsupported`.
+- R4 -> R3 `Library` conversions now discard extensions whose `value[x]` type
+  STU3 does not define, with a warning, instead of emitting it unchanged.
+
 ## [0.3.0] - 2026-09-08
 
 ### Added

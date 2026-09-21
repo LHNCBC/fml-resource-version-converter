@@ -10,7 +10,7 @@ modules decode and validate those envelopes synchronously.
 - artifact envelope schema version 1;
 - manifest schema version 2, with independent FML and FHIR component sections;
 - FML mappings payload schema version 1;
-- FHIR table payload schema version 1;
+- FHIR table payload schema version 2;
 - assembled runtime data schema version 1.
 
 The artifact SHA-256 value covers the UTF-8 bytes of the canonical uncompressed

@@ -1,0 +1,149 @@
+{
+  "resourceType": "CodeSystem",
+  "id": "r4-codesystem",
+  "url": "http://example.org/fhir/CodeSystem/r4-example",
+  "identifier": [
+    {
+      "system": "urn:ietf:rfc:3986",
+      "value": "urn:oid:2.16.840.1.113883.4.642.4.1000"
+    }
+  ],
+  "version": "1.4.0",
+  "name": "R4ExampleCodeSystem",
+  "title": "R4 Example Code System",
+  "status": "active",
+  "_status": {
+    "extension": [
+      {
+        "url": "http://example.org/fhir/StructureDefinition/status-note",
+        "valueString": "Companion metadata on a primitive."
+      }
+    ]
+  },
+  "experimental": false,
+  "date": "2026-01-15",
+  "publisher": "Example Publisher",
+  "contact": [
+    {
+      "name": "Example Contact",
+      "telecom": [
+        {
+          "system": "email",
+          "value": "example@example.org"
+        }
+      ]
+    }
+  ],
+  "description": "A representative R4 code system used for conversion tests.",
+  "useContext": [
+    {
+      "code": {
+        "system": "http://terminology.hl7.org/CodeSystem/usage-context-type",
+        "code": "focus"
+      },
+      "valueCodeableConcept": {
+        "text": "Conversion testing"
+      }
+    }
+  ],
+  "jurisdiction": [
+    {
+      "coding": [
+        {
+          "system": "urn:iso:std:iso:3166",
+          "code": "US"
+        }
+      ]
+    }
+  ],
+  "purpose": "Exercise every CodeSystem element shared by R4 and R5.",
+  "copyright": "Example.org 2026",
+  "caseSensitive": true,
+  "valueSet": "http://example.org/fhir/ValueSet/r4-example",
+  "hierarchyMeaning": "is-a",
+  "compositional": false,
+  "versionNeeded": false,
+  "content": "complete",
+  "count": 3,
+  "filter": [
+    {
+      "code": "concept",
+      "description": "Filter on concept subsumption.",
+      "operator": ["is-a", "descendent-of", "is-not-a", "generalizes"],
+      "value": "A code from this code system."
+    },
+    {
+      "code": "display",
+      "description": "Filter on the display string.",
+      "operator": ["=", "regex", "in", "not-in", "exists"],
+      "value": "A display value."
+    }
+  ],
+  "property": [
+    {
+      "code": "status",
+      "uri": "http://example.org/fhir/CodeSystem/r4-example/property/status",
+      "description": "Concept lifecycle status.",
+      "type": "code"
+    },
+    {
+      "code": "weight",
+      "description": "Relative weight.",
+      "type": "decimal"
+    },
+    {
+      "code": "retired",
+      "description": "Whether the concept is retired.",
+      "type": "boolean"
+    }
+  ],
+  "concept": [
+    {
+      "code": "alpha",
+      "display": "Alpha",
+      "definition": "The first concept.",
+      "designation": [
+        {
+          "language": "nl",
+          "use": {
+            "system": "http://terminology.hl7.org/CodeSystem/designation-usage",
+            "code": "display"
+          },
+          "value": "Alfa"
+        }
+      ],
+      "property": [
+        {
+          "code": "status",
+          "valueCode": "active"
+        },
+        {
+          "code": "weight",
+          "valueDecimal": 1.5
+        },
+        {
+          "code": "retired",
+          "valueBoolean": false
+        }
+      ],
+      "concept": [
+        {
+          "code": "alpha-1",
+          "display": "Alpha One",
+          "definition": "A concept nested one level below alpha.",
+          "designation": [
+            {
+              "language": "nl",
+              "value": "Alfa een"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "code": "beta",
+      "display": "Beta",
+      "definition": "The second concept."
+    }
+  ]
+}

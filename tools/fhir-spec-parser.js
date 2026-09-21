@@ -6,6 +6,20 @@
  * extracts only the two bundle paths declared by the source dataset. It does
  * not create a persistent intermediate directory.
  *
+ * A single pass over the StructureDefinitions derives four sibling sub-tables,
+ * all keyed by FHIR dotted path: polyPaths, arrayPaths, elementTypes, and
+ * contentReferences. Deriving them together keeps the cost at one archive read
+ * per version and stops the tables drifting apart in their reading of the
+ * source data.
+ *
+ * contentReferences maps a path whose child definitions are supplied by another
+ * element of the same StructureDefinition to that referenced path (for example
+ * "Questionnaire.item.item" -> "Questionnaire.item"). The FML engine uses it to
+ * resolve schema metadata below recursive backbone elements. DSTU2 predates the
+ * `contentReference` element and expresses the same idea as `nameReference`
+ * (a pointer to another element's `name`); both spellings are normalized into
+ * this one table, so the table is populated for every supported version.
+ *
  * @module tools/fhir-spec-parser
  */
 
@@ -119,11 +133,13 @@ export async function parseFhirSpecArchive({ tableVersion, archiveFile, bundlePa
   const arrayPaths = new Set();
   const elementTypes = new Map();
   const resourceTypes = new Set();
+  const contentReferences = new Map();
   const stats = {
     structureDefinitions: 0,
     skippedStructureDefinitions: 0,
     elements: 0,
     missingTypeCodes: 0,
+    contentReferenceIssues: 0,
   };
 
   for (const entry of entries) {
@@ -160,6 +176,8 @@ export async function parseFhirSpecArchive({ tableVersion, archiveFile, bundlePa
         elementTypes,
         () => stats.missingTypeCodes++,
         definition.id || definition.name || '(unknown)',
+        contentReferences,
+        () => stats.contentReferenceIssues++,
       );
     }
   }
@@ -172,6 +190,10 @@ export async function parseFhirSpecArchive({ tableVersion, archiveFile, bundlePa
   for (const key of [...elementTypes.keys()].sort()) {
     elementTypesObject[key] = elementTypes.get(key);
   }
+  const contentReferencesObject = {};
+  for (const key of [...contentReferences.keys()].sort()) {
+    contentReferencesObject[key] = contentReferences.get(key);
+  }
 
   return Object.freeze({
     data: Object.freeze({
@@ -179,6 +201,7 @@ export async function parseFhirSpecArchive({ tableVersion, archiveFile, bundlePa
       polyPaths: polyPathsObject,
       arrayPaths: [...arrayPaths].sort(),
       elementTypes: elementTypesObject,
+      contentReferences: contentReferencesObject,
       resourceTypes: [...resourceTypes].sort(),
     }),
     sha256: opened.sha256,

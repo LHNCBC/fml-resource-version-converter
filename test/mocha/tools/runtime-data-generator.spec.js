@@ -290,7 +290,8 @@ describe('tools/runtime-data-generator', function () {
     assert.equal(manifest.components.fhirTables.sources.length, 5);
 
     const fmlSource = manifest.components.fmlMappings.sources[0];
-    assert.equal(fmlSource.modifiedFromUpstream, false);
+    assert.equal(fmlSource.modifiedFromUpstream, true);
+    assert.match(fmlSource.modifications, /Meta-valued Extension rules/);
     assert.equal(fmlSource.sha256, hashTree(path.join(FML_DATASET_ROOT, 'input')));
     for (const source of manifest.components.fhirTables.sources) {
       assert.match(source.sha256, /^[a-f0-9]{64}$/);

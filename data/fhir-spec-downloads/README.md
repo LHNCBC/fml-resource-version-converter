@@ -15,8 +15,8 @@ data/fhir-spec-downloads/
   <archive paths declared by sources.yaml>
 ```
 
-No extraction is needed; the build script reads the bundles straight out
-of the zips. Disk usage: about 125MB once populated.
+The build script reads the bundles straight out of the zip archives. Disk usage
+for the archives is about 125MB once populated.
 
 ## How to populate
 

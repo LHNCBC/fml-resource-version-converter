@@ -15,7 +15,7 @@ export const SCHEMA_VERSION = Object.freeze({
   ARTIFACT: 1,
   MANIFEST: 2,
   FML_MAPPINGS: 1,
-  FHIR_TABLE: 1,
+  FHIR_TABLE: 2,
   RUNTIME_DATA: 1,
 });
 
@@ -645,6 +645,7 @@ export function validateFhirTablePayload(value, identity = '<unknown>') {
     'polyPaths',
     'arrayPaths',
     'elementTypes',
+    'contentReferences',
     'resourceTypes',
   ], [], label, '$.data');
   requireSchemaVersion(
@@ -669,6 +670,7 @@ export function validateFhirTablePayload(value, identity = '<unknown>') {
 
   requireUniqueStrings(value.arrayPaths, label, '$.data.arrayPaths', { sorted: true });
   validateStringMap(value.elementTypes, label, '$.data.elementTypes');
+  validateStringMap(value.contentReferences, label, '$.data.contentReferences');
   requireUniqueStrings(value.resourceTypes, label, '$.data.resourceTypes', { sorted: true });
 
   return value;

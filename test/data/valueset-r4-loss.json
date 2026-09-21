@@ -1,0 +1,66 @@
+{
+  "resourceType": "ValueSet",
+  "id": "r4-valueset-loss",
+  "url": "http://example.org/fhir/ValueSet/r4-loss",
+  "version": "2.0.0",
+  "name": "R4LossValueSet",
+  "status": "active",
+  "description": "An R4 ValueSet exercising the narrowings that STU3 cannot represent.",
+  "compose": {
+    "include": [
+      {
+        "system": "http://example.org/fhir/CodeSystem/example",
+        "filter": [
+          {
+            "property": "concept",
+            "op": "is-a",
+            "value": "  padded  code  "
+          },
+          {
+            "property": "concept",
+            "op": "descendent-of",
+            "value": "already-valid"
+          }
+        ],
+        "valueSet": [
+          "http://example.org/fhir/ValueSet/base|1.2.3",
+          "http://example.org/fhir/ValueSet/fragment|1.2#part",
+          "http://example.org/fhir/ValueSet/unversioned"
+        ]
+      }
+    ],
+    "exclude": [
+      {
+        "system": "http://example.org/fhir/CodeSystem/example",
+        "filter": [
+          {
+            "property": "concept",
+            "op": "in",
+            "value": "trailing\t\tspace "
+          }
+        ]
+      }
+    ]
+  },
+  "expansion": {
+    "identifier": "urn:uuid:00000000-0000-0000-0000-000000000005",
+    "timestamp": "2026-01-02T03:04:05Z",
+    "parameter": [
+      {
+        "name": "expansionTime",
+        "valueDateTime": "2026-01-02T03:04:05Z"
+      },
+      {
+        "name": "limitedExpansion",
+        "valueBoolean": true
+      }
+    ],
+    "contains": [
+      {
+        "system": "http://example.org/fhir/CodeSystem/example",
+        "code": "alpha",
+        "display": "Alpha"
+      }
+    ]
+  }
+}

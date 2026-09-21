@@ -91,6 +91,7 @@ describe('tools/runtime-artifacts-lib', function () {
       polyPaths: {},
       arrayPaths: [],
       elementTypes: {},
+      contentReferences: {},
       resourceTypes: [],
     };
     const { envelope } = createArtifactEnvelope({

@@ -5,37 +5,32 @@ for converting FHIR resources between FHIR versions by leveraging HL7's
 FHIR cross-version FML (FHIR Mapping Language) mapping files.
 
 The HL7's fhir-cross-version project provides FML mapping files for
-converting FHIR resources between adjacent FHIR versions. In general,
-there is one FML mapping file for each (resource-type, from-version,
-to-version) triple. There are rare exceptions that are discussed in
-CONVERSION-AMBIGUITY.md. To simplify the discussion, we will assume
-that there is one FML mapping file for each (resource-type, from-version,
-to-version) triple.
+converting FHIR resources between adjacent FHIR versions. While there are
+rare exceptions (as documented in CONVERSION-AMBIGUITY.md), there is
+generally one FML mapping file for each **conversion triple** of
+(resource-type, from-version, to-version),
+where from-version and to-version are adjacent versions. Unless otherwise
+specified, this document assumes one FML mapping file per conversion triple.
 
-The base case conversion is to convert a resource of a given type from
-one version to the next adjacent version (in either direction) as
-represented by the triple (resource-type, from-version, to-version). We
-refer to this as a "conversion hop", or simply, a **hop**. A conversion
-between non-adjacent versions may be performed as a **chain** of hops.
+The base case conversion is to convert a resource of a given type from one
+version to the next adjacent version (in either direction), which we refer
+to as a "conversion hop", or simply, a **hop**. A conversion between
+non-adjacent versions may be performed as a **chain** of hops.
 
-A hop conversion starts with the **FML mapping file execution**, which handles
-most, and sometimes all data elements in the conversion. However, in many
-cases, there is still room to improve. Therefore, FML mapping needs to be
-**reviewed** and when needed, **postprocessors** may be created to improve the
-conversion.
+At the core of the package is an FML engine that executes the FML mappings
+to make the conversion. However, the mappings can often be incomplete or
+contain errors. This package provides a flexible framework for supporting
+incremental improvements:
+- registries for documenting FML mapping coverage and limitations
+- postprocessors may be added/contributed to this package to fill the gaps.
+- users may specify custom postprocessors to address any remaining concerns.
 
-Currently only the mappings for **Questionnaire** resources have been reviewed
-and postprocessors supplied where needed. However, the converter can still
-handle most of the data elements (via FML mapping), and you can pass in your
-postprocessor as needed to make the conversion complete.
-
-This project is designed as a general, extensible framework to support all
-FHIR resource types and versions for which FML mapping files exist.
-Postprocessors can be added incrementally and cleanly in future releases
-as the FML mappings are reviewed. The community is encouraged to contribute
-by reviewing the conversions for other resource types and by providing
-postprocessors as needed to make the conversions complete. Detailed
-instructions for contributing are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Please refer to COVERAGE.md for the current coverage status for specific
+conversions. The community is encouraged to help improve this package by
+reviewing the FML conversions and by providing postprocessors as needed
+to fill the gaps. It's relatively straightforward to address one conversion
+triple at a time. Detailed instructions for contributing are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 As a historical note, this project evolved from the now-deprecated
 [questionnaire-version-converter](https://github.com/LHNCBC/questionnaire-version-converter),
@@ -224,11 +219,12 @@ the following in mind:
   `--target-resource-type`) is supported only for a single hop.** Support for
   selecting targets within a multi-hop conversion may be added in a future
   release.
-- **Reviewed postprocessors are supplied only for Questionnaire** at this point.
-  Other resource types are converted by the FML mapping alone (see [COVERAGE.md](COVERAGE.md)),
-  and more postprocessors may be added in future releases. You certainly can
-  supply your own postprocessors as needed - and better yet, contribute
-  them back to the project.
+- **Reviewed conversions** currently only a limited set of conversions, that is,
+  (resource-type, from-version, to-version) triples, have been reviewed and have
+  postprocessors supplied where needed. For the rest, the conversions
+  are based on the FML mappings only. While most of the data elements (fields)
+  should have been handled by the FML mappings, the exact coverage status is
+  unknown. See [COVERAGE.md](COVERAGE.md) for details.
 - **A few FML language features are not yet implemented:** `let` constants and
   inline `conceptmap` declarations. Bundled mappings do not use them; the engine
   emits a warning if it sees one.
@@ -244,6 +240,36 @@ the following in mind:
   choosing between them requires clinical knowledge this converter does not
   have. See [CONVERSION-AMBIGUITY.md](CONVERSION-AMBIGUITY.md) for the full list
   of known mapping ambiguities.
+- Inter-version extension: in some cases the FML mappings add inter-version
+  extensions to the target resources, but it's not being done consistently
+  across versions and across resource types. At this point, this package
+  does not make a general statement on where things stand with regard to
+  inter-version extensions.
+- **Extensions on primitive companions are not yet converted.** No warning is
+  emitted, so the result may be invalid in the target version.
+  To be fixed in a future release.
+- **Some R4 -> R3 `Library` extensions keep source-version content.** This is due
+  to the postprocessor's incomplete repair of FML mapping issues; the remaining
+  content is kept without a warning. To be fixed in a future release.
+
+## Conversion notes
+
+Two behaviors are worth knowing before comparing input and output:
+
+- **`meta.profile` is version-adjusted.** A standard FHIR base profile of the
+  source version is rewritten to the target version, a base profile of any other
+  version is dropped, and, when no concrete profile value remains, the mapping's
+  declared target profile is added, for example
+  `http://hl7.org/fhir/3.0/StructureDefinition/Questionnaire`. Profiles of your
+  own are left untouched. Note that a converted resource therefore carries a
+  `meta.profile` even when the input had no `meta` at all, and that these
+  version-tagged canonicals come from HL7's cross-version mappings rather than
+  from the published specification of the target version.
+- **The bundled mappings carry recorded local changes.** The checked-in snapshot
+  of HL7's `fhir-cross-version` project is not always identical to its upstream
+  commit. Any difference is recorded in `data/fhir-cross-version/sources.yaml`
+  and is carried into the runtime data provenance, so the mappings this package
+  runs are always traceable.
 
 ## Understanding the result
 
@@ -276,6 +302,9 @@ The two most important fields are:
 - **status**: whether the conversion completed without warnings (**ok**) or with
   warnings (**warning**). Hard failures throw instead of returning a result.
 
+Runtime engine warnings are non-exhaustive.
+See [Scope and limitations of runtime engine warnings](CONTRIBUTING.md#scope-and-limitations-of-runtime-engine-warnings).
+
 Coverage is separate from runtime status. It describes the capability and
 completeness of the FML mapping and any related postprocessors.
 
@@ -300,6 +329,12 @@ The top-level `result.coverage` is normally one of the ordered levels:
 **not_reviewed**, **known_gaps**, **best_effort**, or **complete**.
 The **neutral** level is mostly seen on individual processor reports,
 especially for caller-provided processors.
+
+Specifically, inter-version extension is not a factor in determining the coverage
+level. A data element preserved solely via an inter-version extension is still
+considered "loss" for coverage purposes, because the target version's tools may
+not be able to interpret it.
+
 
 See [COVERAGE.md](COVERAGE.md) for the current coverage level report.
 
@@ -420,9 +455,9 @@ node bin/convert.js R4 R3 service-request-r4.json \
 ## Coverage and contributions
 
 Due to the sheer number of resource type and version pair combinations, this
-package is meant to grow incrementally: review one resource type and version
-pair at a time, add a postprocessor if needed, test, and then regenerate the
-coverage report. Contributions are welcome.
+package is meant to grow incrementally: review one conversion triple a time,
+add a postprocessor if needed, test, and then regenerate the coverage report.
+Contributions are welcome.
 
 See [COVERAGE.md](COVERAGE.md) for current coverage status.
 See [CONTRIBUTING.md](CONTRIBUTING.md) on how to contribute.

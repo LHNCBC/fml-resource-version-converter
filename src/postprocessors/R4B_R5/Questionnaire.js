@@ -28,9 +28,8 @@ export const conv_R5_to_R4B = {
   description:
     'Corrects Questionnaire item.type for R5->R4B (coding/answerConstraint -> '
     + 'choice/open-choice) from the R5 source, fixing the FML step\'s malformed '
-    + 'and over-widened narrowing. Reuses the R5->R4 transform. Does not handle '
-    + 'inter-version extensions.',
+    + 'and over-widened narrowing, and reports dropped R5-only content. Reuses '
+    + 'the R5->R4 transform. Does not handle inter-version extensions.',
 };
-
 
 

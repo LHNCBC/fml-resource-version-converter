@@ -27,8 +27,9 @@ Maintainer data commands - `download:fhir-specs`, `build:runtime-data`,
   - For FHIR specification investigation, extract only the needed ZIP entries
     into .scratch/AI/ and reuse them; do not repeatedly unzip the archives.
   - .scratch/human/: this is my area. You can read from here, but
-    DO NOT write/update anything there unless explicitly asked to.
-
+    DO NOT write/update anything there unless explicitly asked.
+- DO NOT show your own probe/scratch files in the "files changed" list unless
+  explicitly asked.
 - Check my instructions before execution to see if they make sense.
 - If, at any point, you feel that my instructions are off, please
   pause and confirm with me first.
@@ -36,8 +37,12 @@ Maintainer data commands - `download:fhir-specs`, `build:runtime-data`,
   "Completed" with a green checkmark or similar.
 
 ## Workflow
-- Questions: Answer, but do NOT make changes until instructed.
-- Tasks: Propose a plan, wait for approval, and then execute.
+- Questions: If I'm asking you a question, answer that question but do NOT make
+  changes until explicitly instructed.
+- Tasks: If I'm asking you to propose a plan, just respond with a proposal,
+  do NOT execute without explicit approval.
+- If I said 'go ahead and do ...', then you may execute the task and don't ask
+  for approval unless you see a reason to do so.
 - Edits: Use IDE editor tools (not from terminal) whenever
   possible to avoid causing content out of sync.
   Always prompt for my approval (keep/decline) for each change.
@@ -45,6 +50,7 @@ Maintainer data commands - `download:fhir-specs`, `build:runtime-data`,
 - New files: Propose before creating.
 - Destructive actions: Always ask before deleting or renaming files.
 - Context: Read relevant files before editing; don't guess.
+- Do NOT stage changes unless explicitly asked to do so.
 
 ## Code Style
 - Add JSDoc to functions
@@ -62,5 +68,7 @@ Maintainer data commands - `download:fhir-specs`, `build:runtime-data`,
 ## Special Notes
 - The FML engine code (under src/fml_base_conv) should execute the FML
   transformations faithfully, and that it does not need to, and should not,
-  implement any business logic or fixes that are specific to some resource
-  type(s). In other words, the engine should be absolutely pure.
+  implement any business logic or fixes for specific conversions. In other
+  words, the engine should be absolutely pure except in rare cases where
+  a "processing" covers a wide range of cases, for example, some specific
+  issue that is applicable to most resource types between two versions.

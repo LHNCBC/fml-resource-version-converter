@@ -348,6 +348,33 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       assert.ok(warnings.some(m => /\/X-006/.test(m.text) && /no STU3 equivalent/.test(m.text)));
     });
 
+    it('warns about Questionnaire.derivedFrom dropped by the FML', function () {
+      const warnings = result.postprocessors[0].messages
+        .filter(message => message.type === MESSAGE_TYPE.WARNING);
+
+      assert.ok(warnings.some(message =>
+        /Questionnaire\.derivedFrom/.test(message.text)
+        && /source content dropped/.test(message.text)));
+    });
+
+    it('removes a Reference-valued UsageContext that would be invalid in STU3', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        status: 'draft',
+        useContext: [{
+          code: { system: 'http://example.org/context', code: 'focus' },
+          valueReference: { reference: 'PlanDefinition/example' },
+        }],
+      };
+      const converted = singleHopConverter.convert(source, 'R4', 'R3');
+
+      assert.equal(converted.status, STATUS.WARNING);
+      assert.equal('useContext' in converted.resource, false);
+      assert.ok(converted.postprocessors[0].messages.some(message =>
+        message.type === MESSAGE_TYPE.WARNING
+        && /Questionnaire\.useContext\[0\]\.valueReference/.test(message.text)));
+    });
+
     it('does not inject a conversion provenance meta.tag', function () {
       const inputTags = (r4Questionnaire.meta?.tag ?? []).length;
       const outputTags = (result.resource.meta?.tag ?? []).length;
@@ -621,6 +648,37 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.INFO && /initialString/.test(m.text)));
     });
 
+    it('does not alias source structure into the converted resource', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'a', type: 'choice',
+          answerValueSet: 'http://example.org/ValueSet/vs',
+          _answerValueSet: { id: 'avs-id', extension: [{ url: 'http://x', valueCode: 'v' }] },
+          answerOption: [{
+            valueCoding: { code: 'c', display: 'Green' },
+            initialSelected: true,
+          }],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{ linkId: 'a', type: 'choice', option: [{ valueCoding: { code: 'c', display: 'Green' } }] }],
+      };
+      const res = run(target, source);
+      const item = res.resource.item[0];
+
+      // Complex value[x] copied by copyPrimitive.
+      assert.notEqual(item.initialCoding, source.item[0].answerOption[0].valueCoding);
+      item.initialCoding.display = 'mutated';
+      assert.equal(source.item[0].answerOption[0].valueCoding.display, 'Green');
+
+      // Primitive _companion copied by copyPrimitive.
+      assert.notEqual(item.options._reference, source.item[0]._answerValueSet);
+      item.options._reference.extension[0].valueCode = 'mutated';
+      assert.equal(source.item[0]._answerValueSet.extension[0].valueCode, 'v');
+    });
+
     it('carries initial[x] primitive id/extension when reducing to the first value', function () {
       const source = {
         resourceType: 'Questionnaire',
@@ -773,6 +831,62 @@ describe('postprocessors/R3_R4 Questionnaire R4 -> R3', function () {
       assert.deepEqual(res.resource.item[0].enableWhen, [{ question: 'q1', answerString: 's1' }]);
       assert.ok(!res.messages.some(m => /enableBehavior/.test(m.text)));
       assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /operator/.test(m.text)));
+    });
+
+    it('reports bare and extension-only derivedFrom content', function () {
+      const extension = { extension: [{ url: 'http://example.org/metadata', valueString: 'x' }] };
+      const bare = run(
+        { resourceType: 'Questionnaire' },
+        { resourceType: 'Questionnaire', derivedFrom: ['Questionnaire/base'] },
+      );
+      const extensionOnly = run(
+        { resourceType: 'Questionnaire' },
+        { resourceType: 'Questionnaire', _derivedFrom: [extension] },
+      );
+
+      assert.equal(bare.status, STATUS.WARNING);
+      assert.equal(extensionOnly.status, STATUS.WARNING);
+      assert.ok(bare.messages.some(message => /Questionnaire\.derivedFrom/.test(message.text)));
+      assert.ok(extensionOnly.messages.some(message => /Questionnaire\.derivedFrom/.test(message.text)));
+    });
+
+    it('does not treat an id-only derivedFrom companion as valid content', function () {
+      const res = run(
+        { resourceType: 'Questionnaire' },
+        { resourceType: 'Questionnaire', _derivedFrom: [{ id: 'invalid-alone' }] },
+      );
+
+      assert.equal(res.status, STATUS.OK);
+      assert.equal(res.messages.length, 0);
+    });
+
+    it('reports Meta.source loss and removes the extension it leaves invalid', function () {
+      const kept = {
+        url: 'http://example.org/fhir/StructureDefinition/kept',
+        valueString: 'kept',
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        extension: [{ url: 'http://example.org/fhir/StructureDefinition/meta-valued' }, kept],
+      };
+      const res = run(target, {
+        resourceType: 'Questionnaire',
+        meta: { source: 'http://example.org/source' },
+        extension: [
+          {
+            url: 'http://example.org/fhir/StructureDefinition/meta-valued',
+            valueMeta: { source: 'http://example.org/nested-source' },
+          },
+          kept,
+        ],
+      });
+      const text = res.messages.map(message => message.text).join('\n');
+
+      assert.equal(res.status, STATUS.WARNING);
+      assert.deepEqual(target.extension, [kept]);
+      assert.match(text, /meta\.source/);
+      assert.match(text, /extension\[0\]\.valueMeta\.source/);
+      assert.match(text, /Removed extension\[0\].*ext-1/s);
     });
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Tests for the Questionnaire R5 -> R4 postprocessor.
+ * Tests for the Questionnaire R4 <-> R5 postprocessors.
  */
 import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
@@ -7,7 +7,11 @@ import path from 'node:path';
 import { COVERAGE } from '../../../../src/converter/coverage.js';
 import { MESSAGE_TYPE, STATUS } from '../../../../src/converter/diagnostics.js';
 import { singleHopConverter } from '../../../../src/converter/singleHopConverter.js';
-import { conv_R5_to_R4 } from '../../../../src/postprocessors/R4_R5/Questionnaire.js';
+import {
+  conv_R4_to_R5,
+  conv_R5_to_R4,
+} from '../../../../src/postprocessors/R4_R5/Questionnaire.js';
+import { DATA_ABSENT_REASON_URL } from '../../../../src/postprocessors/util/elements.js';
 
 const TEST_DATA = path.resolve(import.meta.dirname, '../../../data');
 const r5Questionnaire = JSON.parse(
@@ -24,6 +28,100 @@ const r5Questionnaire = JSON.parse(
 function item(resource, linkId) {
   return resource.item.find(it => it.linkId === linkId);
 }
+
+
+describe('postprocessors/R4_R5 Questionnaire R4 -> R5', function () {
+  const source = {
+    resourceType: 'Questionnaire',
+    status: 'active',
+    item: [
+      { linkId: 'trigger', type: 'boolean' },
+      {
+        linkId: 'conditional',
+        type: 'string',
+        enableWhen: [
+          { question: 'trigger', operator: '=', answerBoolean: true },
+          { question: 'trigger', operator: '!=', answerBoolean: false },
+        ],
+      },
+    ],
+  };
+
+  it('repairs the two-condition que-12 gap through the conversion pipeline', function () {
+    const result = singleHopConverter.convert(source, 'R4', 'R5');
+    const conditional = item(result.resource, 'conditional');
+
+    assert.equal(result.coverage, COVERAGE.COMPLETE);
+    assert.equal(result.fml_base_conv.coverage, COVERAGE.KNOWN_GAPS);
+    assert.equal(result.postprocessors.length, 1);
+    assert.equal(result.postprocessors[0].name, 'Questionnaire_R4_to_R5');
+    assert.equal(result.postprocessors[0].coverage, COVERAGE.COMPLETE);
+    assert.equal(result.status, STATUS.WARNING);
+    assert.equal('enableBehavior' in conditional, false);
+    assert.deepEqual(conditional._enableBehavior, {
+      extension: [{ url: DATA_ABSENT_REASON_URL, valueCode: 'unknown' }],
+    });
+    assert.ok(result.postprocessors[0].messages.some(message =>
+      message.type === MESSAGE_TYPE.WARNING && /R5 requires enableBehavior/.test(message.text)));
+  });
+
+  describe('conv_R4_to_R5.execute (branch cases)', function () {
+    /**
+     * Run the postprocessor against an R5 target.
+     *
+     * @param {Object} target FML-converted R5 target resource.
+     * @returns {Object} The processor result.
+     */
+    function run(target) {
+      return conv_R4_to_R5.execute(target, { fromVer: 'R4', toVer: 'R5' });
+    }
+
+    it('repairs nested items recursively', function () {
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'group',
+          type: 'group',
+          item: [{
+            linkId: 'nested',
+            type: 'string',
+            enableWhen: [{ question: 'a' }, { question: 'b' }],
+          }],
+        }],
+      };
+      const result = run(target);
+
+      assert.equal(result.status, STATUS.WARNING);
+      assert.equal(
+        result.resource.item[0].item[0]._enableBehavior.extension[0].url,
+        DATA_ABSENT_REASON_URL,
+      );
+    });
+
+    it('leaves a value or extension-only enableBehavior unchanged', function () {
+      const companion = { extension: [{ url: 'http://example.org/behavior', valueCode: 'known' }] };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [
+          {
+            linkId: 'valued', type: 'string', enableBehavior: 'all',
+            enableWhen: [{ question: 'a' }, { question: 'b' }],
+          },
+          {
+            linkId: 'extension-only', type: 'string', _enableBehavior: companion,
+            enableWhen: [{ question: 'a' }, { question: 'b' }],
+          },
+        ],
+      };
+      const result = run(target);
+
+      assert.equal(result.status, STATUS.OK);
+      assert.equal(result.messages.length, 0);
+      assert.equal(result.resource.item[0].enableBehavior, 'all');
+      assert.deepEqual(result.resource.item[1]._enableBehavior, companion);
+    });
+  });
+});
 
 
 describe('postprocessors/R4_R5 Questionnaire R5 -> R4', function () {
@@ -77,6 +175,28 @@ describe('postprocessors/R4_R5 Questionnaire R5 -> R4', function () {
       const outputTags = (result.resource.meta?.tag ?? []).length;
       assert.equal(outputTags, inputTags);
     });
+
+    it('warns when the FML drops R5-only Questionnaire content', function () {
+      const source = {
+        resourceType: 'Questionnaire',
+        status: 'active',
+        versionAlgorithmString: 'semver',
+        copyrightLabel: 'Example copyright',
+        item: [{ linkId: 'a', type: 'string', disabledDisplay: 'hidden' }],
+      };
+      const converted = singleHopConverter.convert(source, 'R5', 'R4');
+      const messages = converted.postprocessors[0].messages
+        .map(message => message.text)
+        .join('\n');
+
+      assert.equal(converted.status, STATUS.WARNING);
+      assert.equal('versionAlgorithmString' in converted.resource, false);
+      assert.equal('copyrightLabel' in converted.resource, false);
+      assert.equal('disabledDisplay' in converted.resource.item[0], false);
+      assert.match(messages, /Questionnaire\.versionAlgorithm\[x\]/);
+      assert.match(messages, /Questionnaire\.copyrightLabel/);
+      assert.match(messages, /Questionnaire\.item\.disabledDisplay/);
+    });
   });
 
   // -------- direct unit coverage of the branch cases -----------------------
@@ -111,7 +231,10 @@ describe('postprocessors/R4_R5 Questionnaire R5 -> R4', function () {
       assert.equal(res.resource.item[0].type, 'open-choice');
       assert.equal('answerConstraint' in res.resource.item[0], false);
       assert.equal(res.status, STATUS.WARNING);
-      assert.ok(res.messages.some(m => m.type === MESSAGE_TYPE.WARNING && /optionsOrType/.test(m.text)));
+      assert.ok(res.messages.some(m =>
+        m.type === MESSAGE_TYPE.WARNING
+        && /optionsOrType/.test(m.text)
+        && /R5 allows any coding but R4 open-choice/.test(m.text)));
     });
 
     it('recurses into nested items', function () {
@@ -132,6 +255,34 @@ describe('postprocessors/R4_R5 Questionnaire R5 -> R4', function () {
       const res = run(target, source);
       assert.equal(res.resource.item[0].item[0].type, 'choice');
     });
+
+    it('reports extension-only R5 fields, including a nested disabledDisplay', function () {
+      const extension = { extension: [{ url: 'http://example.org/metadata', valueString: 'x' }] };
+      const source = {
+        resourceType: 'Questionnaire',
+        _versionAlgorithmString: extension,
+        _copyrightLabel: extension,
+        item: [{
+          linkId: 'group',
+          type: 'group',
+          item: [{ linkId: 'nested', type: 'string', _disabledDisplay: extension }],
+        }],
+      };
+      const target = {
+        resourceType: 'Questionnaire',
+        item: [{
+          linkId: 'group',
+          type: 'group',
+          item: [{ linkId: 'nested', type: 'string' }],
+        }],
+      };
+      const res = run(target, source);
+      const text = res.messages.map(message => message.text).join('\n');
+
+      assert.equal(res.status, STATUS.WARNING);
+      assert.match(text, /Questionnaire\.versionAlgorithm\[x\]/);
+      assert.match(text, /Questionnaire\.copyrightLabel/);
+      assert.match(text, /Questionnaire\.item\.disabledDisplay/);
+    });
   });
 });
-

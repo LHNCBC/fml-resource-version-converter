@@ -38,6 +38,7 @@ group Extension(source src : ExtensionR3, target tgt : Extension) extends Elemen
   src.value : Duration as vs -> tgt.value = create('Duration') as vt then Duration(vs, vt) "valueDuration";
   src.value : HumanName as vs -> tgt.value = create('HumanName') as vt then HumanName(vs, vt) "valueHumanName";
   src.value : Identifier as vs -> tgt.value = create('Identifier') as vt then Identifier(vs, vt) "valueIdentifier";
+  src.value : Meta as vs -> tgt.value = create('Meta') as vt then Meta(vs, vt) "valueMeta";
   src.value : Money as vs -> tgt.value = create('Money') as vt then Money(vs, vt) "valueMoney";
   src.value : Period as vs -> tgt.value = create('Period') as vt then Period(vs, vt) "valuePeriod";
   src.value : Quantity as vs -> tgt.value = create('Quantity') as vt then Quantity(vs, vt) "valueQuantity";
