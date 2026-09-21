@@ -561,7 +561,48 @@ import {
 } from '@lhncbc/fml-resource-version-converter/fml-engine';
 ```
 
-`createFmlEngineFactory()` takes no arguments.
+For one direct conversion:
+
+```js
+const input = {
+  resourceType: 'Patient',
+  active: true,
+  name: [{ family: 'Smith', given: ['Jane'] }],
+};
+
+const factory = createFmlEngineFactory();
+
+if (!factory.hasMapping(input.resourceType, 'R4', 'R5')) {
+  throw new Error('No direct mapping is available');
+}
+
+const warnings = [];
+const engine = factory.createEngine(input.resourceType, 'R4', 'R5', {
+  onWarning: message => warnings.push(message),
+});
+
+const output = engine.convert({ input }).resource;
+```
+
+- `createFmlEngineFactory()` takes no arguments and returns a factory for the
+  bundled mappings.
+- `factory.hasMapping(resourceType, fromVer, toVer)` checks whether a direct
+  mapping is available.
+- `factory.resolveMapping(resourceType, fromVer, toVer, options)` returns the
+  selected mapping definition.
+- `factory.createEngine(resourceType, fromVer, toVer, options)` creates an
+  engine for one adjacent hop. Its optional `options` include:
+  - `onWarning(message)`: receives warning diagnostic text.
+  - `onInfo(message)`: receives informational diagnostic text.
+  - `targetResourceType`: selects the target resource type when the source
+    mapping is ambiguous.
+- `engine.convert({ input })` returns `{ resource }`; `output` above is that
+  converted FHIR resource (for example, `{ resourceType: 'Patient', ... }`),
+  not a conversion report.
+
+This API runs FML mappings only: it does not run package postprocessors or
+produce the high-level coverage/status report. For a multi-hop conversion,
+call an engine for each hop from `planHops()`.
 
 There is also a lower-level experimental CLI at
 `src/fml_base_conv/convert_cli.js` for engine-level testing.
