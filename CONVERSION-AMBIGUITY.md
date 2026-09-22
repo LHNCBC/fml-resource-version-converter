@@ -45,7 +45,7 @@ may be added in the future.
 
 Contained resources are converted automatically, but `targetResourceType`
 cannot currently select their targets; an ambiguous contained mapping therefore
-fails. Bundle entry resources are not recursively converted.
+fails. Bundle entry resources are not recursively converted at this point.
 
 **Type B is deferred** until there is a demonstrated need. Resolving it would
 require a further selector naming a specific mapping file, which would become
