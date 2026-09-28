@@ -7,11 +7,18 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 ### Added
 
-- Public converters now convert every resource in `contained[]` along with its
-  parent.
+- Public converters now convert every unambiguously mappable resource in
+  `contained[]` along with its parent. `targetResourceType` still applies only
+  to the primary resource, so an ambiguous child mapping fails.
 
 ### Changed
 
+- Contained-resource conversion is a behavioral breaking change for existing
+  callers:
+  - contained resources in the result are now converted.
+  - a warning from any child conversion can change the top-level `status` to
+    `warning`; and
+  - previously succeeded conversions now throw if a child conversion throws.
 - `result.coverage` now reports effective coverage across every resource-hop
   conversion performed, including contained resources. This is a behavioral
   breaking change: a result's coverage can be lower than in previous releases

@@ -307,6 +307,14 @@ export function createRunHop(converterContext) {
     if (checkCoverage) assertNonDecreasingCoverage(fmlCoverage, postprocessors);
 
     // ---- 4. FML engine, capturing diagnostics -----------------------------
+    // Performance note: every resource-hop compiles its own engine, so a parent
+    // with many contained children of the same resource type and direction
+    // recompiles the same mapping repeatedly. Caching compiled mapping
+    // templates by (resourceType, fromVer, toVer, targetResourceType) would
+    // remove that cost. The diagnostic callbacks below are bound at engine
+    // creation and must stay per-hop, so any cache belongs at the
+    // factory/template level, not in a reused engine instance.
+    // Engine sharing to be implemented in the future.
     const fmlMessages = [];
     const engine = engineFactory.createEngine(resourceType, fromVer, toVer, {
       targetResourceType: mapping.targetResourceType,

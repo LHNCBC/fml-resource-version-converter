@@ -213,6 +213,12 @@ export function createRuntimeFmlEngineFactory(selection) {
     /**
      * Compile one selected resource mapping into an engine.
      *
+     * Each call compiles the mapping again, so repeated hops for the same
+     * resource type and direction (for example, a parent's contained children)
+     * repeat that work. A compiled-template cache keyed by the mapping and
+     * direction would avoid it, while diagnostic callbacks stay per-engine.
+     * Engine sharing to be implemented in the future.
+     *
      * @param {string} resourceType Source resource type.
      * @param {string} fromVer Source version.
      * @param {string} toVer Target version.
