@@ -227,7 +227,7 @@ synchronization rule on the next hop.
 
 ## Limitations
 
-The converter currently focuses on top-level resource conversion. Please keep
+The converter converts a resource and its contained resources. Please keep
 the following in mind:
 
 - **Bundle entry resources are not yet converted.** The bundle resource itself
@@ -339,10 +339,11 @@ On the subject of conversion completeness, there are three key concepts:
 declared coverage, effective coverage, and runtime status.
 
 **Declared coverage:** A static, input-independent completeness claim made by
-the author for an FML mapping or postprocessor. It only applies to the primary
-resource type (without considering the contained resources or bundle entry
-resources) in a single hop. It describes general conversion capabilities
-regardless of a particular invocation.
+the reviewer (maintainer/contributor) for an FML mapping or postprocessor.
+It only applies to the primary resource being converted in one resource-hop
+without considering its contained resources or bundle entry resources. It
+describes general conversion capabilities and not the outcome of particular
+invocations.
 
 - For contributors: when adding a postprocessor to the registry, use
   `assertDeclaredCoverage()`. It verifies the descriptor's declared coverage,
@@ -360,7 +361,7 @@ runtime execution status. There are two types of coverage aggregations:
 - Within one primary resource-hop, effective coverage is the last non-neutral coverage declaration in this
   sequence: the FML declaration, followed by the declarations of the ordered
   postprocessors. By default, a postprocessor may improve the running coverage
-  but may not lower it. 
+  but may not lower it.
 - Across separate resource-hop conversions, effective
   coverage is the lowest resource-hop coverage. The aggregation includes every
   resource-hop conversion performed: each primary or child resource converted
@@ -603,6 +604,11 @@ const output = engine.convert({ input }).resource;
 This API runs FML mappings only: it does not run package postprocessors or
 produce the high-level coverage/status report. For a multi-hop conversion,
 call an engine for each hop from `planHops()`.
+
+The engine also converts only the resource it is given. Nested resource
+instances, including `contained[]` entries, are copied as data and are not
+version-converted. Contained-resource conversion is performed by the public
+converters, not at the engine level.
 
 There is also a lower-level experimental CLI at
 `src/fml_base_conv/convert_cli.js` for engine-level testing.

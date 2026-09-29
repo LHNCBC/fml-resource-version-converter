@@ -153,7 +153,7 @@ function buildDocument() {
     + 'the supported adjacent FHIR version pairs.',
     '',
   );
-  out.push('A conversion runs in up to three steps:', '');
+  out.push('Each resource-hop runs in the following steps:', '');
   out.push(
     '- **Preprocessing** (optional) - caller-supplied preprocessors may adjust the source resource '
     + 'before the FML mapping runs. The package supplies none, and preprocessors carry no coverage '
@@ -162,6 +162,13 @@ function buildDocument() {
   out.push(
     '- **FML mapping** - the FHIR Mapping Language (FML) mapping file is executed, handling most '
     + '(sometimes all) data elements.',
+  );
+  out.push(
+    '- **Contained resources** (when present) - each resource in the converted resource\'s '
+    + '`contained[]` array runs these same steps as its own resource-hop, so one conversion can '
+    + 'include several resource-hops. See '
+    + '[Contained resources](README.md#contained-resources) in `README.md`. Bundle `entry.resource` '
+    + 'values are not yet converted; recursive Bundle conversion is planned for a future release.',
   );
   out.push(
     '- **Postprocessing** (optional) - where the FML mapping falls short, one or more '

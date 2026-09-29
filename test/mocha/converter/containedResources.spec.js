@@ -6,6 +6,7 @@ import { COVERAGE } from '../../../src/converter/coverage.js';
 import { MESSAGE_TYPE, STATUS } from '../../../src/converter/diagnostics.js';
 import { chainedConverter } from '../../../src/converter/chainedConverter.js';
 import { singleHopConverter } from '../../../src/converter/singleHopConverter.js';
+import { getAdjacentPairs } from '../../../src/fml_base_conv/version_graph.js';
 
 /**
  * Build a Questionnaire with one child of every onboarded R3+ resource type.
@@ -52,6 +53,68 @@ function makeMixedQuestionnaire() {
       },
     }],
   };
+}
+
+/**
+ * Build a Binary fixture valid in `version`.
+ *
+ * DSTU2 and STU3 carry the payload in `content`; R4 and later use `data`.
+ *
+ * @param {string} version Source FHIR version token.
+ * @returns {Object} Minimal Binary fixture.
+ */
+function makeBinary(version) {
+  const payload = version === 'R2' || version === 'R3'
+    ? { content: 'eA==' }
+    : { data: 'eA==' };
+
+  return {
+    resourceType: 'Binary',
+    id: 'child-binary',
+    contentType: 'text/plain',
+    ...payload,
+  };
+}
+
+/**
+ * Wrap a child resource in a minimal Questionnaire parent.
+ *
+ * `draft` is a valid Questionnaire status in every supported version.
+ *
+ * @param {Object} child Contained resource.
+ * @returns {Object} Parent fixture carrying the child.
+ */
+function makeParentWith(child) {
+  return {
+    resourceType: 'Questionnaire',
+    id: 'parent',
+    status: 'draft',
+    contained: [structuredClone(child)],
+  };
+}
+
+/**
+ * Compare a contained-child report with a standalone conversion result.
+ *
+ * @param {Object} childReport Flat contained-child report.
+ * @param {Object} standalone Conversion result for the same resource alone.
+ * @param {string} label Direction label used in assertion messages.
+ * @returns {void}
+ */
+function assertChildMatchesStandalone(childReport, standalone, label) {
+  assert.deepEqual(childReport.resource, standalone.resource, `${label} resource`);
+  assert.equal(childReport.coverage, standalone.coverage, `${label} coverage`);
+  assert.equal(childReport.status, standalone.status, `${label} status`);
+  assert.deepEqual(
+    childReport.fml_base_conv,
+    standalone.fml_base_conv,
+    `${label} FML report`,
+  );
+  assert.deepEqual(
+    childReport.postprocessors,
+    standalone.postprocessors,
+    `${label} postprocessor reports`,
+  );
 }
 
 describe('converter contained resources', function () {
@@ -272,6 +335,52 @@ describe('converter contained resources', function () {
       assert.equal(result.hops[1].contained.length, 4);
       assert.equal(result.hops[1].contained[0].resource.id, 'child-valueset');
       assert.equal(result.resource.contained.length, 4);
+    });
+  });
+
+  describe('parity with standalone conversion', function () {
+    // Drive the table from the version graph so a newly supported direction is
+    // covered here automatically.
+    for (const [fromVer, toVer] of getAdjacentPairs()) {
+      const label = `${fromVer}->${toVer}`;
+
+      it(`converts a contained child exactly as a standalone resource (${label})`, function () {
+        const child = makeBinary(fromVer);
+        const standalone = singleHopConverter.convert(
+          structuredClone(child),
+          fromVer,
+          toVer,
+        );
+        const result = singleHopConverter.convert(makeParentWith(child), fromVer, toVer);
+
+        assert.equal(result.contained.length, 1, `${label} child report count`);
+        assertChildMatchesStandalone(result.contained[0], standalone, label);
+        assert.deepEqual(
+          result.resource.contained[0],
+          standalone.resource,
+          `${label} child written back into contained[]`,
+        );
+      });
+    }
+
+    it('converts a contained child across a chain that renames its resource type', function () {
+      const child = { resourceType: 'Sequence', id: 'child-sequence', coordinateSystem: 0 };
+      const standalone = chainedConverter.convert(structuredClone(child), 'R3', 'R5');
+      const result = chainedConverter.convert(makeParentWith(child), 'R3', 'R5');
+
+      assert.equal(standalone.resource.resourceType, 'MolecularSequence');
+      assert.equal(result.hops.length, 2);
+      assert.equal(result.hops[0].contained[0].resource.resourceType, 'MolecularSequence');
+      assert.deepEqual(result.resource.contained[0], standalone.resource);
+      assert.deepEqual(
+        result.hops.map(hop => hop.contained[0].fml_base_conv),
+        standalone.hops.map(hop => hop.fml_base_conv),
+      );
+      // The child is not_reviewed, so it lowers the parent's effective coverage.
+      assert.equal(standalone.coverage, COVERAGE.NOT_REVIEWED);
+      assert.equal(result.coverage, COVERAGE.NOT_REVIEWED);
+      assert.equal(result.hops[0].contained[0].coverage, COVERAGE.NOT_REVIEWED);
+      assert.equal(result.hops[1].contained[0].coverage, COVERAGE.NOT_REVIEWED);
     });
   });
 
