@@ -336,6 +336,35 @@ describe('converter contained resources', function () {
       assert.equal(result.hops[1].contained[0].resource.id, 'child-valueset');
       assert.equal(result.resource.contained.length, 4);
     });
+
+    it('keys a later child hop by the contained resource\'s renamed type', function () {
+      let receivedType;
+      const stamp = {
+        name: 'stamp-renamed-child',
+        execute(resource) {
+          receivedType = resource.resourceType;
+          return { resource: { ...resource, language: 'de' }, status: STATUS.OK };
+        },
+      };
+      const child = { resourceType: 'Sequence', id: 'child-sequence', coordinateSystem: 0 };
+      const result = chainedConverter.convert(makeParentWith(child), 'R3', 'R5', {
+        postprocs: { 'MolecularSequence:R4->R5': [stamp] },
+      });
+      const firstChildHop = result.hops[0].contained[0];
+      const secondChildHop = result.hops[1].contained[0];
+
+      assert.equal(receivedType, 'MolecularSequence');
+      assert.equal(
+        (firstChildHop.postprocessors || []).some(report => report.name === stamp.name),
+        false,
+      );
+      assert.equal(
+        secondChildHop.postprocessors.some(report => report.name === stamp.name),
+        true,
+      );
+      assert.equal(result.resource.contained[0].language, 'de');
+      assert.equal(result.resource.language, undefined);
+    });
   });
 
   describe('parity with standalone conversion', function () {
