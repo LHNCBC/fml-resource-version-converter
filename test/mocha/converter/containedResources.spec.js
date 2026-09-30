@@ -365,6 +365,12 @@ describe('converter contained resources', function () {
 
     it('converts a contained child across a chain that renames its resource type', function () {
       const child = { resourceType: 'Sequence', id: 'child-sequence', coordinateSystem: 0 };
+      const firstHop = singleHopConverter.convert(structuredClone(child), 'R3', 'R4');
+      const secondHop = singleHopConverter.convert(
+        structuredClone(firstHop.resource),
+        'R4',
+        'R5',
+      );
       const standalone = chainedConverter.convert(structuredClone(child), 'R3', 'R5');
       const result = chainedConverter.convert(makeParentWith(child), 'R3', 'R5');
 
@@ -372,15 +378,8 @@ describe('converter contained resources', function () {
       assert.equal(result.hops.length, 2);
       assert.equal(result.hops[0].contained[0].resource.resourceType, 'MolecularSequence');
       assert.deepEqual(result.resource.contained[0], standalone.resource);
-      assert.deepEqual(
-        result.hops.map(hop => hop.contained[0].fml_base_conv),
-        standalone.hops.map(hop => hop.fml_base_conv),
-      );
-      // The child is not_reviewed, so it lowers the parent's effective coverage.
-      assert.equal(standalone.coverage, COVERAGE.NOT_REVIEWED);
-      assert.equal(result.coverage, COVERAGE.NOT_REVIEWED);
-      assert.equal(result.hops[0].contained[0].coverage, COVERAGE.NOT_REVIEWED);
-      assert.equal(result.hops[1].contained[0].coverage, COVERAGE.NOT_REVIEWED);
+      assertChildMatchesStandalone(result.hops[0].contained[0], firstHop, 'R3->R4');
+      assertChildMatchesStandalone(result.hops[1].contained[0], secondHop, 'R4->R5');
     });
   });
 
