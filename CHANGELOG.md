@@ -23,9 +23,12 @@ This project follows [Semantic Versioning](http://semver.org/).
   conversion performed, including contained resources. This is a behavioral
   breaking change: a result's coverage can be lower than in previous releases
   when a contained-resource conversion has lower coverage.
-- Keyed preprocessor and postprocessor maps may contain unused resource types
-  and supported direct hops, allowing one map to be reused across dynamic
-  conversions. Malformed and unsupported-hop keys remain errors.
+- Keyed preprocessor and postprocessor maps may include entries that do not
+  apply to the current conversion. Unmatched resource-type keys, including
+  misspellings, are ignored; malformed and unsupported-hop keys remain errors.
+- Function-form `preprocs` and `postprocs` are now evaluated for the primary
+  resource and each contained resource. A lookup that always returns an entry
+  applies it to every converted resource.
 
 ## [0.4.0] - 2026-09-21
 

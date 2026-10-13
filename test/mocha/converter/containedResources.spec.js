@@ -219,6 +219,40 @@ describe('converter contained resources', function () {
       assert.equal(library.postprocessors.some(report => report.name === 'child-post'), true);
     });
 
+    it('runs a function-form postprocessor lookup for parent and contained resources', function () {
+      const calls = [];
+      const post = {
+        name: 'function-post',
+        execute(resource) {
+          return { resource: { ...resource, language: 'de' }, status: STATUS.OK };
+        },
+      };
+
+      const result = singleHopConverter.convert(
+        makeParentWith(makeBinary('R4')),
+        'R4',
+        'R5',
+        {
+          postprocs(type, fromVersion, toVersion) {
+            calls.push([type, fromVersion, toVersion]);
+            return [post];
+          },
+        },
+      );
+
+      assert.deepEqual(calls, [
+        ['Questionnaire', 'R4', 'R5'],
+        ['Binary', 'R4', 'R5'],
+      ]);
+      assert.equal(result.resource.language, 'de');
+      assert.equal(result.resource.contained[0].language, 'de');
+      assert.equal(result.postprocessors.some(report => report.name === 'function-post'), true);
+      assert.equal(
+        result.contained[0].postprocessors.some(report => report.name === 'function-post'),
+        true,
+      );
+    });
+
     it('rolls child coverage and warnings into the invocation result', function () {
       const source = makeMixedQuestionnaire();
       const warn = {

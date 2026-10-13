@@ -370,7 +370,8 @@ runtime execution status. There are two types of coverage aggregations:
 **Runtime status:** What was observed while processing the input. The returned
 status is ok when no warnings were reported and warning when any warning was
 reported. Info messages are reported but do not affect status. A hard failure
-throws.
+throws. Specifically, an error while converting any contained resource aborts
+the entire conversion.
 
 Together, effective coverage and runtime status provide the fullest available
 assessment of a conversion result, subject to the declared coverage claims.
@@ -458,6 +459,20 @@ The same keyed maps are used for the primary resource and contained resources.
 An entry runs for every resource whose entering type and hop match its key. If a
 parent and one of its contained resources have the same type, the entry runs for
 both. The singular `preproc` and `postproc` options remain primary-only.
+
+`preprocs` and `postprocs` may also be lookup functions called as
+`(resourceType, fromVersion, toVersion)`:
+
+```js
+postprocs: (type, fromVersion, toVersion) =>
+  type === 'Library' && fromVersion === 'R4' && toVersion === 'R5'
+    ? [myPostprocessor]
+    : undefined
+```
+
+The converter calls the lookup for the primary resource and each contained
+resource on every hop. Return `undefined` when no entry applies; a lookup that
+always returns an entry applies it to every converted resource.
 
 In a keyed `preprocs` or `postprocs` entry, the resource type is the type
 entering that hop. This also applies when a mapping renames the resource: for
