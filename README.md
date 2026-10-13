@@ -353,11 +353,12 @@ invocations.
 
 **Effective coverage:** The aggregate of the declared coverages of all the
 components actually involved in a particular conversion. For example, a
-conversion requiring multiple hops (R3 -> R4 -> R5), or even for a single hop
-conversion, it may involve multiple components such as FML conversion,
-postprocessor(s), contained resources, etc. However, it still describes
-the "static" coverage of the pipeline and does not take into account the
-runtime execution status. There are two types of coverage aggregations:
+conversion may involve FML conversion, postprocessor(s), contained resources,
+etc., not to mention the multiple hops conversions, e.g., R3 -> R5 via R4.
+
+However, it still describes the "static" coverage of the pipeline and does
+not take into account the runtime execution status. There are two types of
+coverage aggregations:
 - Within one primary resource-hop, effective coverage is the last non-neutral coverage declaration in this
   sequence: the FML declaration, followed by the declarations of the ordered
   postprocessors. By default, a postprocessor may improve the running coverage

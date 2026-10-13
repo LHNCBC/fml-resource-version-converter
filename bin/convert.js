@@ -128,13 +128,36 @@ function normalizeSingleHopResult(result, fromVer, toVer) {
     postprocessors,
     contained,
   } = result;
-  const hop = { fromVer, toVer, fml_base_conv: fmlBaseConv };
+  const hop = { fromVer, toVer };
 
   if (preprocessors) hop.preprocessors = preprocessors;
+  hop.fml_base_conv = fmlBaseConv;
   if (contained?.length > 0) hop.contained = contained;
   if (postprocessors) hop.postprocessors = postprocessors;
 
   return { resource, coverage, status, hops: [hop] };
+}
+
+/**
+ * Append diagnostics from report components with their shared context.
+ *
+ * @param {Array<Object>} messages Destination message list.
+ * @param {Array<Object>} components Processor and FML report components.
+ * @param {Object} context Shared diagnostic context.
+ * @param {string} context.hop Version-hop label.
+ * @param {string} [context.location] Contained-resource location.
+ * @returns {void}
+ */
+function appendComponentMessages(messages, components, context) {
+  for (const component of components) {
+    for (const message of (component.messages || [])) {
+      messages.push({
+        ...message,
+        component: component.name,
+        ...context,
+      });
+    }
+  }
 }
 
 /**
@@ -146,56 +169,28 @@ function normalizeSingleHopResult(result, fromVer, toVer) {
 function collectMessages(result) {
   const messages = [];
 
-  /**
-   * Visit one chained result and its per-hop contained reports.
-   *
-   * @param {Object} current Result to visit.
-   * @returns {void}
-   */
-  function visit(current) {
-    for (const hop of current.hops) {
-      const hopLabel = `${hop.fromVer} -> ${hop.toVer}`;
-      const components = [
-        ...(hop.preprocessors || []),
-        hop.fml_base_conv,
-        ...(hop.postprocessors || []),
+  for (const hop of result.hops) {
+    const hopLabel = `${hop.fromVer} -> ${hop.toVer}`;
+    const components = [
+      ...(hop.preprocessors || []),
+      hop.fml_base_conv,
+      ...(hop.postprocessors || []),
+    ].filter(Boolean);
+    appendComponentMessages(messages, components, { hop: hopLabel });
+
+    for (const [index, child] of (hop.contained || []).entries()) {
+      const type = child.resource?.resourceType || 'Resource';
+      const id = child.resource?.id ? `#${child.resource.id}` : '';
+      const location = `contained[${index}] ${type}${id}`;
+      const childComponents = [
+        ...(child.preprocessors || []),
+        child.fml_base_conv,
+        ...(child.postprocessors || []),
       ].filter(Boolean);
-
-      for (const component of components) {
-        for (const message of (component.messages || [])) {
-          messages.push({
-            ...message,
-            component: component.name,
-            hop: hopLabel,
-          });
-        }
-      }
-
-      for (const [index, child] of (hop.contained || []).entries()) {
-        const type = child.resource?.resourceType || 'Resource';
-        const id = child.resource?.id ? `#${child.resource.id}` : '';
-        const location = `contained[${index}] ${type}${id}`;
-        const childComponents = [
-          ...(child.preprocessors || []),
-          child.fml_base_conv,
-          ...(child.postprocessors || []),
-        ].filter(Boolean);
-
-        for (const component of childComponents) {
-          for (const message of (component.messages || [])) {
-            messages.push({
-              ...message,
-              component: component.name,
-              hop: hopLabel,
-              location,
-            });
-          }
-        }
-      }
+      appendComponentMessages(messages, childComponents, { hop: hopLabel, location });
     }
   }
 
-  visit(result);
   return messages;
 }
 

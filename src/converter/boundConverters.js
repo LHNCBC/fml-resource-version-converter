@@ -327,7 +327,7 @@ export function createRunHop(converterContext) {
     // ---- 5. Contained resources -------------------------------------------
     const containedResults = [];
     if (sourceContained !== undefined) {
-      working.contained = sourceContained.map((child, index) => {
+      const convertedContained = sourceContained.map((child, index) => {
         try {
           const childResult = runResourceHop(
             structuredClone(child),
@@ -344,12 +344,19 @@ export function createRunHop(converterContext) {
           containedResults.push(childResult);
           return childResult.resource;
         } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const detail = message.startsWith('runHop: ')
+            ? message.slice('runHop: '.length)
+            : message;
           throw new Error(
-            `runHop: ${containedLabel(child, index, fromVer, toVer)}: ${error.message}`,
+            `runHop: ${containedLabel(child, index, fromVer, toVer)}: ${detail}`,
             { cause: error },
           );
         }
       });
+
+      if (convertedContained.length > 0) working.contained = convertedContained;
+      else delete working.contained;
     }
     const containedReports = containedResults.map(toFlatContainedReport);
 
@@ -523,8 +530,8 @@ export function createSingleHopConverter(runHop, hasDirection = null) {
     };
     if (hop.fragment.preprocessors) result.preprocessors = hop.fragment.preprocessors;
     result.fml_base_conv = hop.fragment.fml_base_conv;
-    if (hop.fragment.postprocessors) result.postprocessors = hop.fragment.postprocessors;
     if (hop.fragment.contained?.length > 0) result.contained = hop.fragment.contained;
+    if (hop.fragment.postprocessors) result.postprocessors = hop.fragment.postprocessors;
 
     return result;
   }

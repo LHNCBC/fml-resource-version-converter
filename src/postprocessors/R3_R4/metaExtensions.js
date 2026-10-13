@@ -96,7 +96,8 @@ function isValidExtension(extension) {
  */
 function reportNestedMetaSourceLoss(value, path, messages, visited) {
   if (value == null || typeof value !== 'object') return;
-  // Contained and other embedded resources are carried through unconverted.
+  // Contained resources are converted in their own hops; other embedded
+  // resources are not converted here.
   if (path && typeof value.resourceType === 'string') return;
   if (visited.has(value)) return;
   visited.add(value);

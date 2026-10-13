@@ -289,7 +289,7 @@ describe('converter contained resources', function () {
 
       assert.equal('contained' in absent, false);
       assert.equal('contained' in empty, false);
-      assert.deepEqual(empty.resource.contained, []);
+      assert.equal('contained' in empty.resource, false);
     });
   });
 
@@ -489,7 +489,7 @@ describe('converter contained resources', function () {
           status: 'active',
           contained: [{ resourceType: 'NoSuchResource', id: 'missing' }],
         }, 'R4', 'R5'),
-        /contained\[0\] \(NoSuchResource#missing\) R4->R5:.*no direct FML mapping/,
+        /runHop: contained\[0\] \(NoSuchResource#missing\) R4->R5: no direct FML mapping/,
       );
       assert.throws(
         () => singleHopConverter.convert({

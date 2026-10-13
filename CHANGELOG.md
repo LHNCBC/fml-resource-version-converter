@@ -3,7 +3,7 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
-## [0.5.0] - 2026-09-29
+## [0.5.0] - 2026-10-14
 
 ### Added
 
@@ -15,7 +15,9 @@ This project follows [Semantic Versioning](http://semver.org/).
 
 - Contained-resource conversion is a behavioral breaking change for existing
   callers:
-  - contained resources in the result are now converted.
+  - contained resources in the result are now converted;
+  - an input `contained: []` is no longer echoed to the output, since an empty
+    array is not valid FHIR JSON;
   - a warning from any child conversion can change the top-level `status` to
     `warning`; and
   - previously succeeded conversions now throw if a child conversion throws.
