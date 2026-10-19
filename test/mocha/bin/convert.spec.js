@@ -88,6 +88,39 @@ describe('bin/convert.js CLI diagnostics', function () {
     );
   });
 
+  it('orders contained diagnostics before the hop postprocessor diagnostics', function () {
+    const input = JSON.stringify({
+      resourceType: 'Questionnaire',
+      status: 'active',
+      contained: [{
+        resourceType: 'ValueSet',
+        id: 'answer-options',
+        status: 'active',
+      }],
+      item: [{
+        linkId: '1',
+        type: 'string',
+        enableWhen: [{ question: '0', operator: '>', answerInteger: 1 }],
+      }],
+    });
+    const res = runCli(['--verbose', 'R4', 'R3'], input);
+
+    assert.equal(res.status, 0);
+
+    const lines = res.stderr.split('\n');
+    const containedIndex = lines.findIndex(line => line.includes('contained[0] ValueSet'));
+    const parentPostIndex = lines.findIndex(line =>
+      line.includes('Questionnaire_R4_to_R3]') && !line.includes('contained['));
+
+    assert.notEqual(containedIndex, -1, 'expected a contained-resource diagnostic');
+    assert.notEqual(parentPostIndex, -1, 'expected a parent postprocessor diagnostic');
+    // Contained resources are converted before the parent postprocessors run.
+    assert.ok(
+      containedIndex < parentPostIndex,
+      'contained diagnostics must precede parent postprocessor diagnostics',
+    );
+  });
+
   it('selects an ambiguous target with --target-resource-type', function () {
     const input = JSON.stringify({
       resourceType: 'ServiceRequest',

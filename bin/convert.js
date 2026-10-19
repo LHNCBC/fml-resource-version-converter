@@ -163,6 +163,12 @@ function appendComponentMessages(messages, components, context) {
 /**
  * Collect diagnostics from every parent and contained report component.
  *
+ * Messages follow the hop's execution order: the parent's preprocessors and FML
+ * stage, then each contained resource conversion, then the parent's
+ * postprocessors. Parent postprocessors see the already-converted contained
+ * resources, so emitting them last keeps the printed sequence a faithful record
+ * of what ran when.
+ *
  * @param {Object} result Chained conversion result, including contained results.
  * @returns {Array<Object>} Messages annotated with hop and component metadata.
  */
@@ -171,12 +177,11 @@ function collectMessages(result) {
 
   for (const hop of result.hops) {
     const hopLabel = `${hop.fromVer} -> ${hop.toVer}`;
-    const components = [
+    const beforeContained = [
       ...(hop.preprocessors || []),
       hop.fml_base_conv,
-      ...(hop.postprocessors || []),
     ].filter(Boolean);
-    appendComponentMessages(messages, components, { hop: hopLabel });
+    appendComponentMessages(messages, beforeContained, { hop: hopLabel });
 
     for (const [index, child] of (hop.contained || []).entries()) {
       const type = child.resource?.resourceType || 'Resource';
@@ -189,6 +194,8 @@ function collectMessages(result) {
       ].filter(Boolean);
       appendComponentMessages(messages, childComponents, { hop: hopLabel, location });
     }
+
+    appendComponentMessages(messages, hop.postprocessors || [], { hop: hopLabel });
   }
 
   return messages;
