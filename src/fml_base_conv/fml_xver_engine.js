@@ -665,9 +665,6 @@ class Scope {
  * @param {Object}   [opts.fhirPathModel]         Source-version FHIRPath model.
  * @param {Function} [opts.onWarning]            (msg: string) => void
  * @param {Function} [opts.onInfo]               (msg: string) => void
- * @param {Function} [opts.onRuleExec]           ({rule, srcVal}) => void
- *                                               Called after every executed
- *                                               rule; useful for audit logs.
  * @returns {{metadata: Object, uses: Object[], groups: string[], convert: Function}}
  * @throws {SyntaxError} If `fmlText` has malformed rule/group syntax.
  * @throws {Error}       If a ConceptMap is missing `url`/`id`.
@@ -686,7 +683,6 @@ export function compileFmlXver({
   fhirPathModel   = null,
   onWarning       = null,
   onInfo          = null,
-  onRuleExec      = null,
 } = {}) {
   const ast        = parseFml(fmlText, onWarning);
   const groups     = ast.groups;
@@ -2310,8 +2306,6 @@ export function compileFmlXver({
       ];
       execScalarRule(rule, scalarPrimary, primaryValue, scalarBindings, scope);
     }
-
-    onRuleExec?.({ rule, srcVal: primary.value });
   }
 
   /**

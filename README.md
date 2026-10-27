@@ -219,6 +219,14 @@ contained-resource orchestration does not renumber or reorder children, or
 rewrite local `#id` references. FML mappings and postprocessors remain
 responsible for their own output.
 
+If any contained resource cannot be converted, the whole conversion throws. For
+example, R5 -> R4 fails for an R5 Questionnaire containing a `Requirements`
+resource, which R4 does not have. One possible workaround is to give the parent
+a preprocessor for that hop to manipulate the resource so that the conversion
+doesn't fail. Take care not to leave dangling references; for example, removing
+a child orphans any `#id` references to it. This workaround may not work in all
+situations.
+
 For chained conversion, each parent hop contains the flat reports for the
 children converted during that hop. Reports are not correlated across hops;
 callers that need a child's history can correlate entries by id. This lets a
@@ -613,6 +621,8 @@ const output = engine.convert({ input }).resource;
   - `onInfo(message)`: receives informational diagnostic text.
   - `targetResourceType`: selects the target resource type when the source
     mapping is ambiguous.
+  - `strict` (default `false`): throw, instead of warn, when a code cannot be
+    translated.
 - `engine.convert({ input })` returns `{ resource }`; `output` above is that
   converted FHIR resource (for example, `{ resourceType: 'Patient', ... }`),
   not a conversion report.

@@ -31,6 +31,8 @@ This project follows [Semantic Versioning](http://semver.org/).
 - Function-form `preprocs` and `postprocs` are now evaluated for the primary
   resource and each contained resource. A lookup that always returns an entry
   applies it to every converted resource.
+- Removed the unused, undocumented `onRuleExec` option of the FML engine's
+  `createEngine()`; it is now ignored if passed.
 
 ## [0.4.0] - 2026-09-21
 

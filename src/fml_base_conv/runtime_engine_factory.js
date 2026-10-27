@@ -26,7 +26,6 @@ const TABLE_VERSION = Object.freeze({
  * @property {string} [targetResourceType] Target for an ambiguous mapping.
  * @property {Function} [onWarning] Warning callback.
  * @property {Function} [onInfo] Informational callback.
- * @property {Function} [onRuleExec] Per-rule tracing callback.
  */
 
 /**
@@ -246,7 +245,6 @@ export function createRuntimeFmlEngineFactory(selection) {
         fhirPathModel,
         onWarning: options.onWarning,
         onInfo: options.onInfo,
-        onRuleExec: options.onRuleExec,
       });
 
       return Object.freeze({ convert: engine.convert });
