@@ -16,9 +16,10 @@
  *     processors:     Array<Object>, // postprocessor descriptors, possibly empty
  *   }
  *
- * The final cumulative coverage for a conversion (FML stage rolled up with the
- * postprocessors) is not stored on the entry - it is derived. It is generated
- * into COVERAGE.md from fml.coverage and each processor's coverage.
+ * The final declared coverage of the package's default resource-hop pipeline
+ * is not stored on the entry - it is derived from fml.coverage and each
+ * processor's coverage and generated into COVERAGE.md. Effective coverage for
+ * an invocation is derived separately from every resource-hop performed.
  *
  * Loading strategy: the sub-registries are imported statically (one file per
  * direction, always present as at least an empty placeholder). This keeps the
@@ -60,14 +61,14 @@ import { registry as R5_TO_R4B } from './R4B_R5/registry_R5_to_R4B.js';
  * @type {Object<string, Object>}
  */
 const DIRECTION_REGISTRIES = {
-  'R2->R3':  R2_TO_R3,
-  'R3->R2':  R3_TO_R2,
-  'R3->R4':  R3_TO_R4,
-  'R4->R3':  R4_TO_R3,
   'R4->R5':  R4_TO_R5,
   'R5->R4':  R5_TO_R4,
   'R4B->R5': R4B_TO_R5,
   'R5->R4B': R5_TO_R4B,
+  'R3->R4':  R3_TO_R4,
+  'R4->R3':  R4_TO_R3,
+  'R2->R3':  R2_TO_R3,
+  'R3->R2':  R3_TO_R2,
 };
 
 /**
@@ -281,4 +282,3 @@ export function getConsolidatedRegistry() {
   }
   return snapshot;
 }
-

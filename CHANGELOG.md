@@ -3,6 +3,37 @@
 This log documents the significant changes for each release.
 This project follows [Semantic Versioning](http://semver.org/).
 
+## [0.5.0] - 2026-10-14
+
+### Added
+
+- Public converters now convert every unambiguously mappable resource in
+  `contained[]` along with its parent. `targetResourceType` still applies only
+  to the primary resource, so an ambiguous child mapping fails.
+
+### Changed
+
+- Contained-resource conversion is a behavioral breaking change for existing
+  callers:
+  - contained resources in the result are now converted;
+  - an input `contained: []` is no longer echoed to the output, since an empty
+    array is not valid FHIR JSON;
+  - a warning from any child conversion can change the top-level `status` to
+    `warning`; and
+  - previously succeeded conversions now throw if a child conversion throws.
+- `result.coverage` now reports effective coverage across every resource-hop
+  conversion performed, including contained resources. This is a behavioral
+  breaking change: a result's coverage can be lower than in previous releases
+  when a contained-resource conversion has lower coverage.
+- Keyed preprocessor and postprocessor maps may include entries that do not
+  apply to the current conversion. Unmatched resource-type keys, including
+  misspellings, are ignored; malformed and unsupported-hop keys remain errors.
+- Function-form `preprocs` and `postprocs` are now evaluated for the primary
+  resource and each contained resource. A lookup that always returns an entry
+  applies it to every converted resource.
+- Removed the unused, undocumented `onRuleExec` option of the FML engine's
+  `createEngine()`; it is now ignored if passed.
+
 ## [0.4.0] - 2026-09-21
 
 ### Added

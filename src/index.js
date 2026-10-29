@@ -21,13 +21,15 @@ export { chainedConverter } from './converter/chainedConverter.js';
 /**
  * Read the registry entry for one adjacent version hop of a resource type.
  *
- * Returns the FML coverage and the package's postprocessor descriptors so a
+ * Returns the FML declared coverage and the package's postprocessor descriptors so a
  * caller can reorder / subset / extend them and feed them back to a converter
  * via postproc/postprocs (e.g. a { policy: 'replace', psps } entry). The entry
  * is a safe copy - a fresh `fml` object, a fresh `processors` array, and a fresh
  * copy of each descriptor - so mutating any of it (including a descriptor's
  * `coverage` or `execute`) never affects the package tables or a later
- * lookup/conversion. Each descriptor includes its `execute` function.
+ * lookup/conversion. Each descriptor includes its `execute` function. The
+ * entry has no overall coverage field because effective coverage depends on
+ * the pipeline actually used by an invocation.
  *
  * Read-only and tolerant: returns null for a tuple with no direct FML mapping
  * (unknown resource type, or invalid / non-adjacent version pair), so callers

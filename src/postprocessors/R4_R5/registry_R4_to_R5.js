@@ -7,11 +7,12 @@
  * @module postprocessors/R4_R5/registry_R4_to_R5
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { assertDeclaredCoverage } from '../../converter/processorDescriptor.js';
 import { conv_R4_to_R5 as convCodeSystem_R4_to_R5 } from './CodeSystem.js';
 import { conv_R4_to_R5 as convLibrary_R4_to_R5 } from './Library.js';
 import { conv_R4_to_R5 as convQuestionnaire_R4_to_R5 } from './Questionnaire.js';
 
-// Final cumulative coverage per conversion is generated into COVERAGE.md,
+// Final declared coverage for each default resource-hop is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
 export const registry = {
   // Binary has the same element set and cardinalities in R4 and R5. The FML
@@ -37,7 +38,7 @@ export const registry = {
         'FML maps shared Questionnaire content but can emit exactly two enableWhen '
         + 'entries without the enableBehavior required by R5 que-12.',
     },
-    processors: [convQuestionnaire_R4_to_R5],
+    processors: [assertDeclaredCoverage(convQuestionnaire_R4_to_R5, COVERAGE.COMPLETE)],
   },
 
   // The R4->R5 FML maps every shared ValueSet element. R5-only additions do
@@ -69,7 +70,7 @@ export const registry = {
         + 'that omit CodeSystem.supplements, which R5 invariant csd-4 rejects; repaired '
         + 'by the CodeSystem_R4_to_R5 postprocessor.',
     },
-    processors: [convCodeSystem_R4_to_R5],
+    processors: [assertDeclaredCoverage(convCodeSystem_R4_to_R5, COVERAGE.COMPLETE)],
   },
 
   // Reviewed against Library plus the Attachment, DataRequirement, and
@@ -91,6 +92,6 @@ export const registry = {
         + 'ParameterDefinition.type and DataRequirement.type FHIR type codes unchanged, and '
         + 'does not report R4 identity values that trip R5 warning invariants cnl-0 or cnl-1.',
     },
-    processors: [convLibrary_R4_to_R5],
+    processors: [assertDeclaredCoverage(convLibrary_R4_to_R5, COVERAGE.BEST_EFFORT)],
   },
 };

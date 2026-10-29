@@ -73,6 +73,32 @@ export function validateProcessorDescriptor(
 }
 
 /**
+ * Assert the declared coverage of a postprocessor descriptor.
+ *
+ * Registry authors use this helper to make their coverage expectation visible
+ * next to the registered processor while keeping the descriptor as the source
+ * of truth. The original descriptor is returned unchanged.
+ *
+ * @param {Object} descriptor Postprocessor descriptor to check.
+ * @param {string} expectedCoverage Expected declared coverage.
+ * @returns {Object} The original descriptor.
+ * @throws {Error} If the descriptor is invalid or its declaration differs.
+ */
+export function assertDeclaredCoverage(descriptor, expectedCoverage) {
+  validateProcessorDescriptor(descriptor);
+  assertCoverageLevel(expectedCoverage, 'expectedCoverage');
+
+  if (descriptor.coverage !== expectedCoverage) {
+    throw new Error(
+      `Declared coverage for ${descriptor.name} is ${descriptor.coverage ?? '<missing>'}; `
+      + `registry expects ${expectedCoverage}`,
+    );
+  }
+
+  return descriptor;
+}
+
+/**
  * Make a postprocessor descriptor from an execute function.
  *
  * This is a convenience constructor: given the function that does the work,
@@ -114,6 +140,3 @@ export function makeProcessor(execute, opts = {}) {
   };
   return validateProcessorDescriptor(descriptor);
 }
-
-
-

@@ -7,6 +7,7 @@
  * @module postprocessors/R4B_R5/registry_R4B_to_R5
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { assertDeclaredCoverage } from '../../converter/processorDescriptor.js';
 import { conv_R4B_to_R5 as convCodeSystem_R4B_to_R5 } from './CodeSystem.js';
 import { conv_R4B_to_R5 as convLibrary_R4B_to_R5 } from './Library.js';
 
@@ -62,7 +63,7 @@ export const registry = {
         + 'that omit CodeSystem.supplements, which R5 invariant csd-4 rejects; repaired '
         + 'by the CodeSystem_R4B_to_R5 postprocessor.',
     },
-    processors: [convCodeSystem_R4B_to_R5],
+    processors: [assertDeclaredCoverage(convCodeSystem_R4B_to_R5, COVERAGE.COMPLETE)],
   },
 
   // R4B and R4 have identical Library, Attachment, ParameterDefinition,
@@ -81,6 +82,6 @@ export const registry = {
         + 'ParameterDefinition.type and DataRequirement.type FHIR type codes unchanged, and '
         + 'does not report R4B identity values that trip R5 warning invariants cnl-0 or cnl-1.',
     },
-    processors: [convLibrary_R4B_to_R5],
+    processors: [assertDeclaredCoverage(convLibrary_R4B_to_R5, COVERAGE.BEST_EFFORT)],
   },
 };

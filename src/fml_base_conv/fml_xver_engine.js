@@ -665,9 +665,6 @@ class Scope {
  * @param {Object}   [opts.fhirPathModel]         Source-version FHIRPath model.
  * @param {Function} [opts.onWarning]            (msg: string) => void
  * @param {Function} [opts.onInfo]               (msg: string) => void
- * @param {Function} [opts.onRuleExec]           ({rule, srcVal}) => void
- *                                               Called after every executed
- *                                               rule; useful for audit logs.
  * @returns {{metadata: Object, uses: Object[], groups: string[], convert: Function}}
  * @throws {SyntaxError} If `fmlText` has malformed rule/group syntax.
  * @throws {Error}       If a ConceptMap is missing `url`/`id`.
@@ -686,7 +683,6 @@ export function compileFmlXver({
   fhirPathModel   = null,
   onWarning       = null,
   onInfo          = null,
-  onRuleExec      = null,
 } = {}) {
   const ast        = parseFml(fmlText, onWarning);
   const groups     = ast.groups;
@@ -2310,8 +2306,6 @@ export function compileFmlXver({
       ];
       execScalarRule(rule, scalarPrimary, primaryValue, scalarBindings, scope);
     }
-
-    onRuleExec?.({ rule, srcVal: primary.value });
   }
 
   /**
@@ -3088,8 +3082,9 @@ export function compileFmlXver({
    * Exact source/target pairs may use either `<<types>>` or `<<type+>>`;
    * polymorphic targets select a compatible `<<type+>>` group by source type.
    *
-   * Nested resource instances deliberately remain plain copies until recursive
-   * contained/Bundle conversion is supported by the public conversion pipeline.
+   * Nested resource instances deliberately remain plain copies. The public
+   * integration layer converts contained resources; Bundle recursion remains
+   * outside this pure FML engine.
    *
    * @param {Target} tgt The target clause being written to.
    * @param {Object} primary The primary source binding.

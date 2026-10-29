@@ -2,8 +2,8 @@
  * @fileoverview Processor-option normalization for the conversion entry points.
  *
  * The public converters accept several convenient shapes for supplying pre- and
- * post-processors (see the processor-spec model). This module normalizes all of
- * them, at the API boundary, into ONE canonical internal form: two caller
+ * post-processors (see the processor-spec model). This module normalizes them,
+ * at the API boundary, into canonical primary-resource and contained-resource
  * lookups keyed uniformly by (type, v1, v2). The hop runner and chain loop then
  * only ever deal with a single processor-spec shape.
  *
@@ -29,8 +29,11 @@
  *     generated name (and, for post, neutral coverage).
  *
  * Normalized output:
- *   - preLookup(type, v1, v2)  -> Array<preDescriptor> | undefined
- *   - postLookup(type, v1, v2) -> { policy, processors: Array<postDescriptor> } | undefined
+ *   - preLookup/postLookup for the primary resource.
+ *   - containedPreLookup/containedPostLookup for contained resources.
+ * Singular options appear only in the primary lookups. Plural keyed options
+ * appear in both and may include unused direct hops/resource types so callers
+ * can reuse a full map across dynamic conversions.
  *   `undefined` means "no caller entry" (registry defaults apply); it is distinct
  *   from a PSPE entry with an empty list, where a policy of "replace" would disable
  *   the system/package supplied postprocessors as well (if any).
@@ -46,6 +49,7 @@ import {
   assertPostprocessPolicy,
 } from './postprocessPolicy.js';
 import { COVERAGE } from './coverage.js';
+import { planHops } from '../fml_base_conv/version_graph.js';
 
 /** A caller lookup that never matches (no processors supplied for a side). */
 const NONE = () => undefined;
@@ -174,18 +178,6 @@ function parseLookupKey(key) {
 }
 
 /**
- * Return whether [v1, v2] is one of the planned hops.
- *
- * @param {string} v1 Source version.
- * @param {string} v2 Target version.
- * @param {Array<[string, string]>} hops Planned hops.
- * @returns {boolean} True when the pair is a planned hop.
- */
-function hopInPlan(v1, v2, hops) {
-  return hops.some(([from, to]) => from === v1 && to === v2);
-}
-
-/**
  * Build the canonical internal lookup key for a (type, v1, v2) tuple.
  *
  * The internal key is ALWAYS the full 3-tuple form (single-hop keys are resolved
@@ -237,67 +229,57 @@ export function resolveSingleHopOptionKeys(opts = {}, [v1, v2]) {
 }
 
 /**
+ * Assert that a processor key names one supported direct conversion hop.
+ *
+ * Processor maps are reusable across conversion invocations, so a valid direct
+ * hop does not need to occur in the current request. Non-adjacent and otherwise
+ * unsupported pairs can never be selected by the per-hop runtime and are
+ * rejected as configuration errors.
+ *
+ * @param {string} key Original processor-map key (for diagnostics).
+ * @param {string} v1 Source version from the key.
+ * @param {string} v2 Target version from the key.
+ * @param {string} label Option label (`preprocs` or `postprocs`).
+ * @throws {Error} If the versions do not name one supported direct hop.
+ */
+function assertDirectHopKey(key, v1, v2, label) {
+  let planned;
+  try {
+    planned = planHops(v1, v2);
+  } catch (error) {
+    throw new Error(`${label}: key "${key}" does not name a supported direct hop: ${error.message}`);
+  }
+
+  if (planned.length !== 1 || planned[0][0] !== v1 || planned[0][1] !== v2) {
+    throw new Error(`${label}: key "${key}" must name one supported direct hop`);
+  }
+}
+
+/**
  * Build a keyed lookup from a caller map whose keys are already canonical.
  *
- * Each key is parsed and hop-validated; the entry is normalized and stored under
- * the canonical (type, v1, v2) key. Type-only single-hop keys are canonicalized
- * upstream by the single-hop entry point (see resolveSingleHopOptionKeys), so
- * this deals only with canonical keys.
- *
- * The returned lookup also carries `label` and an `assertTypeForHop(actualType,
- * v1, v2)` method. The entry points call it before each hop runs to reject a
- * keyed entry whose resource type does not enter that hop (typically a
- * resource-type typo). The hop is validated eagerly here; the resource type can
- * only be checked once the actual type reaching each hop is known at runtime.
+ * Each key is parsed and validated as a generally supported direct hop; the
+ * entry is normalized and stored under the canonical (type, v1, v2) key.
+ * Entries for resource types or hops absent from the current invocation remain
+ * unused. This permits one map to be reused across dynamic conversions and
+ * across parents with different contained-resource types.
  *
  * @param {Object} map Canonical caller map (keys: "resType:v1->v2").
  * @param {Object} args
- * @param {Array<[string, string]>} args.hops Planned hops (for key validation).
  * @param {Function} args.normalizeEntry Entry normalizer (normalizePRPE/normalizePSPE).
  * @param {string} args.label Human-readable label for errors.
- * @returns {Function} A `(type, v1, v2) -> normalizedEntry | undefined` lookup,
- *   augmented with `label` and `assertTypeForHop(actualType, v1, v2)`.
- * @throws {Error} If a key is malformed or names a pair that is not a planned hop.
+ * @returns {Function} A `(type, v1, v2) -> normalizedEntry | undefined` lookup.
+ * @throws {Error} If a key is malformed or does not name a supported direct hop.
  */
-function buildLookupFromUserMap(map, { hops, normalizeEntry, label }) {
+function buildLookupFromUserMap(map, { normalizeEntry, label }) {
   const store = new Map();
-  // Parsed key parts, kept for eager per-hop resource-type validation.
-  const parsedKeys = [];
   for (const [key, rawEntry] of Object.entries(map)) {
     const { type, v1, v2 } = parseLookupKey(key);
-    if (!hopInPlan(v1, v2, hops)) {
-      const plan = hops.map(([f, t]) => `${f}->${t}`).join(', ');
-      throw new Error(`${label}: key "${key}" is not a hop in this conversion (hops: ${plan})`);
-    }
+    assertDirectHopKey(key, v1, v2, label);
     store.set(createLookupKey(type, v1, v2), normalizeEntry(rawEntry, `${label}["${key}"]`));
-    parsedKeys.push({ type, v1, v2 });
   }
 
-  const lookup = (type, v1, v2) => store.get(createLookupKey(type, v1, v2));
-
-  lookup.label = label;
-
-  /**
-   * Assert that every keyed entry for the (v1 -> v2) hop names the resource type
-   * actually entering it. Only one resource type enters a hop today, so a key
-   * with a different type on that hop can never match and is almost always a
-   * typo; fail rather than silently skip the caller's processor.
-   *
-   * @param {string} actualType Resource type entering this hop.
-   * @param {string} v1 Source version of the hop.
-   * @param {string} v2 Target version of the hop.
-   * @throws {Error} If any keyed entry for this hop names a different type.
-   */
-  lookup.assertTypeForHop = (actualType, v1, v2) => {
-    const dead = parsedKeys.filter(k => k.v1 === v1 && k.v2 === v2 && k.type !== actualType);
-    if (dead.length === 0) return;
-    const types = dead.map(k => `"${k.type}"`).join(', ');
-    throw new Error(
-      `${label}: no resource of type ${types} enters the ${v1}->${v2} hop `
-      + `(entering type: "${actualType}"). Check the resource type spelling.`,
-    );
-  };
-  return lookup;
+  return (type, v1, v2) => store.get(createLookupKey(type, v1, v2));
 }
 
 /**
@@ -338,10 +320,10 @@ function buildLookupFromUserFn(fn, { normalizeEntry, label }) {
  * @param {Object} ctx
  * @param {Array<[string, string]>} ctx.hops Planned hops (>= 1).
  * @param {string} ctx.primaryType The input resource's type.
- * @returns {{preLookup: Function, postLookup: Function}} Canonical lookups, each
- *   `(type, v1, v2) -> normalizedEntry | undefined`. Map-form lookups also carry
- *   `assertTypeForHop(actualType, v1, v2)`, which the hop runner calls before
- *   each hop to reject a keyed entry whose type does not enter that hop.
+ * @returns {{preLookup: Function, postLookup: Function,
+ *   containedPreLookup: Function, containedPostLookup: Function}} Canonical
+ *   lookups for the primary resource and contained resources. Singular options
+ *   appear only in the primary lookups; plural keyed options are shared by both.
  * @throws {Error} On conflicting/invalid options.
  */
 export function normalizeProcessorOptions(opts = {}, ctx) {
@@ -359,23 +341,37 @@ export function normalizeProcessorOptions(opts = {}, ctx) {
     }
     if (singular != null) {
       const entry = normalize(singular, `${kind}proc`);
-      return (type, v1, v2) => {
+      const primaryLookup = (type, v1, v2) => {
         const typeMatches = kind === 'post' || type === primaryType;
         return typeMatches && v1 === fromVer && v2 === toVer ? entry : undefined;
       };
+      return { primaryLookup, containedLookup: NONE };
     }
     if (typeof plural === 'function') {
-      return buildLookupFromUserFn(plural, { normalizeEntry: normalize, label: `${kind}procs` });
+      const lookup = buildLookupFromUserFn(
+        plural,
+        { normalizeEntry: normalize, label: `${kind}procs` },
+      );
+      return { primaryLookup: lookup, containedLookup: lookup };
     }
     if (isPlainObject(plural)) {
-      return buildLookupFromUserMap(plural, { hops, normalizeEntry: normalize, label: `${kind}procs` });
+      const lookup = buildLookupFromUserMap(
+        plural,
+        { normalizeEntry: normalize, label: `${kind}procs` },
+      );
+      return { primaryLookup: lookup, containedLookup: lookup };
     }
     if (plural != null) throw new Error(`${kind}procs must be a map or a lookup function`);
-    return NONE;
+    return { primaryLookup: NONE, containedLookup: NONE };
   };
 
+  const pre = build('pre', ...hops[0]);
+  const post = build('post', ...hops.at(-1));
+
   return {
-    preLookup:  build('pre',  ...hops[0]),
-    postLookup: build('post', ...hops.at(-1)),
+    preLookup: pre.primaryLookup,
+    postLookup: post.primaryLookup,
+    containedPreLookup: pre.containedLookup,
+    containedPostLookup: post.containedLookup,
   };
 }

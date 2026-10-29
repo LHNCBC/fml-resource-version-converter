@@ -74,10 +74,26 @@ describe('converter/processorOptions', function () {
       );
     });
 
-    it('throws on a key that is not a planned hop', function () {
+    it('allows a supported direct-hop key that is unused by this conversion', function () {
+      const { postLookup } = normalizeProcessorOptions(
+        { postprocs: { 'Questionnaire:R2->R3': [noop] } },
+        MULTI,
+      );
+      assert.equal(postLookup('Questionnaire', 'R3', 'R4'), undefined);
+      assert.deepEqual(
+        postLookup('Questionnaire', 'R2', 'R3').processors.map(processor => processor.name),
+        ['noop'],
+      );
+    });
+
+    it('rejects a key that does not name one supported direct hop', function () {
       assert.throws(
-        () => normalizeProcessorOptions({ postprocs: { 'Questionnaire:R2->R3': [noop] } }, MULTI),
-        /not a hop in this conversion/,
+        () => normalizeProcessorOptions({ postprocs: { 'Questionnaire:R2->R4': [] } }, MULTI),
+        /must name one supported direct hop/,
+      );
+      assert.throws(
+        () => normalizeProcessorOptions({ postprocs: { 'Questionnaire:R4->R4B': [] } }, MULTI),
+        /does not name a supported direct hop/,
       );
     });
 
@@ -113,56 +129,36 @@ describe('converter/processorOptions', function () {
     });
   });
 
-  describe('assertTypeForHop (eager per-hop key validation)', function () {
-    it('does not throw when the hop key type matches the entering type', function () {
-      const { postLookup } = normalizeProcessorOptions(
-        { postprocs: { 'Questionnaire:R4->R5': [noop], 'Observation:R3->R4': [other] } }, MULTI,
+  describe('primary and contained lookup scopes', function () {
+    it('shares keyed maps with contained resources and permits unused types', function () {
+      const { postLookup, containedPostLookup } = normalizeProcessorOptions(
+        { postprocs: { 'Observation:R4->R5': [noop] } },
+        SINGLE,
       );
-      assert.doesNotThrow(() => postLookup.assertTypeForHop('Observation', 'R3', 'R4'));
-      assert.doesNotThrow(() => postLookup.assertTypeForHop('Questionnaire', 'R4', 'R5'));
-    });
-
-    it('throws, naming both types, when a hop key names a different type (typo)', function () {
-      const { postLookup } = normalizeProcessorOptions(
-        { postprocs: { 'Questionaire:R4->R5': [noop] } }, SINGLE,   // note the typo
-      );
-      assert.throws(
-        () => postLookup.assertTypeForHop('Questionnaire', 'R4', 'R5'),
-        /no resource of type "Questionaire" enters the R4->R5 hop.*entering type: "Questionnaire"/,
+      assert.equal(postLookup('Questionnaire', 'R4', 'R5'), undefined);
+      assert.deepEqual(
+        containedPostLookup('Observation', 'R4', 'R5').processors.map(p => p.name),
+        ['noop'],
       );
     });
 
-    it('only validates the hop it is asked about', function () {
-      const { postLookup } = normalizeProcessorOptions(
-        { postprocs: { 'Observation:R3->R4': [noop] } }, MULTI,
+    it('keeps singular boundary processors off contained resources', function () {
+      const {
+        preLookup,
+        postLookup,
+        containedPreLookup,
+        containedPostLookup,
+      } = normalizeProcessorOptions(
+        { preproc: [noop], postproc: [other] },
+        SINGLE,
       );
-      // The Observation key is on R3->R4, so validating R4->R5 is a no-op.
-      assert.doesNotThrow(() => postLookup.assertTypeForHop('Questionnaire', 'R4', 'R5'));
-      // On its own hop the key must match the entering type.
-      assert.throws(
-        () => postLookup.assertTypeForHop('Questionnaire', 'R3', 'R4'),
-        /no resource of type "Observation" enters the R3->R4 hop/,
+      assert.deepEqual(preLookup('Questionnaire', 'R4', 'R5').map(p => p.name), ['noop']);
+      assert.deepEqual(
+        postLookup('Questionnaire', 'R4', 'R5').processors.map(p => p.name),
+        ['other'],
       );
-    });
-
-    it('validates preprocs maps too', function () {
-      const { preLookup } = normalizeProcessorOptions(
-        { preprocs: { 'Observation:R4->R5': [noop] } }, SINGLE,
-      );
-      assert.throws(
-        () => preLookup.assertTypeForHop('Questionnaire', 'R4', 'R5'),
-        /preprocs: no resource of type "Observation" enters the R4->R5 hop/,
-      );
-    });
-
-    it('is absent on function and singular forms (nothing to validate)', function () {
-      const { postLookup: fnLookup } = normalizeProcessorOptions(
-        { postprocs: (type, v1) => (v1 === 'R4' ? [noop] : undefined) }, SINGLE,
-      );
-      assert.equal(typeof fnLookup.assertTypeForHop, 'undefined');
-
-      const { postLookup: singularLookup } = normalizeProcessorOptions({ postproc: [noop] }, SINGLE);
-      assert.equal(typeof singularLookup.assertTypeForHop, 'undefined');
+      assert.equal(containedPreLookup('Questionnaire', 'R4', 'R5'), undefined);
+      assert.equal(containedPostLookup('Questionnaire', 'R4', 'R5'), undefined);
     });
   });
 

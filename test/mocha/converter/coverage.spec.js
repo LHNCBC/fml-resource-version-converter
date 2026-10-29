@@ -9,7 +9,7 @@ import {
   COVERAGE,
   isCoverageLevel,
   isOrderedCoverage,
-  rollupChainCoverage,
+  rollupEffectiveCoverage,
   rollupHopCoverage,
 } from '../../../src/converter/coverage.js';
 
@@ -62,24 +62,24 @@ describe('converter/coverage', function () {
     );
   });
 
-  it('rolls up chain coverage to the weakest ordered hop', function () {
+  it('rolls up effective coverage to the weakest resource-hop', function () {
     assert.equal(
-      rollupChainCoverage([COVERAGE.COMPLETE, COVERAGE.KNOWN_GAPS, COVERAGE.BEST_EFFORT]),
+      rollupEffectiveCoverage([COVERAGE.COMPLETE, COVERAGE.KNOWN_GAPS, COVERAGE.BEST_EFFORT]),
       COVERAGE.KNOWN_GAPS,
     );
     assert.equal(
-      rollupChainCoverage([COVERAGE.COMPLETE, COVERAGE.BEST_EFFORT, COVERAGE.COMPLETE]),
+      rollupEffectiveCoverage([COVERAGE.COMPLETE, COVERAGE.BEST_EFFORT, COVERAGE.COMPLETE]),
       COVERAGE.BEST_EFFORT,
     );
     assert.equal(
-      rollupChainCoverage([COVERAGE.NEUTRAL, COVERAGE.COMPLETE]),
+      rollupEffectiveCoverage([COVERAGE.NEUTRAL, COVERAGE.COMPLETE]),
       COVERAGE.COMPLETE,
     );
   });
 
   it('rejects chain rollup with no ordered coverage', function () {
-    assert.throws(() => rollupChainCoverage([]), /At least one hop coverage/);
-    assert.throws(() => rollupChainCoverage([COVERAGE.NEUTRAL]), /At least one ordered/);
+    assert.throws(() => rollupEffectiveCoverage([]), /At least one hop coverage/);
+    assert.throws(() => rollupEffectiveCoverage([COVERAGE.NEUTRAL]), /At least one ordered/);
   });
 
   it('accepts non-decreasing processor coverage', function () {
@@ -126,6 +126,5 @@ describe('converter/coverage', function () {
     );
   });
 });
-
 
 

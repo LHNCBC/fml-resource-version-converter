@@ -440,9 +440,12 @@ describe('postprocessors/R3_R4 Library', function () {
 
       assert.equal('extension' in result.resource.contributor[0], false);
       assert.deepEqual(result.resource._status, source._status);
-      assert.deepEqual(result.resource.contained, source.contained);
+      // The contained resource is converted by its own child hop, so the filter
+      // must report the parent's reconstructed field only.
       assert.equal(rejected.length, 1);
       assert.ok(rejected[0].text.includes('Library.contributor[0].extension[0]'));
+      assert.equal(result.contained.length, 1);
+      assert.equal(result.contained[0].resource.resourceType, 'CodeSystem');
       assert.deepEqual(source, before);
     });
 
@@ -541,7 +544,7 @@ describe('postprocessors/R3_R4 Library', function () {
       assert.deepEqual(source, before);
     });
 
-    it('leaves contained resources unconverted without reporting their Meta as lost', function () {
+    it('leaves contained Meta loss to the contained resource own hop', function () {
       const source = makeLibrary();
       source.contained = [{
         resourceType: 'CodeSystem', id: 'codes', status: 'active', content: 'complete',
@@ -553,10 +556,16 @@ describe('postprocessors/R3_R4 Library', function () {
       source.relatedArtifact = [{ type: 'depends-on', resource: '#codes' }];
       const before = structuredClone(source);
       const result = singleHopConverter.convert(source, 'R4', 'R3');
+      const childMessages = result.contained[0].postprocessors
+        .flatMap(processor => processor.messages);
 
-      assert.equal(result.status, STATUS.OK);
-      assert.deepEqual(result.resource.contained, source.contained);
+      // The parent postprocessor reports nothing for the child; the child hop
+      // converts it and reports its own Meta.source loss.
       assert.deepEqual(result.postprocessors[0].messages, []);
+      assert.equal(result.contained.length, 1);
+      assert.equal(result.contained[0].status, STATUS.WARNING);
+      assert.equal(childMessages.filter(message =>
+        /valueMeta\.source/.test(message.text)).length, 1);
       assert.deepEqual(source, before);
     });
 

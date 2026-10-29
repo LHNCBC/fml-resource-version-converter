@@ -7,13 +7,14 @@
  * @module postprocessors/R3_R4/registry_R4_to_R3
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { assertDeclaredCoverage } from '../../converter/processorDescriptor.js';
 import { conv_R4_to_R3 as convBinary_R4_to_R3 } from './Binary.js';
 import { conv_R4_to_R3 as convCodeSystem_R4_to_R3 } from './CodeSystem.js';
 import { conv_R4_to_R3 as convLibrary_R4_to_R3 } from './Library.js';
 import { conv_R4_to_R3 } from './Questionnaire.js';
 import { conv_R4_to_R3 as convValueSet_R4_to_R3 } from './ValueSet.js';
 
-// Final cumulative coverage per conversion is generated into COVERAGE.md,
+// Final declared coverage for each default resource-hop is generated into COVERAGE.md,
 // derived from each entry's fml.coverage and its postprocessors' coverage.
 export const registry = {
   // Reviewed against the FHIR spec and bundled mapping. R4 data is optional,
@@ -31,7 +32,7 @@ export const registry = {
         + 'Binary_R4_to_R3 postprocessor. R4 Reference.type on securityContext '
         + 'has no STU3 equivalent, is not retained, and is reported as loss.',
     },
-    processors: [convBinary_R4_to_R3],
+    processors: [assertDeclaredCoverage(convBinary_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
 
   // Reviewed against the FHIR spec and bundled mapping. The FML does not
@@ -54,7 +55,7 @@ export const registry = {
         + 'Reference-valued UsageContext entries are removed because STU3 cannot '
         + 'represent them.',
     },
-    processors: [convCodeSystem_R4_to_R3],
+    processors: [assertDeclaredCoverage(convCodeSystem_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
 
   // Reviewed against Library and the embedded Contributor,
@@ -74,7 +75,7 @@ export const registry = {
         + 'Library_R4_to_R3 postprocessor. Reference-valued UsageContext entries are removed '
         + 'because STU3 cannot represent them.',
     },
-    processors: [convLibrary_R4_to_R3],
+    processors: [assertDeclaredCoverage(convLibrary_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
 
   // FML alone has KNOWN_GAPS for R4->R3: it emits a malformed options string
@@ -98,7 +99,7 @@ export const registry = {
         + 'change conditional-display behavior. Reference-valued UsageContext '
         + 'entries are removed because STU3 cannot represent them.',
     },
-    processors: [conv_R4_to_R3],
+    processors: [assertDeclaredCoverage(conv_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
 
   // Reviewed against the FHIR spec. No R4 ValueSet element was added relative
@@ -124,6 +125,6 @@ export const registry = {
         + 'Reference-valued UsageContext entries are removed because STU3 cannot '
         + 'represent them.',
     },
-    processors: [convValueSet_R4_to_R3],
+    processors: [assertDeclaredCoverage(convValueSet_R4_to_R3, COVERAGE.BEST_EFFORT)],
   },
 };

@@ -7,6 +7,7 @@
  * @module postprocessors/R2_R3/registry_R3_to_R2
  */
 import { COVERAGE } from '../../converter/coverage.js';
+import { assertDeclaredCoverage } from '../../converter/processorDescriptor.js';
 import { conv_R3_to_R2 as convBinary_R3_to_R2 } from './Binary.js';
 
 export const registry = {
@@ -20,6 +21,6 @@ export const registry = {
         'FML maps shared Binary content but silently drops STU3 securityContext, '
         + 'which DSTU2 cannot represent; reported by the Binary_R3_to_R2 postprocessor.',
     },
-    processors: [convBinary_R3_to_R2],
+    processors: [assertDeclaredCoverage(convBinary_R3_to_R2, COVERAGE.BEST_EFFORT)],
   },
 };

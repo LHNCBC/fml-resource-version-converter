@@ -71,7 +71,7 @@ const result = singleHopConverter.convert(questionnaireR4, 'R4', 'R5');
 
 console.log(result.resource);  // the converted R5 Questionnaire
 console.log(result.status);    // 'ok' or 'warning'
-console.log(result.coverage);  // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
+console.log(result.coverage);  // effective coverage for this invocation
 ```
 
 The singleHopConverter shown above is for converting resources between adjacent
@@ -172,9 +172,14 @@ only when the source resource maps to more than one target on the hop (as with
 supplied, it is checked against the target type declared by the FML
 StructureMap, so a mismatched value is rejected rather than silently ignored.
 
-Naming a target type does not always uniquely identify a mapping. For example,
-there are two FML mapping files corresponding to `ProcedureRequest` R3 -> R2
-targeting `DiagnosticOrder`. See [Limitations](#limitations) for further details.
+`targetResourceType` applies only to the primary resource. Target types for
+ambiguous contained-resource mappings cannot currently be selected; such a
+contained conversion throws. A child-specific target selector is planned for a
+future release.
+
+Naming a target type does not always identify a single mapping: `ProcedureRequest`
+R3 -> R2 targeting `DiagnosticOrder` is served by two FML StructureMaps and
+therefore cannot be run. See [Limitations](#limitations).
 
 ## Supported version pairs
 
@@ -200,31 +205,52 @@ between **R4 <-> R4B** (not needed).
 For conversions between **R3 <-> R4B**, use **R4** instead of
 **R4B** when that is acceptable.
 
+## Contained resources
+
+The public converters automatically version-convert each resource in a
+resource's `contained[]` array. On every hop, the parent FML mapping runs first,
+then each contained resource is converted through its own preprocessor, FML,
+and postprocessor stages. The converted children are written back before the
+parent's postprocessors run, so those processors see children in the target
+version.
+
+FHIR prohibits a contained resource from containing other resources. The
+contained-resource orchestration does not renumber or reorder children, or
+rewrite local `#id` references. FML mappings and postprocessors remain
+responsible for their own output.
+
+If any contained resource cannot be converted, the whole conversion throws. For
+example, R5 -> R4 fails for an R5 Questionnaire containing a `Requirements`
+resource, which R4 does not have. One possible workaround is to give the parent
+a preprocessor for that hop to manipulate the resource so that the conversion
+doesn't fail. Take care not to leave dangling references; for example, removing
+a child orphans any `#id` references to it. This workaround may not work in all
+situations.
+
+For chained conversion, each parent hop contains the flat reports for the
+children converted during that hop. Reports are not correlated across hops;
+callers that need a child's history can correlate entries by id. This lets a
+parent postprocessor add, remove, or reorder children without imposing a report
+synchronization rule on the next hop.
+
 ## Limitations
 
-The converter currently focuses on top-level resource conversion. Please keep
+The converter converts a resource and its contained resources. Please keep
 the following in mind:
 
-- **Contained resources are not yet converted.** A resource's `contained[]`
-  entries are carried through as-is and are not converted to the target version.
-  If your resource holds contained resources that must match the target version,
-  convert them separately for now. Automatic conversion of contained resources
-  is planned for a future release.
 - **Bundle entry resources are not yet converted.** The bundle resource itself
   is converted, but each `entry.resource` is carried through as-is. Recursive
   conversion of Bundle entries is planned for a future release.
 - **One-to-many conversion is not yet supported.** A future release will handle
   cases such as R2 -> R3 `CarePlan` -> `CarePlan` + `CareTeam` when needed.
-- **Ambiguous target selection with `targetResourceType` (or the CLI option
-  `--target-resource-type`) is supported only for a single hop.** Support for
-  selecting targets within a multi-hop conversion may be added in a future
-  release.
-- **Reviewed conversions** currently only a limited set of conversions, that is,
-  (resource-type, from-version, to-version) triples, have been reviewed and have
-  postprocessors supplied where needed. For the rest, the conversions
-  are based on the FML mappings only. While most of the data elements (fields)
-  should have been handled by the FML mappings, the exact coverage status is
-  unknown. See [COVERAGE.md](COVERAGE.md) for details.
+- **Ambiguous target selection is limited.** `targetResourceType` (and the CLI
+  option `--target-resource-type`) applies only to the primary resource of a
+  single-hop conversion. It cannot select targets for contained resources, and
+  chained conversion does not support target selection. Child-specific target
+  selection may be added in a future release.
+- **Reviewed conversions** currently cover a few resource types and versions.
+  The FML conversions for other resource types and versions have not been
+  reviewed (see [COVERAGE.md](COVERAGE.md)).
 - **A few FML language features are not yet implemented:** `let` constants and
   inline `conceptmap` declarations. Bundled mappings do not use them; the engine
   emits a warning if it sees one.
@@ -279,14 +305,24 @@ hop:
 ```text
 {
   resource,       // converted resource
-  coverage,       // 'not_reviewed', 'known_gaps', 'best_effort', or 'complete'
+  coverage,       // effective coverage for the entire invocation
   status,         // 'ok' or 'warning'
   hops: [
     {
       fromVer,
       toVer,
       preprocessors,  // omitted when none ran for the hop
-      fml_base_conv,  // report for the FML mapping step
+      fml_base_conv,  // FML report; coverage here is declared coverage
+      contained: [    // omitted when no children were converted in this hop
+        {
+          resource,   // child output before the parent postprocessors
+          coverage,   // effective coverage for this child resource-hop
+          status,
+          preprocessors,
+          fml_base_conv,
+          postprocessors,
+        },
+      ],
       postprocessors, // omitted when none ran for the hop
     },
   ],
@@ -294,19 +330,63 @@ hop:
 ```
 
 `singleHopConverter.convert()` returns the same per-hop report fields flattened
-onto the top-level result, without a `hops` array.
+onto the top-level result, without a `hops` array, so its `contained[]` reports
+also appear at the top level.
 
-The two most important fields are:
+The key fields are:
 
 - **resource**: the converted FHIR resource.
+- **coverage**: the effective coverage of all resource-hop conversions performed.
 - **status**: whether the conversion completed without warnings (**ok**) or with
-  warnings (**warning**). Hard failures throw instead of returning a result.
+  warnings (**warning**). Info messages are reported but do not affect status.
+  Hard failures throw instead of returning a result.
+
+### Declared coverage, effective coverage, and runtime status
+
+On the subject of conversion completeness, there are three key concepts:
+declared coverage, effective coverage, and runtime status.
+
+**Declared coverage:** A static, input-independent completeness claim made by
+the reviewer (maintainer/contributor) for an FML mapping or postprocessor.
+It only applies to the primary resource being converted in one resource-hop
+without considering its contained resources or bundle entry resources. It
+describes general conversion capabilities and not the outcome of particular
+invocations.
+
+- For contributors: when adding a postprocessor to the registry, use
+  `assertDeclaredCoverage()`. It verifies the descriptor's declared coverage,
+  returns the descriptor unchanged, and throws if the declaration does not
+  match the registry's expectation. This makes the coverage visible in the
+  registry and protects against unintended descriptor changes.
+
+**Effective coverage:** The aggregate of the declared coverages of all the
+components actually involved in a particular conversion. For example, a
+conversion may involve FML conversion, postprocessor(s), contained resources,
+etc., not to mention the multiple hops conversions, e.g., R3 -> R5 via R4.
+
+However, it still describes the "static" coverage of the pipeline and does
+not take into account the runtime execution status. There are two types of
+coverage aggregations:
+- Within one primary resource-hop, effective coverage is the last non-neutral coverage declaration in this
+  sequence: the FML declaration, followed by the declarations of the ordered
+  postprocessors. By default, a postprocessor may improve the running coverage
+  but may not lower it.
+- Across separate resource-hop conversions, effective
+  coverage is the lowest resource-hop coverage. The aggregation includes every
+  resource-hop conversion performed: each primary or child resource converted
+  at each version hop, such as R3 -> R4 and R4 -> R5.
+
+**Runtime status:** What was observed while processing the input. The returned
+status is ok when no warnings were reported and warning when any warning was
+reported. Info messages are reported but do not affect status. A hard failure
+throws. Specifically, an error while converting any contained resource aborts
+the entire conversion.
+
+Together, effective coverage and runtime status provide the fullest available
+assessment of a conversion result, subject to the declared coverage claims.
 
 Runtime engine warnings are non-exhaustive.
 See [Scope and limitations of runtime engine warnings](CONTRIBUTING.md#scope-and-limitations-of-runtime-engine-warnings).
-
-Coverage is separate from runtime status. It describes the capability and
-completeness of the FML mapping and any related postprocessors.
 
 ### Coverage levels
 
@@ -325,16 +405,15 @@ completeness of the FML mapping and any related postprocessors.
   processors that add metadata, tags, logging, or other changes that do not
   affect conversion completeness.
 
-The top-level `result.coverage` is normally one of the ordered levels:
+The top-level `result.coverage` is effective coverage and is normally one of
+the ordered levels:
 **not_reviewed**, **known_gaps**, **best_effort**, or **complete**.
 The **neutral** level is mostly seen on individual processor reports,
 especially for caller-provided processors.
 
-Specifically, inter-version extension is not a factor in determining the coverage
-level. A data element preserved solely via an inter-version extension is still
-considered "loss" for coverage purposes, because the target version's tools may
-not be able to interpret it.
-
+Inter-version extension (IVE) round-trip preservation is not part of declared
+coverage. A data element preserved solely through an IVE is still considered
+lost for coverage purposes because target-version tools may not interpret it.
 
 See [COVERAGE.md](COVERAGE.md) for the current coverage level report.
 
@@ -353,9 +432,9 @@ const result = chainedConverter.convert(resource, 'R3', 'R5', {
 });
 ```
 
-`preproc` is applied to the first hop for the primary resource - the very first
-processor to run. `postproc` is applied to the last hop for the primary resource
-- the very last processor to run. The postprocessor `policy` controls
+`preproc` is applied to the first hop for the primary resource - the very
+first processor to run. `postproc` is applied to the last hop for the primary
+resource - the very last processor to run. The postprocessor `policy` controls
 how your postprocessors combine with the package's registered postprocessors
 for that hop:
 
@@ -368,7 +447,9 @@ for that hop:
 
 ### Passing in preprocessors and/or postprocessors for specific hops
 
-To pass in processors for specific hops, use keyed `preprocs` or `postprocs`:
+To pass in processors for specific hops, use keyed `preprocs` or `postprocs`. In
+the example below, the key `'Questionnaire:R4->R5'` identifies the hop from R4
+to R5 for the `Questionnaire` resource type.
 
 ```js
 const result = chainedConverter.convert(resource, 'R3', 'R5', {
@@ -377,6 +458,30 @@ const result = chainedConverter.convert(resource, 'R3', 'R5', {
   },
 });
 ```
+
+Keyed maps are reusable configuration. They may contain entries for any
+supported direct hop and resource type; entries unused by the current request
+or absent from its `contained[]` resources are ignored. Malformed keys and keys
+that do not identify a supported direct hop are still rejected.
+
+The same keyed maps are used for the primary resource and contained resources.
+An entry runs for every resource whose entering type and hop match its key. If a
+parent and one of its contained resources have the same type, the entry runs for
+both. The singular `preproc` and `postproc` options remain primary-only.
+
+`preprocs` and `postprocs` may also be lookup functions called as
+`(resourceType, fromVersion, toVersion)`:
+
+```js
+postprocs: (type, fromVersion, toVersion) =>
+  type === 'Library' && fromVersion === 'R4' && toVersion === 'R5'
+    ? [myPostprocessor]
+    : undefined
+```
+
+The converter calls the lookup for the primary resource and each contained
+resource on every hop. Return `undefined` when no entry applies; a lookup that
+always returns an entry applies it to every converted resource.
 
 In a keyed `preprocs` or `postprocs` entry, the resource type is the type
 entering that hop. This also applies when a mapping renames the resource: for
@@ -437,8 +542,9 @@ You can also read the input resource from stdin:
 cat questionnaire-r4.json | node bin/convert.js R4 R5 > questionnaire-r5.json
 ```
 
-The converted JSON is written to stdout. A short status summary and any per-hop
-warnings are written to stderr. Use `--verbose` to include info messages:
+The converted JSON is written to stdout. A short summary with effective
+coverage and runtime status, plus any parent or contained-resource warnings,
+is written to stderr. Use `--verbose` to include info messages:
 
 ```bash
 node bin/convert.js --verbose R3 R4 questionnaire-r3.json > questionnaire-r4.json
@@ -451,6 +557,10 @@ with `--target-resource-type`:
 node bin/convert.js R4 R3 service-request-r4.json \
   --target-resource-type ProcedureRequest > procedure-request-r3.json
 ```
+
+`--target-resource-type` applies only to the primary resource in an adjacent
+conversion. The CLI cannot currently select a target type for an ambiguous
+contained resource; that conversion fails with a contextual error.
 
 ## Coverage and contributions
 
@@ -476,7 +586,55 @@ import {
 } from '@lhncbc/fml-resource-version-converter/fml-engine';
 ```
 
-`createFmlEngineFactory()` takes no arguments.
+For one direct conversion:
+
+```js
+const input = {
+  resourceType: 'Patient',
+  active: true,
+  name: [{ family: 'Smith', given: ['Jane'] }],
+};
+
+const factory = createFmlEngineFactory();
+
+if (!factory.hasMapping(input.resourceType, 'R4', 'R5')) {
+  throw new Error('No direct mapping is available');
+}
+
+const warnings = [];
+const engine = factory.createEngine(input.resourceType, 'R4', 'R5', {
+  onWarning: message => warnings.push(message),
+});
+
+const output = engine.convert({ input }).resource;
+```
+
+- `createFmlEngineFactory()` takes no arguments and returns a factory for the
+  bundled mappings.
+- `factory.hasMapping(resourceType, fromVer, toVer)` checks whether a direct
+  mapping is available.
+- `factory.resolveMapping(resourceType, fromVer, toVer, options)` returns the
+  selected mapping definition.
+- `factory.createEngine(resourceType, fromVer, toVer, options)` creates an
+  engine for one adjacent hop. Its optional `options` include:
+  - `onWarning(message)`: receives warning diagnostic text.
+  - `onInfo(message)`: receives informational diagnostic text.
+  - `targetResourceType`: selects the target resource type when the source
+    mapping is ambiguous.
+  - `strict` (default `false`): throw, instead of warn, when a code cannot be
+    translated.
+- `engine.convert({ input })` returns `{ resource }`; `output` above is that
+  converted FHIR resource (for example, `{ resourceType: 'Patient', ... }`),
+  not a conversion report.
+
+This API runs FML mappings only: it does not run package postprocessors or
+produce the high-level coverage/status report. For a multi-hop conversion,
+call an engine for each hop from `planHops()`.
+
+The engine also converts only the resource it is given. Nested resource
+instances, including `contained[]` entries, are copied as data and are not
+version-converted. Contained-resource conversion is performed by the public
+converters, not at the engine level.
 
 There is also a lower-level experimental CLI at
 `src/fml_base_conv/convert_cli.js` for engine-level testing.

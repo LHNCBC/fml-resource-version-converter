@@ -5,9 +5,9 @@
  * A minimal, dependency-free harness for trying out chainedConverter.convert
  * from the shell. Reads a FHIR resource from a JSON file (or stdin), converts it
  * across one or more version hops, prints the converted resource to stdout, and
- * prints a short diagnostics summary, aggregated across all conversion stages
- * and hops, to stderr. Bundle entry.resource values are not recursively
- * converted.
+ * prints effective coverage and a diagnostics summary, aggregated across all
+ * conversion stages and resource-hops, to stderr. Bundle entry.resource values
+ * are not recursively converted.
  *
  * Usage:
  *   node bin/convert.js <fromVer> <toVer> [inputFile] [options]
@@ -17,6 +17,8 @@
  *   [inputFile]  Path to the resource JSON. If omitted, reads from stdin.
  *   --verbose                         Print info-level diagnostics.
  *   --target-resource-type <type>     Select an ambiguous target resource type.
+ *                                      Applies only to the primary resource;
+ *                                      contained targets cannot be selected.
  *
  * Examples:
  *   node bin/convert.js R4 R5 ./patient.json
@@ -103,6 +105,7 @@ function printUsage() {
     '  across one or more version hops. Versions: R2|R3|R4|R4B|R5.\n' +
     '  --verbose also prints info-level diagnostics (warnings always shown).\n' +
     '  --target-resource-type <type> selects an ambiguous single-hop target.\n' +
+    '    It applies only to the primary resource; contained targets cannot be selected.\n' +
     '  Note: Bundle entry.resource values are not recursively converted.\n',
   );
 }
@@ -123,41 +126,76 @@ function normalizeSingleHopResult(result, fromVer, toVer) {
     preprocessors,
     fml_base_conv: fmlBaseConv,
     postprocessors,
+    contained,
   } = result;
-  const hop = { fromVer, toVer, fml_base_conv: fmlBaseConv };
+  const hop = { fromVer, toVer };
 
   if (preprocessors) hop.preprocessors = preprocessors;
+  hop.fml_base_conv = fmlBaseConv;
+  if (contained?.length > 0) hop.contained = contained;
   if (postprocessors) hop.postprocessors = postprocessors;
 
   return { resource, coverage, status, hops: [hop] };
 }
 
 /**
- * Collect diagnostics from every report component in a chained result.
+ * Append diagnostics from report components with their shared context.
  *
- * @param {Array<Object>} hops Per-hop conversion reports.
+ * @param {Array<Object>} messages Destination message list.
+ * @param {Array<Object>} components Processor and FML report components.
+ * @param {Object} context Shared diagnostic context.
+ * @param {string} context.hop Version-hop label.
+ * @param {string} [context.location] Contained-resource location.
+ * @returns {void}
+ */
+function appendComponentMessages(messages, components, context) {
+  for (const component of components) {
+    for (const message of (component.messages || [])) {
+      messages.push({
+        ...message,
+        component: component.name,
+        ...context,
+      });
+    }
+  }
+}
+
+/**
+ * Collect diagnostics from every parent and contained report component.
+ *
+ * Messages follow the hop's execution order: the parent's preprocessors and FML
+ * stage, then each contained resource conversion, then the parent's
+ * postprocessors. Parent postprocessors see the already-converted contained
+ * resources, so emitting them last keeps the printed sequence a faithful record
+ * of what ran when.
+ *
+ * @param {Object} result Chained conversion result, including contained results.
  * @returns {Array<Object>} Messages annotated with hop and component metadata.
  */
-function collectMessages(hops) {
+function collectMessages(result) {
   const messages = [];
 
-  for (const hop of hops) {
+  for (const hop of result.hops) {
     const hopLabel = `${hop.fromVer} -> ${hop.toVer}`;
-    const components = [
+    const beforeContained = [
       ...(hop.preprocessors || []),
       hop.fml_base_conv,
-      ...(hop.postprocessors || []),
     ].filter(Boolean);
+    appendComponentMessages(messages, beforeContained, { hop: hopLabel });
 
-    for (const component of components) {
-      for (const message of (component.messages || [])) {
-        messages.push({
-          ...message,
-          component: component.name,
-          hop: hopLabel,
-        });
-      }
+    for (const [index, child] of (hop.contained || []).entries()) {
+      const type = child.resource?.resourceType || 'Resource';
+      const id = child.resource?.id ? `#${child.resource.id}` : '';
+      const location = `contained[${index}] ${type}${id}`;
+      const childComponents = [
+        ...(child.preprocessors || []),
+        child.fml_base_conv,
+        ...(child.postprocessors || []),
+      ].filter(Boolean);
+      appendComponentMessages(messages, childComponents, { hop: hopLabel, location });
     }
+
+    appendComponentMessages(messages, hop.postprocessors || [], { hop: hopLabel });
   }
 
   return messages;
@@ -226,7 +264,7 @@ async function main() {
   process.stdout.write(`${JSON.stringify(result.resource, null, 2)}\n`);
 
   // Diagnostics summary goes to stderr so it never pollutes the JSON output.
-  const messages = collectMessages(result.hops);
+  const messages = collectMessages(result);
   const warnings = messages.filter(m => m.type === 'warning');
   const infos = messages.filter(m => m.type === 'info');
   process.stderr.write(
@@ -236,7 +274,8 @@ async function main() {
   // Always show warnings; show info only when --verbose is given.
   const shown = verbose ? messages : warnings;
   for (const m of shown) {
-    process.stderr.write(`  - [${m.hop} ${m.component}] ${m.type}: ${m.text}\n`);
+    const location = m.location ? ` ${m.location}` : '';
+    process.stderr.write(`  - [${m.hop}${location} ${m.component}] ${m.type}: ${m.text}\n`);
   }
   if (!verbose && infos.length > 0) {
     process.stderr.write(`  (${infos.length} info messages hidden; pass --verbose to show)\n`);

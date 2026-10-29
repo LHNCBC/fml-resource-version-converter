@@ -56,11 +56,20 @@ A single-hop conversion (between adjacent versions) runs in this order:
 2. Deep-clone the caller's input resource.
 3. Run caller preprocessors, if any.
 4. Run the FML mapping.
-5. Run package and/or caller-provided postprocessors.
-6. Return the result object that includes converted resource plus coverage,
-   status, and diagnostics.
+5. Convert each `contained[]` resource through the same hop pipeline and write
+   the converted children back to the target.
+6. Run package and/or caller postprocessors. Parent postprocessors therefore
+   see contained resources in the target version.
+7. Return the converted resource plus coverage, status, and diagnostics.
 
-The FML engine under `src/fml_base_conv/` should faithfully execute the
+Conversions are defined only between adjacent versions and per direction (for
+example, R3->R4 and R4->R3 are separate). A non-adjacent conversion such as
+R3->R5 runs as a chain of single hops (R3->R4->R5). Effective coverage is the
+lowest coverage across every resource-hop conversion performed, including
+contained resources. Each FML mapping and postprocessor is still reviewed and
+labeled independently.
+
+The FML engine code under `src/fml_base_conv/` should faithfully execute the
 FML mappings. When an FML mapping is found to be incomplete or erroneous, either:
 - add a postprocessor to correct the output, rather than making ad hoc fixes
   to the engine for a specific mapping, or
@@ -81,12 +90,12 @@ FML mappings. When an FML mapping is found to be incomplete or erroneous, either
   through comprehensive human review, which may consider conversion results
   and runtime warnings as evidence.
 
-## Coverage levels
+## Coverage
 
-Coverage describes the level of completeness of conversions. It is separate
-from runtime status. The coverage levels are **not_reviewed**, **known_gaps**,
-**best_effort**, **complete**, and **neutral**. See [Coverage levels](README.md#coverage-levels)
-in `README.md` for their definitions.
+For the definitions and relationship of declared coverage, effective coverage,
+and runtime status, see
+[Declared coverage, effective coverage, and runtime status](README.md#declared-coverage-effective-coverage-and-runtime-status)
+and [Coverage levels](README.md#coverage-levels) for the complete definitions.
 
 The postprocessor registry files, e.g. `src/postprocessors/R4_R5/registry_R4_to_R5.js`,
 are the source of truth - these files are manually maintained. An entry is added
@@ -350,6 +359,7 @@ Then, in `registry_R4_to_R5.js`, add a registry entry for ResourceTypeX:
 
 ```js
 import { COVERAGE } from '../../converter/coverage.js';
+import { assertDeclaredCoverage } from '../../converter/processorDescriptor.js';
 import { conv_R4_to_R5 } from './ResourceTypeX.js';
 
 const registry = {
@@ -361,7 +371,7 @@ registry.ResourceTypeX = {
     coverage: COVERAGE.KNOWN_GAPS,
     description: 'FML mapping has issues converting someFieldFoo.',
   },
-  processors: [conv_R4_to_R5],
+  processors: [assertDeclaredCoverage(conv_R4_to_R5, COVERAGE.COMPLETE)],
 };
 
 export { registry };
@@ -375,8 +385,9 @@ which are objects with the following properties:
 - `execute`: required, postprocessor function. It receives the
   FML-converted target resource and a conversion context, and returns
   `{ resource, status, messages }`.
-- `coverage`: optional, coverage level after this postprocessor runs. Omit it or
-  use `COVERAGE.NEUTRAL` when the processor does not change the coverage claim.
+- `coverage`: optional, declared coverage after this postprocessor runs. Omit it
+  or use `COVERAGE.NEUTRAL` when the processor does not change the running
+  coverage claim.
 - `description`: optional, human-readable explanation of what the processor does
   and any important limitations.
 
@@ -401,10 +412,21 @@ The postprocessor conversion context includes:
 - `fromVer`: source version token.
 - `toVer`: target version token.
 
+For a parent resource, postprocessors run after contained conversion. The
+target therefore holds target-version children, while `sourceResource` retains
+the source-version children. Caller keyed processor maps may include entries
+for resource types or supported direct hops unused by a particular invocation;
+those entries are ignored so the same map can be reused dynamically.
+For chained conversion, contained reports live inside the parent hop that ran
+them. They are not correlated across hops, so parent postprocessors may
+restructure the contained array before the next hop.
+
 ## Updating the registry
 
 Register reviewed resource coverage in the direction-specific registry file.
-For example:
+Use the internal `assertDeclaredCoverage()` helper when registering a
+postprocessor. It returns the descriptor unchanged and throws if its declared
+coverage differs from the registry's explicit expectation. For example:
 
 ```text
 src/postprocessors/R4_R5/registry_R5_to_R4.js
@@ -424,7 +446,7 @@ export const registry = {
 };
 ```
 
-If FML has known gaps and a postprocessor completes the conversion:
+If FML has known gaps and a postprocessor improves the conversion to best effort:
 
 ```js
 export const registry = {
@@ -433,7 +455,7 @@ export const registry = {
       coverage: COVERAGE.KNOWN_GAPS,
       description: 'FML leaves item.type incomplete',
     },
-    processors: [conv_R5_to_R4],
+    processors: [assertDeclaredCoverage(conv_R5_to_R4, COVERAGE.BEST_EFFORT)],
   },
 };
 ```
@@ -459,7 +481,7 @@ Useful test locations include:
 - `test/mocha/postprocessors/` for resource-specific postprocessors and registry
   coverage.
 - `test/mocha/converter/` for pipeline, coverage, diagnostics, and descriptor
-  behavior.
+  behavior, including contained-resource orchestration.
 - `test/mocha/fml_base_conv/` for FML parser and engine behavior.
 - `test/data/` for representative FHIR input resources.
 

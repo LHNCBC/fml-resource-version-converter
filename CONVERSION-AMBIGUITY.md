@@ -43,8 +43,9 @@ path that crosses an ambiguous hop, run each hop with `singleHopConverter` and
 select the target on the ambiguous hop. Such support for multi-hop conversions
 may be added in the future.
 
-Contained resources and Bundle entries are not yet converted recursively. Their
-target-selection needs will be addressed when that support is added.
+Contained resources are converted automatically, but `targetResourceType`
+cannot currently select their targets; an ambiguous contained mapping therefore
+fails. Bundle entry resources are not recursively converted at this point.
 
 **Type B is deferred** until there is a demonstrated need. Resolving it would
 require a further selector naming a specific mapping file, which would become
